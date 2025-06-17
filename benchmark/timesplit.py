@@ -702,17 +702,18 @@ def process_single_target(args):
             pass
 
 def get_ligand_data_optimized(pdb_id: str, data_dir: str) -> Tuple[Optional[str], Any]:
-    """Get ligand data with streaming approach to minimize memory usage."""
-    from .generator import StreamingMoleculeLoader
-    
-    # Use streaming loader instead of cache
-    loader = StreamingMoleculeLoader(Path(data_dir))
+    """Get ligand data with fallback approach to minimize memory usage."""
+    # Fallback to direct SDF loading since streaming modules were removed
+    from templ_pipeline.core.utils import find_ligand_by_pdb_id, load_molecules_with_shared_cache
     
     try:
-        ligand_smiles, crystal_mol = loader.load_single_molecule(pdb_id)
-        return ligand_smiles, crystal_mol
-    finally:
-        loader.cleanup()
+        molecule_cache = load_molecules_with_shared_cache(Path(data_dir))
+        if molecule_cache:
+            return find_ligand_by_pdb_id(pdb_id, molecule_cache)
+        else:
+            return None, None
+    except Exception:
+        return None, None
 
 def load_single_molecule_from_sdf(sdf_path: Path, target_pdb_id: str) -> List[Any]:
     """Load only a specific molecule from SDF to minimize memory usage."""
@@ -756,8 +757,8 @@ def evaluate_split(
     quiet: bool = False,
     streaming_output_dir: Optional[str] = None
 ) -> Dict:
-    """Evaluate pipeline on a split with streaming memory optimization."""
-    from .streaming import StreamingResultWriter, create_streaming_config
+    """Evaluate pipeline on a split with memory optimization."""
+    # Streaming modules removed - use simple in-memory results
     
     if max_pdbs:
         pdb_ids = set(list(pdb_ids)[:max_pdbs])
@@ -767,12 +768,8 @@ def evaluate_split(
     
     print(f"\nEvaluating {split_name}: {len(pdb_ids)} targets")
     
-    # Setup streaming result writer
-    if streaming_output_dir:
-        streaming_config = create_streaming_config(streaming_output_dir)
-        result_writer = StreamingResultWriter(streaming_config)
-    else:
-        result_writer = None
+    # No streaming result writer - use simple in-memory storage
+    result_writer = None
     
     # Preload only needed molecules to reduce memory usage
     all_pdb_ids = set(pdb_ids)
@@ -851,11 +848,8 @@ def evaluate_split(
                 try:
                     result_pdb_id, result_data = future.result(timeout=600)
                     
-                    # Stream result to disk or store in memory
-                    if result_writer:
-                        result_writer.write_result(result_pdb_id, result_data)
-                    else:
-                        results[result_pdb_id] = result_data
+                    # Store result in memory
+                    results[result_pdb_id] = result_data
                     
                     if result_data.get("success", False):
                         pbar.set_postfix_str("✓", refresh=False)
@@ -870,10 +864,7 @@ def evaluate_split(
                         "error": f"Future failed: {str(e)}"
                     }
                     
-                    if result_writer:
-                        result_writer.write_result(pdb_id, error_result)
-                    else:
-                        results[pdb_id] = error_result
+                    results[pdb_id] = error_result
                     pbar.set_postfix_str("✗", refresh=False)
                 
                 pbar.update(1)
@@ -890,7 +881,7 @@ def evaluate_split(
                     break
                     
                 # Periodic cleanup with memory pressure detection
-                processed_count = result_writer.processed_count if result_writer else len(results)
+                processed_count = len(results)
                 if processed_count % 5 == 0:  # More frequent cleanup
                     cleanup_memory()
                     # Check if we need to be more aggressive
@@ -909,25 +900,12 @@ def evaluate_split(
         executor.shutdown(wait=True)
         cleanup_memory()
     
-    # Handle results based on streaming vs memory mode
-    if result_writer:
-        result_writer.write_summary()
-        successful = result_writer.successful_count
-        failed = result_writer.failed_count
-        print(f"{split_name} complete: {successful} successful, {failed} failed")
-        
-        # Convert streaming results to dict format for compatibility
-        results = {}
-        for entry in result_writer.load_results():
-            results[entry["pdb_id"]] = entry["result"]
-        
-        return results
-    else:
-        successful = sum(1 for r in results.values() if r.get("success"))
-        failed = len(results) - successful
-        print(f"{split_name} complete: {successful} successful, {failed} failed")
-        
-        return results
+    # Calculate final results
+    successful = sum(1 for r in results.values() if r.get("success"))
+    failed = len(results) - successful
+    print(f"{split_name} complete: {successful} successful, {failed} failed")
+    
+    return results
 
 def calculate_metrics(results: Dict) -> Dict:
     """Calculate summary metrics from results."""
