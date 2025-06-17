@@ -1,0 +1,126 @@
+Metadata-Version: 2.4
+Name: templ-pipeline
+Version: 0.1.0
+Summary: TEMPL (Template-based Protein Ligand) pose prediction pipeline
+Author-email: TEMPL Team <author@example.com>
+License: MIT
+Project-URL: Homepage, https://github.com/username/templ_pipeline
+Project-URL: Bug Reports, https://github.com/username/templ_pipeline/issues
+Project-URL: Source, https://github.com/username/templ_pipeline
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Science/Research
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Topic :: Scientific/Engineering :: Bio-Informatics
+Classifier: Topic :: Scientific/Engineering :: Chemistry
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: numpy>=1.20.0
+Requires-Dist: pandas>=1.3.0
+Requires-Dist: scikit-learn>=1.0.0
+Requires-Dist: streamlit>=1.10.0
+Requires-Dist: rdkit>=2022.03.1
+Requires-Dist: biopython>=1.79
+Requires-Dist: tqdm>=4.62.0
+Requires-Dist: transformers>=4.10.0
+Requires-Dist: torch>=1.10.0
+Requires-Dist: py3Dmol>=1.8.0
+Requires-Dist: biotite>=0.34.0
+Requires-Dist: stmol>=0.0.9
+Requires-Dist: rich>=12.0.0
+Requires-Dist: colorama>=0.4.4
+Requires-Dist: spyrmsd>=0.8.0
+Requires-Dist: pebble>=4.6.0
+Requires-Dist: psutil>=5.8.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0.0; extra == "dev"
+Requires-Dist: pytest-cov>=3.0.0; extra == "dev"
+Requires-Dist: black>=22.3.0; extra == "dev"
+Requires-Dist: isort>=5.10.0; extra == "dev"
+Requires-Dist: flake8>=4.0.0; extra == "dev"
+Requires-Dist: mypy>=0.950; extra == "dev"
+Provides-Extra: examples
+Requires-Dist: matplotlib>=3.5.0; extra == "examples"
+Provides-Extra: scripts
+Requires-Dist: umap-learn>=0.5.0; extra == "scripts"
+
+# TEMPL Pipeline
+
+Template-based protein-ligand pose prediction using similarity search and conformer generation.
+
+## Installation
+
+**Prerequisites:** Python 3.9+, RDKit
+
+```bash
+git clone <repository-url>
+cd templ_pipeline
+pip install -e .
+```
+
+## Quick Start
+
+**CLI:**
+```bash
+templ run --protein-file protein.pdb --ligand-smiles "SMILES_STRING"
+```
+
+**Web Interface:**
+```bash
+streamlit run templ_pipeline/ui/app.py
+```
+
+## CLI Commands
+
+| Command | Purpose |
+|---------|---------|
+| `embed` | Generate protein embeddings |
+| `find-templates` | Find similar protein templates |
+| `generate-poses` | Generate poses using specific templates |
+| `run` | Complete pipeline with template discovery |
+| `benchmark` | Run built-in benchmark suites |
+
+Use `templ --help` or `templ <command> --help` for detailed options.
+
+## Examples
+
+**Generate embedding:**
+```bash
+templ embed --protein-file protein.pdb
+```
+
+**Find templates:**
+```bash
+templ find-templates --query protein.pdb --embedding-file embeddings.npz --num-templates 10
+```
+
+**Generate poses with specific template:**
+```bash
+templ generate-poses --protein-file protein.pdb --ligand-smiles "SMILES" --template-pdb 1a1e
+```
+
+**Full pipeline:**
+```bash
+templ run --protein-file protein.pdb --ligand-smiles "SMILES" --num-templates 100 --num-conformers 200
+```
+
+**Run benchmark:**
+```bash
+templ benchmark polaris --n-workers 8 --n-conformers 200
+```
+
+## Benchmarking
+
+Built-in benchmarks available: `polaris`, `time-split`. Use `--quick` for fast testing.
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+pytest
+```
+
+## License
+
+MIT License
