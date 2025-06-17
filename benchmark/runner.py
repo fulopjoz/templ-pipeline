@@ -16,7 +16,7 @@ import numpy as np
 from templ_pipeline.core.pipeline import TEMPLPipeline
 from templ_pipeline.core.utils import (
     load_molecules_with_shared_cache, find_ligand_by_pdb_id, calculate_rmsd,
-    get_protein_file_paths, find_ligand_file_paths, get_worker_config
+    get_protein_file_paths, find_ligand_file_paths, get_worker_config, get_global_molecule_cache
 )
 
 # Memory monitoring
@@ -155,12 +155,19 @@ class BenchmarkRunner:
         # Use shared cache if available, fallback to optimized loading
         if self._molecule_cache is None:
             try:
-                self._molecule_cache = load_molecules_with_shared_cache(self.data_dir)
-                if not self._molecule_cache:
-                    self.log.error("Failed to load molecule cache")
-                    return None, None
+                # First try to get from global cache in utils
+                global_cache = get_global_molecule_cache()
+                if global_cache and "molecules" in global_cache:
+                    self._molecule_cache = global_cache["molecules"]
+                    self.log.info(f"Using global molecule cache: {len(self._molecule_cache)} molecules")
                 else:
-                    self.log.info(f"Loaded {len(self._molecule_cache)} molecules into cache")
+                    # Fallback to original loading method
+                    self._molecule_cache = load_molecules_with_shared_cache(self.data_dir)
+                    if not self._molecule_cache:
+                        self.log.error("Failed to load molecule cache")
+                        return None, None
+                    else:
+                        self.log.info(f"Loaded {len(self._molecule_cache)} molecules into cache")
             except Exception as e:
                 self.log.error(f"Failed to load molecules: {e}")
                 return None, None
