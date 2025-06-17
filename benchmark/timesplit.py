@@ -333,6 +333,7 @@ def preload_sdf_molecules(data_dir: Path, pdb_ids_needed: Set[str] = None, force
     """
     global SHARED_MOLECULE_CACHE
     
+    # Initialize cache if needed
     if SHARED_MOLECULE_CACHE is None:
         initialize_shared_caches()
     
@@ -344,6 +345,13 @@ def preload_sdf_molecules(data_dir: Path, pdb_ids_needed: Set[str] = None, force
     
     print("Loading SDF molecules with filtering and memory limits...")
     
+    # Also initialize global cache in utils module
+    try:
+        from templ_pipeline.core.utils import initialize_global_molecule_cache
+        initialize_global_molecule_cache()
+    except ImportError:
+        pass
+    
     ligand_file_paths = find_ligand_file_paths(data_dir)
     for path in ligand_file_paths:
         if path.exists():
@@ -352,8 +360,19 @@ def preload_sdf_molecules(data_dir: Path, pdb_ids_needed: Set[str] = None, force
                 memory_limit = 2.0 if pdb_ids_needed and len(pdb_ids_needed) < 100 else 3.0
                 molecules = load_sdf_molecules_filtered(path, pdb_ids_needed, memory_limit_gb=memory_limit)
                 if molecules:
+                    # Store in local cache
                     SHARED_MOLECULE_CACHE[cache_key] = molecules
+                    
+                    # Also store in global cache for utils module
+                    try:
+                        from templ_pipeline.core.utils import set_global_molecule_cache
+                        set_global_molecule_cache(molecules)
+                    except ImportError:
+                        pass
+                    
                     print(f"Loaded {len(molecules)} filtered molecules from {path.name} (limit: {memory_limit}GB)")
+                    print(f"Molecules cached in both local and global caches for sharing across processes")
+                    
                     # Force immediate cleanup after loading
                     cleanup_memory()
                     return True

@@ -34,6 +34,28 @@ except ImportError:
 # Configure logging
 logger = logging.getLogger(__name__)
 
+# Global cache manager for shared molecules across processes
+_GLOBAL_MOLECULE_CACHE = None
+
+def initialize_global_molecule_cache():
+    """Initialize global molecule cache that persists across processes."""
+    global _GLOBAL_MOLECULE_CACHE
+    if _GLOBAL_MOLECULE_CACHE is None:
+        _GLOBAL_MOLECULE_CACHE = {}
+    return _GLOBAL_MOLECULE_CACHE
+
+def get_global_molecule_cache():
+    """Get the global molecule cache."""
+    global _GLOBAL_MOLECULE_CACHE
+    return _GLOBAL_MOLECULE_CACHE
+
+def set_global_molecule_cache(molecules: List[Any]):
+    """Set molecules in global cache."""
+    global _GLOBAL_MOLECULE_CACHE
+    if _GLOBAL_MOLECULE_CACHE is None:
+        _GLOBAL_MOLECULE_CACHE = {}
+    _GLOBAL_MOLECULE_CACHE["molecules"] = molecules
+
 def get_pocket_chain_ids_from_file(pocket_file: str) -> List[str]:
     """Extract chain IDs from a pocket PDB file.
     
@@ -564,12 +586,20 @@ def get_worker_config(benchmark_workers: int) -> Dict[str, int]:
 
 def get_shared_molecule_cache() -> Optional[Dict]:
     """Get shared molecule cache if available."""
+    global _GLOBAL_MOLECULE_CACHE
+    # First try our global cache
+    if _GLOBAL_MOLECULE_CACHE is not None:
+        return _GLOBAL_MOLECULE_CACHE
+    
+    # Then try to import from timesplit module
     try:
-        # Try to import shared cache from timesplit module
         from templ_pipeline.benchmark.timesplit import SHARED_MOLECULE_CACHE
-        return SHARED_MOLECULE_CACHE
-    except ImportError:
-        return None
+        if SHARED_MOLECULE_CACHE is not None:
+            return SHARED_MOLECULE_CACHE
+    except (ImportError, AttributeError):
+        pass
+    
+    return None
 
 def load_molecules_with_shared_cache(data_dir: Path, cache_key: str = "molecules") -> List[Any]:
     """Load molecules using shared cache if available, fallback to local cache."""
@@ -589,6 +619,8 @@ def load_molecules_with_shared_cache(data_dir: Path, cache_key: str = "molecules
             try:
                 molecules = load_sdf_molecules_cached(path, memory_limit_gb=6.0)  # Lower memory limit
                 if molecules:
+                    # Store in global cache for reuse
+                    set_global_molecule_cache(molecules)
                     return molecules
             except Exception as e:
                 logger.warning(f"Failed to load ligands from {path}: {e}")

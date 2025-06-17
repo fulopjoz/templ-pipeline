@@ -325,7 +325,8 @@ def setup_parser():
         help="Benchmark suite to execute"
     )
     benchmark_parser.add_argument(
-        "--n-workers",
+        "--n-workers", "--workers",
+        dest="n_workers",
         type=int,
         default=hardware_config.get("n_workers", 4),
         help=f"Number of CPU workers to utilise (auto-detected: {hardware_config.get('n_workers', 4)})"
@@ -379,6 +380,13 @@ def setup_parser():
         type=int,
         default=1800,
         help="Timeout in seconds for each individual PDB processing (time-split only)"
+    )
+    benchmark_parser.add_argument(
+        "--max-ram",
+        dest="max_ram_gb",
+        type=float,
+        default=None,
+        help="Maximum RAM (GiB) before throttling worker submission (time-split only)"
     )
     benchmark_parser.set_defaults(func=benchmark_command)
     
@@ -720,7 +728,7 @@ def benchmark_command(args):
     
     elif args.suite == "time-split":
         try:
-            from templ_pipeline.benchmark.timesplit import run_timesplit_benchmark
+            from templ_pipeline.benchmark.timesplit_stream import run_timesplit_benchmark
             
             # Determine which splits to run
             splits_to_run = []
@@ -754,6 +762,8 @@ def benchmark_command(args):
                 kwargs['template_knn'] = args.template_knn
             if hasattr(args, 'max_pdbs') and args.max_pdbs:
                 kwargs['max_pdbs'] = args.max_pdbs
+            if hasattr(args, 'max_ram_gb') and args.max_ram_gb:
+                kwargs['max_ram_gb'] = args.max_ram_gb
             
             result = run_timesplit_benchmark(**kwargs)
             
