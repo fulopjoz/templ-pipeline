@@ -18,19 +18,27 @@ TEMPL leverages **ligand similarity** and **template superposition** instead of 
 
 ## Installation
 
-### Quick Environment Setup (recommended)
+### One-Click Setup
+After cloning this repository, just run:
+
 ```bash
-bash setup_env_uv.sh    # run from repository root
+git clone https://github.com/fulopjoz/templ-pipeline
+cd templ-pipeline
+bash setup_env_uv.sh    # One command - that's it!
 ```
-This script will:
-* Install `uv` if not already present
-* Create `.venv/` virtual environment 
-* Activate environment and install all dependencies
-* Drop you into a ready-to-use shell
 
-For Windows users or if the script fails, follow manual installation below.
+This single script will:
+1. Install `uv` if not already on your system
+2. Create `.venv/` virtual environment 
+3. Activate environment and install all dependencies
+4. Drop you into a ready-to-use shell with TEMPL available
 
-### Manual installation (advanced)
+**Returning to the project later:**
+```bash
+source .venv/bin/activate   # whenever you return to the project
+```
+
+### Manual installation (if needed)
 
 #### 1. One-click environment with **uv**
 ```bash

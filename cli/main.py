@@ -728,7 +728,7 @@ def benchmark_command(args):
     
     elif args.suite == "time-split":
         try:
-            from templ_pipeline.benchmark.timesplit_stream import run_timesplit_benchmark
+            from templ_pipeline.benchmark.timesplit import run_timesplit_benchmark
             
             # Determine which splits to run
             splits_to_run = []
