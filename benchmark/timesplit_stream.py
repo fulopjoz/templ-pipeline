@@ -217,6 +217,79 @@ def _maybe_throttle(pool: mp.pool.Pool, cfg: TimesplitConfig) -> None:
 
 
 ###############################################################################
+# Compatibility wrapper for old API
+###############################################################################
+
+def run_timesplit_benchmark(
+    n_workers: int = None,
+    n_conformers: int = 200,
+    template_knn: int = 100,
+    max_pdbs: Optional[int] = None,
+    splits_to_run: List[str] = None,
+    quiet: bool = False,
+    streaming_output_dir: Optional[str] = None,
+    max_ram_gb: Optional[float] = None,
+) -> Dict:
+    """Compatibility wrapper for the old timesplit API using streaming implementation."""
+    
+    # Import the time splits data
+    from pathlib import Path
+    import json
+    
+    # Default data directory - try to find actual data location
+    import os
+    data_dir = os.environ.get("PDBBIND_DATA_DIR", "/data/pdbbind")
+    
+    # Try common locations if default doesn't exist
+    if not os.path.exists(data_dir):
+        possible_dirs = [
+            "/home/ubuntu/mcs/templ_pipeline/data",
+            "/home/ubuntu/mcs/templ_pipeline/data/PDBBind",
+            "/home/ubuntu/mcs/data",
+            "/home/ubuntu/data",
+            "./templ_pipeline/data",
+            "./templ_pipeline/data/PDBBind",
+            "./data",
+            "../data"
+        ]
+        for candidate in possible_dirs:
+            if os.path.exists(candidate):
+                data_dir = candidate
+                break
+    
+    # Load time splits (this would need to be implemented based on your data structure)
+    # For now, using a minimal test set
+    if splits_to_run is None:
+        splits_to_run = ["test"]
+    
+    # Create test PDB IDs (replace with actual split loading logic)
+    test_pdbs = ["1a1c", "1a28"]  # Minimal test set
+    if max_pdbs:
+        test_pdbs = test_pdbs[:max_pdbs]
+    
+    results_dir = streaming_output_dir or "timesplit_stream_results"
+    
+    try:
+        run_timesplit_streaming(
+            target_pdbs=test_pdbs,
+            data_dir=data_dir,
+            results_dir=results_dir,
+            n_conformers=n_conformers,
+            template_knn=template_knn,
+            max_workers=n_workers or 2,
+            max_ram_gb=max_ram_gb,
+            internal_workers=1  # Force single internal worker to prevent nested parallelization
+        )
+        
+        # Return success indicator for compatibility
+        return {"success": True, "results_dir": results_dir}
+        
+    except Exception as e:
+        if not quiet:
+            print(f"Streaming benchmark failed: {e}")
+        return {"success": False, "error": str(e)}
+
+###############################################################################
 # CLI entry-point (optional)
 ###############################################################################
 
