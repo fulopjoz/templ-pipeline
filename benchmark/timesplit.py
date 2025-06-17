@@ -1020,6 +1020,33 @@ def run_timesplit_benchmark(
         print("TEMPL Timesplit Benchmark (BenchmarkRunner)")
         print("=" * 60)
     
+    # Initialize shared caches BEFORE any worker processes are created
+    print("Initializing shared molecule cache...")
+    initialize_shared_caches()
+    
+    # Pre-load molecules into shared cache using all available PDB IDs
+    # This is critical for efficiency - without this, each worker loads individually
+    all_splits_for_preload = {}
+    split_names = splits_to_run or ["train", "val", "test"]
+    all_pdb_ids = set()
+    
+    for split_name in split_names:
+        split_file = SPLITS_DIR / f"timesplit_{split_name}"
+        try:
+            pdb_ids = load_split_pdb_ids(split_file, DATA_DIR)
+            all_splits_for_preload[split_name] = pdb_ids
+            all_pdb_ids.update(pdb_ids)
+        except Exception as e:
+            print(f"Warning: Failed to load split {split_name} for preloading: {e}")
+    
+    print(f"Pre-loading molecules for {len(all_pdb_ids)} unique PDB IDs across all splits...")
+    preload_success = preload_sdf_molecules(DATA_DIR, all_pdb_ids, force_reload=False)
+    
+    if preload_success:
+        print("✓ Shared cache populated successfully - workers will reuse loaded molecules")
+    else:
+        print("⚠ Shared cache preload failed - workers will load individually (slower)")
+    
     # Dynamic memory-safe worker configuration supporting up to 20 cores
     if n_workers is None:
         try:
