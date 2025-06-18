@@ -307,6 +307,9 @@ pebble==5.1.1
     # via templ-pipeline (pyproject.toml)
 pexpect==4.9.0
     # via ipython
+
+-e ./templ_pipeline
+
 pillow==11.2.1
     # via
     #   rdkit
