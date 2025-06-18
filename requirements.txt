@@ -308,7 +308,7 @@ pebble==5.1.1
 pexpect==4.9.0
     # via ipython
 
--e ./templ_pipeline
+-e .
 
 pillow==11.2.1
     # via
