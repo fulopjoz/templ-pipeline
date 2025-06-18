@@ -34,7 +34,7 @@ def time_function(func):
 
 # Fix torch.classes compatibility issue with Streamlit
 try:
-    from templ_pipeline.core.torch_fix import fix_torch_streamlit_compatibility
+    from core.torch_fix import fix_torch_streamlit_compatibility
 except ImportError:
     pass
 
@@ -42,7 +42,7 @@ import streamlit as st
 
 # Apply scoring fixes on module load
 try:
-    from templ_pipeline.core.scoring import FixedMolecularProcessor, ScoringFixer
+    from core.scoring import FixedMolecularProcessor, ScoringFixer
     logger.info("Enhanced scoring modules loaded successfully")
 except ImportError:
     logger.warning("Enhanced scoring modules not available")
@@ -82,9 +82,9 @@ def get_core_modules():
     """Lazy load core pipeline modules to improve startup performance"""
     global _core_modules
     if _core_modules is None:
-        from templ_pipeline.core.embedding import EmbeddingManager, get_protein_embedding, _get_gpu_info
-        from templ_pipeline.core.mcs import generate_conformers, prepare_mol
-        from templ_pipeline.core.scoring import select_best
+        from core.embedding import EmbeddingManager, get_protein_embedding, _get_gpu_info
+        from core.mcs import generate_conformers, prepare_mol
+        from core.scoring import select_best
         _core_modules = {
             'EmbeddingManager': EmbeddingManager,
             'get_protein_embedding': get_protein_embedding,
@@ -324,7 +324,7 @@ def extract_pdb_id_from_file(file_path):
 def load_templates_from_sdf(template_pdbs, max_templates=100, exclude_target_smiles=None):
     """Load template molecules from SDF file using standardized approach"""
     # Import the standardized template loading function
-    from templ_pipeline.core.templates import load_template_molecules_standardized
+    from core.templates import load_template_molecules_standardized
     
     try:
         # Use the standardized template loading function
@@ -526,7 +526,7 @@ def create_best_poses_sdf(poses):
     remapped back to the original conformer before writing).
     """
 
-    from templ_pipeline.core.pipeline import TEMPLPipeline
+    from core.pipeline import TEMPLPipeline
     import tempfile, os
     from pathlib import Path
 
@@ -866,7 +866,7 @@ def run_pipeline(smiles, protein_input=None, custom_templates=None, use_aligned_
     
     # Detect available hardware using TEMPL hardware detection
     try:
-        from templ_pipeline.core.hardware_utils import get_suggested_worker_config, get_hardware_info
+        from core.hardware_utils import get_suggested_worker_config, get_hardware_info
         hardware_config = get_suggested_worker_config()
         hardware_info = get_hardware_info()
         max_workers = hardware_config["n_workers"]
@@ -890,7 +890,7 @@ def run_pipeline(smiles, protein_input=None, custom_templates=None, use_aligned_
     pipeline_logger.addHandler(handler)
     
     try:
-        from templ_pipeline.core.pipeline import TEMPLPipeline
+        from core.pipeline import TEMPLPipeline
         
         with progress_placeholder.container():
             st.info("🚀 **Starting TEMPL Pipeline**")
@@ -1035,7 +1035,7 @@ def process_molecule(smiles: str, engine=None) -> Dict[str, Any]:
     
     try:
         if engine is None:
-            from templ_pipeline.core.template_engine import TemplateEngine
+            from core.template_engine import TemplateEngine
             engine = TemplateEngine()
         
         # Run actual TEMPL pipeline
@@ -1053,8 +1053,8 @@ def process_molecule(smiles: str, engine=None) -> Dict[str, Any]:
 def get_pipeline_status() -> Dict[str, Any]:
     """Get current pipeline configuration and status."""
     try:
-        from templ_pipeline.core.embedding import EmbeddingManager
-        from templ_pipeline.core.template_engine import TemplateEngine
+        from core.embedding import EmbeddingManager
+        from core.template_engine import TemplateEngine
         
         return {
             'embedding_manager_available': True,
