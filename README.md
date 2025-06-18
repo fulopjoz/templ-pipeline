@@ -12,7 +12,6 @@ TEMPL leverages **ligand similarity** and **template superposition** instead of 
 * Shape / pharmacophore scoring for pose selection
 * Built-in benchmarks (Polaris, time-split PDBbind)
 * CPU-only by default; GPU optional for protein embeddings
-* Python 3.9 + ⎯ pure-Python, no compiled C++ extensions beyond RDKit
 
 ---
 
@@ -72,7 +71,7 @@ pip install -e "./templ_pipeline[all]"
 TEMPL itself ships **no PDB structures or ligands**. Register and download datasets manually, then place them exactly as shown.
 
 ### PDBbind v2020
-1. Create directory `templ_pipeline/data/PDBBind/` (case exact).
+1. In this directory `templ_pipeline/data/PDBBind/` (case exact).
 2. Unpack the following archives inside it so the layout becomes:
 ```
 PDBBind/
@@ -83,11 +82,7 @@ TEMPL assumes this layout; if you prefer a different location pass `--data-root`
 
 ### Polaris benchmark
 Pre-processed SDFs plus metadata are already included under
-`templ_pipeline/benchmark/polaris/data/`. If you deleted them run:
-```bash
-templ benchmark polaris --download
-```
-(the command will fetch and unpack ~6 MB of data.)
+`templ_pipeline/benchmark/data/polaris/`.
 
 ---
 
@@ -114,11 +109,10 @@ Use `templ --help` or `templ <command> --help` for all options.
 ---
 
 ## Streamlit Web App
-```bash
-streamlit run templ_pipeline/ui/app.py
+```python
+python run_streamlit_app.py
 ```
 * drag-and-drop PDB + SMILES or SDF
-* interactive 3-D viewer (py3Dmol)
 * download best poses as SDF
 
 ---
@@ -132,8 +126,6 @@ templ benchmark polaris --n-workers 8 --n-conformers 200
 # To avoid nested parallelism, keep internal workers = 1 when using many benchmark workers.
 templ benchmark time-split --n-workers 8 --pipeline-workers 1
 ```
-During long runs TEMPL prints Unicode RMSD tables; see docs on parsing these if integrating.
-
 ---
 
 ## Development & Tests
@@ -144,5 +136,3 @@ pytest -q
 
 ---
 
-## License
-MIT – see `LICENSE` file. If you use TEMPL in academic work please cite the accompanying pre-print.
