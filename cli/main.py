@@ -388,6 +388,13 @@ def setup_parser():
         default=None,
         help="Maximum RAM (GiB) before throttling worker submission (time-split only)"
     )
+    benchmark_parser.add_argument(
+        "--per-worker-ram",
+        dest="per_worker_ram_gb",
+        type=float,
+        default=4.0,
+        help="Hard memory cap per worker in GiB (time-split only)"
+    )
     benchmark_parser.set_defaults(func=benchmark_command)
     
     return parser
@@ -764,6 +771,8 @@ def benchmark_command(args):
                 kwargs['max_pdbs'] = args.max_pdbs
             if hasattr(args, 'max_ram_gb') and args.max_ram_gb:
                 kwargs['max_ram_gb'] = args.max_ram_gb
+            if hasattr(args, 'per_worker_ram_gb') and args.per_worker_ram_gb:
+                kwargs['per_worker_ram_gb'] = args.per_worker_ram_gb
             
             result = run_timesplit_benchmark(**kwargs)
             
