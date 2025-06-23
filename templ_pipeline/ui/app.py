@@ -268,10 +268,8 @@ def save_uploaded_file(uploaded_file, suffix=".pdb"):
         tmp.write(uploaded_file.getvalue())
         return tmp.name
 
-@st.cache_data(ttl=3600)  # Cache for 1 hour
-@time_function
-def validate_smiles_input(smiles):
-    """Validate SMILES input with detailed feedback"""
+def validate_smiles_input_impl(smiles):
+    """Core SMILES validation logic without caching decorator"""
     try:
         if not smiles or not smiles.strip():
             return False, "Please enter a SMILES string", None
@@ -293,6 +291,12 @@ def validate_smiles_input(smiles):
         
     except Exception as e:
         return False, f"Error parsing SMILES: {str(e)}", None
+
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+@time_function
+def validate_smiles_input(smiles):
+    """Validate SMILES input with detailed feedback - cached wrapper"""
+    return validate_smiles_input_impl(smiles)
 
 @time_function
 def validate_sdf_input(sdf_file):
