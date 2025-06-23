@@ -15,55 +15,82 @@ TEMPL leverages **ligand similarity** and **template superposition** instead of 
 
 ---
 
-## Installation
+## 🚀 Smart One-Click Installation
 
-### One-Click Setup
-After cloning this repository, just run:
+After cloning this repository, run **one command**:
 
 ```bash
 git clone https://github.com/fulopjoz/templ-pipeline
 cd templ-pipeline
-bash setup_env_uv.sh    # One command - that's it!
+./setup_env_smart.sh    # That's it! 🎉
 ```
 
-This single script will:
-1. Install `uv` if not already on your system
-2. Create `.venv/` virtual environment 
-3. Activate environment and install all dependencies
-4. Drop you into a ready-to-use shell with TEMPL available
+### 🎯 **What the Smart Installer Does:**
 
-**Returning to the project later:**
+1. **🔍 Detects your hardware** - CPU cores, RAM, GPU availability
+2. **🎛️ Recommends optimal configuration** - CPU-minimal, CPU-optimized, or GPU-enabled
+3. **📦 Installs tailored dependencies** - No bloat! (PyTorch GPU libs = 5GB+ vs 500MB CPU-only)
+4. **✅ Verifies everything works** - Tests CLI and imports
+5. **🚀 Ready to use immediately** - `templ --help` works right away
+
+### 🔧 **Installation Options:**
+
 ```bash
-source .venv/bin/activate   # whenever you return to the project
+# Auto-detect hardware and install optimally (recommended)
+./setup_env_smart.sh
+
+# Force lightweight CPU-only installation (~500MB)
+./setup_env_smart.sh --cpu-only
+
+# Force GPU installation (if auto-detection fails)
+./setup_env_smart.sh --gpu-force
+
+# Minimal server installation (no web interface)
+./setup_env_smart.sh --minimal
+
+# Benchmark performance after installation
+./setup_env_smart.sh --benchmark
 ```
 
-### Manual installation (if needed)
-
-#### 1. One-click environment with **uv**
+**Returning later?** Simply activate the environment:
 ```bash
-# Install uv once (10 s)
+source .venv/bin/activate
+```
+
+### 💡 **Why Smart Installation?**
+
+- **🏃‍♂️ Efficient**: CPU-minimal (~500MB) vs full AI stack (8GB+)
+- **⚡ Hardware-aware**: Only installs GPU deps if GPU detected
+- **🔧 Optimized**: Right-sized models (ESM-2 150M for CPU, larger for GPU)
+- **🚫 No bloat**: Skip unnecessary ML libraries for basic docking
+
+### Alternative Installation (Advanced Users)
+
+<details>
+<summary>Click to expand manual installation options</summary>
+
+#### Using uv manually:
+```bash
 curl -Ls https://astral.sh/uv/install.sh | bash
-
-# Create & activate virtual environment (adds .venv/)
-uv venv .venv
-source .venv/bin/activate
-
-# Install in editable mode with all extras (streamlit, tests, docs)
-uv pip install -e "./templ_pipeline[all]"
+uv venv .venv && source .venv/bin/activate
+uv pip install -e "."                     # CPU-minimal
+uv pip install -e ".[ai-cpu,web]"         # CPU-optimized + web
+uv pip install -e ".[ai-gpu,web]"         # GPU-enabled
 ```
 
-#### 2. Classic `pip`
+#### Using pip:
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e "./templ_pipeline[all]"
+python -m venv .venv && source .venv/bin/activate
+pip install -e "."
 ```
-If RDKit wheels are unavailable for your Python version, install via Conda:
+
+#### Using conda (if RDKit issues):
 ```bash
 conda create -n templ python=3.10 rdkit -c conda-forge
 conda activate templ
-pip install -e "./templ_pipeline[all]"
+pip install -e "."
 ```
+</details>
 
 ---
 
@@ -130,7 +157,7 @@ templ benchmark time-split --n-workers 8 --pipeline-workers 1
 
 ## Development & Tests
 ```bash
-pip install -e ".[dev]"
+./setup_env_uv.sh --dev  # Install with dev dependencies
 pytest -q
 ```
 
