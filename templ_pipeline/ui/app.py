@@ -28,7 +28,7 @@ def time_function(func):
         start_time = time.time()
         result = func(*args, **kwargs)
         end_time = time.time()
-        logger.info(f"⏱️ PERF: {func.__name__} took {end_time - start_time:.3f} seconds")
+        logger.info(f"Performance: {func.__name__} took {end_time - start_time:.3f} seconds")
         return result
     return wrapper
 
@@ -743,12 +743,12 @@ def _format_pipeline_results_for_ui(results, template_mol=None, query_mol=None):
     """Format TEMPLPipeline results for web UI display with enhanced template PDB ID resolution"""
     
     if 'error' in results:
-        st.error(f"❌ **Pipeline Error**: {results['error']}")
+        st.error(f"Pipeline Error: {results['error']}")
         return None
     
     poses = results.get('poses', {})
     if not poses:
-        st.error("❌ **No poses generated**")
+        st.error("No poses generated")
         return None
 
     # Store alignment mode information for UI display
@@ -870,29 +870,56 @@ def _format_pipeline_results_for_ui(results, template_mol=None, query_mol=None):
     return poses
 
 class StreamlitProgressHandler(logging.Handler):
-    """Custom logging handler to show pipeline progress in Streamlit"""
+    """Custom handler to redirect logs to Streamlit progress display"""
+    
     def __init__(self, progress_placeholder):
         super().__init__()
         self.progress_placeholder = progress_placeholder
-        self.messages = []
+        self.steps = []
     
     def emit(self, record):
         try:
-            msg = self.format(record)
-            # Filter for important pipeline messages
-            if any(key in msg for key in ['Step', 'Found', 'Generated', 'Loading', 'Using', 'Selected']):
-                self.messages.append(msg)
-                # Show last few messages
+            if "Step" in record.getMessage() or "Progress" in record.getMessage():
+                # Extract step info from log message
+                msg = self.format(record)
+                self.steps.append(msg)
+                
+                # Display recent steps
                 with self.progress_placeholder.container():
-                    for message in self.messages[-3:]:
-                        if 'Step' in message:
-                            st.info(f"📋 {message}")
-                        elif 'Found' in message or 'Generated' in message:
-                            st.success(f"✅ {message}")
+                    for step in self.steps[-5:]:  # Show last 5 steps
+                        if "Success" in step:
+                            st.success(step)
+                        elif "Error" in step:
+                            st.error(step)
                         else:
-                            st.markdown(f"🔄 {message}")
-        except Exception:
-            pass
+                            st.info(step)
+        except:
+            pass  # Don't break on display errors
+
+# Add async execution wrapper
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+
+async def run_pipeline_async(smiles, protein_input=None, custom_templates=None, 
+                           use_aligned_poses=True, max_templates=None, 
+                           similarity_threshold=None):
+    """Async wrapper for pipeline execution to prevent UI blocking"""
+    loop = asyncio.get_event_loop()
+    
+    # Run the blocking pipeline in a thread pool
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        result = await loop.run_in_executor(
+            executor,
+            run_pipeline,
+            smiles,
+            protein_input,
+            custom_templates,
+            use_aligned_poses,
+            max_templates,
+            similarity_threshold
+        )
+    
+    return result
 
 def run_pipeline(smiles, protein_input=None, custom_templates=None, use_aligned_poses=True, max_templates=None, similarity_threshold=None):
     """Run the complete TEMPL pipeline using TEMPLPipeline class"""
@@ -928,11 +955,11 @@ def run_pipeline(smiles, protein_input=None, custom_templates=None, use_aligned_
         from templ_pipeline.core.pipeline import TEMPLPipeline
         
         with progress_placeholder.container():
-            st.info("🚀 **Starting TEMPL Pipeline**")
+            st.info("Starting TEMPL Pipeline")
             hardware_display = st.session_state.hardware_info.get('utilization', f"{max_workers}/unknown")
-            st.markdown(f"🖥️ **Hardware**: Using {hardware_display} CPU cores")
+            st.markdown(f"Hardware: Using {hardware_display} CPU cores")
             alignment_status = "aligned" if use_aligned_poses else "original geometry"
-            st.markdown(f"⚙️ **Mode**: Returning {alignment_status} poses")
+            st.markdown(f"Mode: Returning {alignment_status} poses")
         
         # Initialize pipeline
         pipeline = TEMPLPipeline(
@@ -944,9 +971,9 @@ def run_pipeline(smiles, protein_input=None, custom_templates=None, use_aligned_
         # Check if using custom templates (MCS-only workflow)
         if custom_templates:
             with progress_placeholder.container():
-                st.info("🧪 **Step 1/3**: Using custom template molecules...")
-                st.success(f"✅ Loaded {len(custom_templates)} custom templates")
-                st.info("⚗️ **Step 2/3**: Generating molecular conformers...")
+                st.info("Using custom template molecules...")
+                st.success(f"Loaded {len(custom_templates)} custom templates")
+                st.info("Generating molecular conformers...")
             
             # Generate poses using custom templates
             query_mol = pipeline.prepare_query_molecule(ligand_smiles=smiles)
@@ -966,16 +993,16 @@ def run_pipeline(smiles, protein_input=None, custom_templates=None, use_aligned_
                 results = {'poses': pose_results}
             
             with progress_placeholder.container():
-                st.success("✅ **Step 3/3**: Pipeline completed successfully!")
+                st.success("Pipeline completed successfully!")
             
             return _format_pipeline_results_for_ui(results, custom_templates[0], query_mol)
             
         else:
             # Full pipeline workflow
             with progress_placeholder.container():
-                st.info("🧬 **Step 1/4**: Processing protein structure...")
+                st.info("Processing protein structure...")
                 if len(protein_input) == 4 and protein_input.isalnum():
-                    st.markdown(f"🔍 **Database lookup**: Checking for PDB {protein_input.upper()}")
+                    st.markdown(f"Database lookup: Checking for PDB {protein_input.upper()}")
             
             # Determine protein input type
             protein_file = None
@@ -1014,13 +1041,13 @@ def run_pipeline(smiles, protein_input=None, custom_templates=None, use_aligned_
             
             # Show completion
             with progress_placeholder.container():
-                st.success("✅ **Pipeline completed successfully!**")
+                st.success("Pipeline completed successfully!")
                 if 'templates' in results:
-                    st.markdown(f"📊 **Found {len(results['templates'])} templates**")
+                    st.markdown(f"Found {len(results['templates'])} templates")
                 if 'poses' in results:
-                    st.markdown(f"🎯 **Generated {len(results['poses'])} poses**")
+                    st.markdown(f"Generated {len(results['poses'])} poses")
                 alignment_used = results.get('alignment_used', 'unknown')
-                st.markdown(f"⚙️ **Poses**: Using {'aligned' if alignment_used else 'original geometry'} coordinates")
+                st.markdown(f"Poses: Using {'aligned' if alignment_used else 'original geometry'} coordinates")
             
             return _format_pipeline_results_for_ui(results)
     except Exception as e:
@@ -1028,17 +1055,17 @@ def run_pipeline(smiles, protein_input=None, custom_templates=None, use_aligned_
         error_details = str(e)
         
         with progress_placeholder.container():
-            st.error(f"❌ **Pipeline Error**: {error_details}")
+            st.error(f"Pipeline Error: {error_details}")
             
             # Provide specific guidance based on error type
             if "not found in database" in error_details:
-                st.info(f"💡 **Suggestion**: PDB ID '{protein_input}' not available. Try uploading the PDB file directly.")
+                st.info(f"Suggestion: PDB ID '{protein_input}' not available. Try uploading the PDB file directly.")
             elif "Invalid SMILES" in error_details:
-                st.info("💡 **Suggestion**: Check your molecule format. Try a different SMILES string or upload an SDF file.")
+                st.info("Suggestion: Check your molecule format. Try a different SMILES string or upload an SDF file.")
             elif "No conformers generated" in error_details:
-                st.info("💡 **Suggestion**: Molecule might be too complex or templates incompatible. Try simpler molecules.")
+                st.info("Suggestion: Molecule might be too complex or templates incompatible. Try simpler molecules.")
             elif "hydrogen" in error_details.lower() or "alignment" in error_details.lower():
-                st.info("💡 **Suggestion**: Try using 'Original Geometry' mode in Advanced Settings to avoid alignment issues.")
+                st.info("Suggestion: Try using 'Original Geometry' mode in Advanced Settings to avoid alignment issues.")
             
 
         
@@ -1113,38 +1140,38 @@ def show_hardware_status():
     if not HARDWARE_INFO:
         return
     
-    with st.expander("🖥️ System Information", expanded=False):
+    with st.expander("System Information", expanded=False):
         col1, col2 = st.columns(2)
         
         with col1:
             st.markdown("**Hardware Configuration:**")
-            st.markdown(f"• **CPU**: {HARDWARE_INFO.cpu_count} cores")
-            st.markdown(f"• **RAM**: {HARDWARE_INFO.total_ram_gb:.1f} GB")
+            st.markdown(f"CPU: {HARDWARE_INFO.cpu_count} cores")
+            st.markdown(f"RAM: {HARDWARE_INFO.total_ram_gb:.1f} GB")
             if HARDWARE_INFO.gpu_available:
                 gpu_info = ", ".join(HARDWARE_INFO.gpu_models[:2])  # Show first 2 GPUs
-                st.markdown(f"• **GPU**: {gpu_info}")
-                st.markdown(f"• **VRAM**: {HARDWARE_INFO.gpu_memory_gb:.1f} GB")
+                st.markdown(f"GPU: {gpu_info}")
+                st.markdown(f"VRAM: {HARDWARE_INFO.gpu_memory_gb:.1f} GB")
             else:
-                st.markdown("• **GPU**: Not detected")
+                st.markdown("GPU: Not detected")
         
         with col2:
             st.markdown("**AI Capabilities:**")
             
             if AI_AVAILABLE:
-                st.markdown("✅ **Full AI Features Available**")
+                st.markdown("Full AI Features Available")
                 if HARDWARE_INFO.gpu_available and TORCH_AVAILABLE:
                     try:
                         import torch
                         if torch.cuda.is_available():
-                            st.markdown(f"🎮 **GPU Acceleration**: {torch.cuda.device_count()} device(s)")
+                            st.markdown(f"GPU Acceleration: {torch.cuda.device_count()} device(s)")
                         else:
-                            st.markdown("💻 **CPU Mode**: GPU libraries available but no GPU detected")
+                            st.markdown("CPU Mode: GPU libraries available but no GPU detected")
                     except:
-                        st.markdown("💻 **CPU Mode**: PyTorch CPU-only")
+                        st.markdown("CPU Mode: PyTorch CPU-only")
                 else:
-                    st.markdown("💻 **CPU Mode**: Optimized for CPU inference")
+                    st.markdown("CPU Mode: Optimized for CPU inference")
             else:
-                st.markdown("⚠️ **Limited Features Available**")
+                st.markdown("Limited Features Available")
                 missing = []
                 if not TORCH_AVAILABLE:
                     missing.append("PyTorch")
@@ -1152,8 +1179,8 @@ def show_hardware_status():
                     missing.append("Transformers")
                 
                 if missing:
-                    st.markdown(f"❌ **Missing**: {', '.join(missing)}")
-                    st.markdown("💡 **Solution**: Install AI dependencies:")
+                    st.markdown(f"Missing: {', '.join(missing)}")
+                    st.markdown("Solution: Install AI dependencies:")
                     
                     if HARDWARE_INFO.gpu_available:
                         st.code("pip install torch transformers", language="bash")
@@ -1170,15 +1197,15 @@ def show_hardware_status():
             }
             
             emoji = config_emoji.get(HARDWARE_INFO.recommended_config, "🖥️")
-            st.markdown(f"{emoji} **Recommended**: {HARDWARE_INFO.recommended_config}")
+            st.markdown(f"{emoji} Recommended: {HARDWARE_INFO.recommended_config}")
 
 def check_ai_requirements_for_feature(feature_name: str) -> bool:
     """Check if AI requirements are met for a specific feature"""
     if not AI_AVAILABLE:
-        st.error(f"❌ **{feature_name}** requires AI dependencies (PyTorch + Transformers)")
-        st.info("💡 **Quick Fix**: Install missing dependencies and restart the app")
+        st.error(f"{feature_name} requires AI dependencies (PyTorch + Transformers)")
+        st.info("Quick Fix: Install missing dependencies and restart the app")
         
-        with st.expander("📋 Installation Instructions", expanded=False):
+        with st.expander("Installation Instructions", expanded=False):
             if HARDWARE_INFO and HARDWARE_INFO.gpu_available:
                 st.code("""
 # For GPU acceleration
@@ -1336,7 +1363,7 @@ def main():
                 placeholder="Cn1c(=O)c2c(ncn2C)n(C)c1=O",
                 help="Enter a valid SMILES string e.g. Cn1c(=O)c2c(ncn2C)n(C)c1=O"
             )
-            logger.info(f"⏱️ PERF: SMILES text_input creation took {time.time() - smiles_start:.3f} seconds")
+            logger.info(f"Performance: SMILES text_input creation took {time.time() - smiles_start:.3f} seconds")
             
             if smiles:
                 valid, msg, mol = validate_smiles_input(smiles)
@@ -1353,7 +1380,7 @@ def main():
             # Add performance timing for file uploader
             uploader_start = time.time()
             sdf_file = st.file_uploader("Upload SDF/MOL File", type=["sdf", "mol"], help="Upload a molecule file (≤5MB)")
-            logger.info(f"⏱️ PERF: SDF file_uploader creation took {time.time() - uploader_start:.3f} seconds")
+            logger.info(f"Performance: SDF file_uploader creation took {time.time() - uploader_start:.3f} seconds")
             
             if sdf_file is not None:  # More explicit check
                 if sdf_file.size > 5 * 1024 * 1024:  # 5MB limit
@@ -1390,7 +1417,7 @@ def main():
             # Add performance timing for PDB file uploader
             pdb_uploader_start = time.time()
             pdb_file = st.file_uploader("Upload PDB File", type=["pdb"], help="Upload protein structure file (≤5MB)")
-            logger.info(f"⏱️ PERF: PDB file_uploader creation took {time.time() - pdb_uploader_start:.3f} seconds")
+            logger.info(f"Performance: PDB file_uploader creation took {time.time() - pdb_uploader_start:.3f} seconds")
             
             if pdb_file is not None:  # More explicit check
                 if pdb_file.size > 5 * 1024 * 1024:  # 5MB limit
@@ -1406,7 +1433,7 @@ def main():
             # Add performance timing for template file uploader
             template_uploader_start = time.time()
             template_file = st.file_uploader("Upload Template SDF", type=["sdf"], help="SDF file with template molecules (≤10MB)")
-            logger.info(f"⏱️ PERF: Template file_uploader creation took {time.time() - template_uploader_start:.3f} seconds")
+            logger.info(f"Performance: Template file_uploader creation took {time.time() - template_uploader_start:.3f} seconds")
             
             if template_file is not None:  # More explicit check
                 if template_file.size > 10 * 1024 * 1024:  # 10MB limit
@@ -1450,9 +1477,9 @@ def main():
         
         with col2:
             if use_aligned_poses:
-                st.info("⚙️ **Using alignment** - poses will be positioned relative to templates")
+                st.info("Using alignment - poses will be positioned relative to templates")
             else:
-                st.success("✅ **Preserving geometry** - conformers maintain their original shape")
+                st.success("Preserving geometry - conformers maintain their original shape")
         
         # Template Filtering Options
         st.markdown("### Template Filtering Options")
@@ -1476,7 +1503,7 @@ def main():
         
         # Show AI requirement notice if similarity desired but not available
         if not AI_AVAILABLE and len(filter_options) == 1:
-            st.info("💡 **Embedding Similarity**: Install AI dependencies to enable protein embedding-based filtering")
+            st.info("Embedding Similarity: Install AI dependencies to enable protein embedding-based filtering")
         
         col1, col2 = st.columns([3, 2])
         
@@ -1508,9 +1535,9 @@ def main():
         
         with col2:
             if filter_method == "KNN (Top-K)":
-                st.info("🔢 **KNN Mode**  \nSelects top K most similar templates")
+                st.info("KNN Mode  \nSelects top K most similar templates")
             else:
-                st.info("📊 **Threshold Mode**  \nFilters by embedding similarity")
+                st.info("Threshold Mode  \nFilters by embedding similarity")
         
         # Widget values are automatically stored in session state via their keys
     
@@ -1519,23 +1546,35 @@ def main():
         if ready:
             st.markdown('<div style="text-align: center; margin: 2rem 0;">', unsafe_allow_html=True)
             if st.button("🚀 PREDICT POSES", type="primary", use_container_width=True):
-                with st.spinner("Running TEMPL Pipeline..."):
-                    poses = run_pipeline(
-                        molecule_input, 
-                        protein_input, 
-                        custom_templates,
-                        use_aligned_poses=use_aligned_poses,
-                        max_templates=max_templates,
-                        similarity_threshold=similarity_threshold
-                    )
-                    if poses:
-                        st.session_state.poses = poses
-                        st.success("✅ Pose prediction completed!")
-                        st.rerun()
+                # Create placeholders for non-blocking progress
+                progress_placeholder = st.empty()
+                result_placeholder = st.empty()
+                
+                with progress_placeholder.container():
+                    st.info("Initializing TEMPL Pipeline...")
+                
+                # Run pipeline asynchronously
+                poses = asyncio.run(run_pipeline_async(
+                    molecule_input, 
+                    protein_input, 
+                    custom_templates,
+                    use_aligned_poses=use_aligned_poses,
+                    max_templates=max_templates,
+                    similarity_threshold=similarity_threshold
+                ))
+                
+                if poses:
+                    st.session_state.poses = poses
+                    progress_placeholder.empty()
+                    result_placeholder.success("POSES PREDICTION COMPLETED!")
+                    st.rerun()
+                else:
+                    progress_placeholder.empty()
+                    result_placeholder.error("PIPELINE FAILED. CHECK ERROR MESSAGES ABOVE.")
             st.markdown('</div>', unsafe_allow_html=True)
         else:
             st.markdown('<div style="text-align: center; margin: 2rem 0;">', unsafe_allow_html=True)
-            st.info("💡 **Ready to start?**  \nProvide molecule input and either protein target or custom templates above")
+            st.info("Ready to start?  \nProvide molecule input and either protein target or custom templates above")
             st.markdown('</div>', unsafe_allow_html=True)
     
     # Enhanced Results Section
@@ -1565,9 +1604,9 @@ def main():
             alignment_used = getattr(st.session_state, 'alignment_used', None)
             if alignment_used is not None:
                 if alignment_used:
-                    st.info("⚙️ **Alignment Mode**: Poses aligned to template structure")
+                    st.info("Alignment Mode: Poses aligned to template structure")
                 else:
-                    st.success("✅ **Geometry Mode**: Original conformer geometry preserved")
+                    st.success("Geometry Mode: Original conformer geometry preserved")
         
         # Score metrics
         col1a, col1b, col1c = st.columns(3)
@@ -1626,7 +1665,7 @@ def main():
         with col1:
             sdf_data, file_name = create_best_poses_sdf(poses)
             st.download_button(
-                f"📥 Best Poses ({best_poses_count})",
+                f"Best Poses ({best_poses_count})",
                 data=sdf_data,
                 file_name=file_name,
                 mime="chemical/x-mdl-sdfile",
@@ -1638,7 +1677,7 @@ def main():
             if hasattr(st.session_state, 'all_ranked_poses') and st.session_state.all_ranked_poses:
                 all_sdf_data, all_file_name = create_all_conformers_sdf()
                 st.download_button(
-                    f"📥 All Conformers ({all_poses_count})",
+                    f"All Conformers ({all_poses_count})",
                     data=all_sdf_data,
                     file_name=all_file_name,
                     mime="chemical/x-mdl-sdfile",
@@ -1647,7 +1686,7 @@ def main():
                 )
             else:
                 st.button(
-                    "📥 All Conformers (N/A)",
+                    "All Conformers (N/A)",
                     disabled=True,
                     help="All ranked poses not available - try regenerating poses",
                     use_container_width=True
