@@ -268,6 +268,7 @@ def save_uploaded_file(uploaded_file, suffix=".pdb"):
         tmp.write(uploaded_file.getvalue())
         return tmp.name
 
+@st.cache_data(ttl=3600)  # Cache for 1 hour
 @time_function
 def validate_smiles_input(smiles):
     """Validate SMILES input with detailed feedback"""
@@ -286,7 +287,9 @@ def validate_smiles_input(smiles):
         if num_atoms > 200:
             return False, "Molecule too large (maximum 200 atoms)", None
         
-        return True, f"Valid molecule ({num_atoms} atoms)", mol
+        # Convert mol to pickle-able format for caching
+        mol_pickle = mol.ToBinary()
+        return True, f"Valid molecule ({num_atoms} atoms)", mol_pickle
         
     except Exception as e:
         return False, f"Error parsing SMILES: {str(e)}", None
@@ -421,25 +424,45 @@ def load_templates_from_uploaded_sdf(uploaded_file):
         st.error(f"Error reading template SDF file: {e}")
         return []
 
-def display_molecule(mol, width=400, height=300, title="", highlight_atoms=None):
-    """Display molecule as 2D image with optional atom highlighting"""
-    if mol is None:
-        return
-    
+@st.cache_data(ttl=3600)  # Cache molecule images
+def generate_molecule_image(mol_binary, width=400, height=300, highlight_atoms=None):
+    """Generate molecule image from binary representation"""
     try:
         Chem, AllChem, Draw = get_rdkit_modules()
-        mol_copy = Chem.RemoveHs(Chem.Mol(mol))
-        if mol_copy.GetNumConformers() > 0:
+        mol = Chem.Mol(mol_binary)
+        mol_copy = Chem.RemoveHs(mol)
+        if mol_copy.GetNumConformers() == 0:
             AllChem.Compute2DCoords(mol_copy)
         
         if highlight_atoms:
             img = Draw.MolToImage(mol_copy, size=(width, height), highlightAtoms=highlight_atoms)
         else:
             img = Draw.MolToImage(mol_copy, size=(width, height))
+        
+        return img
+    except Exception as e:
+        logger.error(f"Error generating molecule image: {e}")
+        return None
+
+def display_molecule(mol, width=400, height=300, title="", highlight_atoms=None):
+    """Display molecule as 2D image with optional atom highlighting"""
+    if mol is None:
+        return
+    
+    try:
+        # Convert mol to binary for caching
+        mol_binary = mol.ToBinary()
+        
+        # Ensure highlight_atoms is hashable for caching (convert list to tuple)
+        if highlight_atoms is not None:
+            highlight_atoms = tuple(highlight_atoms)
             
-        if title:
-            st.write(f"**{title}**")
-        st.image(img)
+        img = generate_molecule_image(mol_binary, width, height, highlight_atoms)
+        
+        if img:
+            if title:
+                st.write(f"**{title}**")
+            st.image(img)
     except Exception as e:
         st.error(f"Error displaying molecule: {e}")
 
@@ -1366,8 +1389,14 @@ def main():
             logger.info(f"Performance: SMILES text_input creation took {time.time() - smiles_start:.3f} seconds")
             
             if smiles:
-                valid, msg, mol = validate_smiles_input(smiles)
+                valid, msg, mol_data = validate_smiles_input(smiles)
                 if valid:
+                    # Convert from cached binary format if needed
+                    if mol_data is not None:
+                        Chem, AllChem, Draw = get_rdkit_modules()
+                        mol = Chem.Mol(mol_data)
+                    else:
+                        mol = None
                     st.session_state.query_mol = mol
                     st.session_state.input_smiles = smiles
                     st.markdown(f'<p class="status-success">✅ {msg}</p>', unsafe_allow_html=True)
