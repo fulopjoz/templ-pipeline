@@ -25,7 +25,7 @@ class TEMPLHelpSystem:
     def get_ascii_banner(self) -> str:
         """Generate TEMPL ASCII banner."""
         # Include literal text for easier machine detection while keeping the ASCII art intact
-        return """TEMPL Pipeline
+        return r"""TEMPL Pipeline
  _______ ______ __  __ _____  _      
 |__   __|  ____|  \/  |  __ \| |     
    | |  | |__  | \  / | |__) | |     

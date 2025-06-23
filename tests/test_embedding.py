@@ -23,7 +23,6 @@ try:
         get_embedding,
         select_templates
     )
-    from templ_pipeline.tests import get_test_data_path
 except ImportError:
     # Fall back to local imports for development
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -34,7 +33,10 @@ except ImportError:
         get_embedding,
         select_templates
     )
-    from templ_pipeline.tests import get_test_data_path
+
+# Import test helper functions from local tests package
+sys.path.insert(0, os.path.dirname(__file__))
+from . import get_test_data_path
 
 class TestEmbeddingManagerWithRealData(unittest.TestCase):
     """Test the EmbeddingManager class with real data."""
