@@ -899,25 +899,62 @@ class StreamlitProgressHandler(logging.Handler):
         super().__init__()
         self.progress_placeholder = progress_placeholder
         self.steps = []
+        self.start_time = time.time()
+        self.current_phase = None
+        self.phase_progress = {}
     
     def emit(self, record):
         try:
-            if "Step" in record.getMessage() or "Progress" in record.getMessage():
-                # Extract step info from log message
-                msg = self.format(record)
-                self.steps.append(msg)
+            msg = self.format(record)
+            
+            # Parse log message for progress information
+            if any(keyword in msg for keyword in ["Step", "Progress", "Starting", "Loading", "Processing", "Generating"]):
+                # Extract phase information
+                if "Starting" in msg or "Loading" in msg:
+                    self.current_phase = msg.split(":")[-1].strip() if ":" in msg else msg
+                    self.phase_progress[self.current_phase] = 0
                 
-                # Display recent steps
+                # Update progress
+                elapsed = time.time() - self.start_time
+                self.steps.append({
+                    'time': elapsed,
+                    'message': msg,
+                    'level': record.levelname
+                })
+                
+                # Display progress in a structured way
                 with self.progress_placeholder.container():
+                    # Show phase progress
+                    if self.current_phase:
+                        st.markdown(f"**Current Phase:** {self.current_phase}")
+                    
+                    # Progress bar if we can extract percentage
+                    if "%" in msg:
+                        try:
+                            pct_match = re.search(r'(\d+)%', msg)
+                            if pct_match:
+                                progress = int(pct_match.group(1))
+                                st.progress(progress / 100, text=f"Progress: {progress}%")
+                        except:
+                            pass
+                    
+                    # Show time elapsed
+                    st.caption(f"Time elapsed: {elapsed:.1f}s")
+                    
+                    # Show recent steps with appropriate styling
+                    st.markdown("**Recent Steps:**")
                     for step in self.steps[-5:]:  # Show last 5 steps
-                        if "Success" in step:
-                            st.success(step)
-                        elif "Error" in step:
-                            st.error(step)
+                        if step['level'] == 'ERROR':
+                            st.error(step['message'])
+                        elif step['level'] == 'WARNING':
+                            st.warning(step['message'])
+                        elif "Success" in step['message'] or "Complete" in step['message']:
+                            st.success(step['message'])
                         else:
-                            st.info(step)
-        except:
-            pass  # Don't break on display errors
+                            st.info(step['message'])
+        except Exception as e:
+            # Don't break on display errors
+            logger.debug(f"Progress display error: {e}")
 
 # Add async execution wrapper
 import asyncio
@@ -1330,7 +1367,7 @@ def main():
     
     st.markdown(f"""
     <div style="text-align: center; padding: 2rem 0 1rem 0; background: linear-gradient(90deg, {header_color} 0%, #764ba2 100%); color: white; border-radius: 0.5rem; margin-bottom: 1rem;">
-        <h1 style="margin: 0; font-size: 2.5rem;">🏛️ TEMPL Pipeline</h1>
+        <h1 style="margin: 0; font-size: 2.5rem;">TEMPL Pipeline</h1>
         <p style="margin: 0.5rem 0 0 0; font-size: 1.2rem; opacity: 0.9;">TEMplate-based Protein-Ligand Pose Prediction</p>
     </div>
     """, unsafe_allow_html=True)
@@ -1368,13 +1405,13 @@ def main():
     
     # Enhanced Input section
     st.markdown('<div class="input-section">', unsafe_allow_html=True)
-    st.header("📋 Input Configuration")
+    st.header("Input Configuration")
     st.markdown("Provide your molecule and protein target for pose prediction")
     
     col1, col2 = st.columns(2, gap="large")
     
     with col1:
-        st.markdown("### 🧪 Query Molecule")
+        st.markdown("### Query Molecule")
         
         molecule_method = st.radio("Input method:", ["SMILES", "Upload File"], horizontal=True, key="mol_input")
         
@@ -1399,12 +1436,12 @@ def main():
                         mol = None
                     st.session_state.query_mol = mol
                     st.session_state.input_smiles = smiles
-                    st.markdown(f'<p class="status-success">✅ {msg}</p>', unsafe_allow_html=True)
+                    st.markdown(f'<p class="status-success">{msg}</p>', unsafe_allow_html=True)
                     st.markdown('<div class="molecule-preview">', unsafe_allow_html=True)
                     display_molecule(mol, width=280, height=200)
                     st.markdown('</div>', unsafe_allow_html=True)
                 else:
-                    st.markdown(f'<p class="status-error">❌ {msg}</p>', unsafe_allow_html=True)
+                    st.markdown(f'<p class="status-error">{msg}</p>', unsafe_allow_html=True)
         else:
             # Add performance timing for file uploader
             uploader_start = time.time()
@@ -1413,22 +1450,22 @@ def main():
             
             if sdf_file is not None:  # More explicit check
                 if sdf_file.size > 5 * 1024 * 1024:  # 5MB limit
-                    st.error("❌ File too large (max 5MB)")
+                    st.error("File too large (max 5MB)")
                 else:
                     valid, msg, mol = validate_sdf_input(sdf_file)
                     if valid:
                         st.session_state.query_mol = mol
                         Chem, AllChem, Draw = get_rdkit_modules()
                         st.session_state.input_smiles = Chem.MolToSmiles(mol)
-                        st.markdown(f'<p class="status-success">✅ {msg}</p>', unsafe_allow_html=True)
+                        st.markdown(f'<p class="status-success">{msg}</p>', unsafe_allow_html=True)
                         st.markdown('<div class="molecule-preview">', unsafe_allow_html=True)
                         display_molecule(mol, width=280, height=200)
                         st.markdown('</div>', unsafe_allow_html=True)
                     else:
-                        st.markdown(f'<p class="status-error">❌ {msg}</p>', unsafe_allow_html=True)
+                        st.markdown(f'<p class="status-error">{msg}</p>', unsafe_allow_html=True)
     
     with col2:
-        st.markdown("### 🎯 Target Protein")
+        st.markdown("### Target Protein")
         
         protein_method = st.radio("Input method:", ["PDB ID", "Upload File", "Custom Templates"], horizontal=True, key="prot_input")
         
@@ -1439,9 +1476,9 @@ def main():
                     st.session_state.protein_pdb_id = pdb_id.lower()
                     st.session_state.protein_file_path = None
                     st.session_state.custom_templates = None
-                    st.markdown(f'<p class="status-success">✅ PDB ID: {pdb_id.upper()}</p>', unsafe_allow_html=True)
+                    st.markdown(f'<p class="status-success">PDB ID: {pdb_id.upper()}</p>', unsafe_allow_html=True)
                 else:
-                    st.markdown('<p class="status-error">❌ PDB ID must be 4 alphanumeric characters</p>', unsafe_allow_html=True)
+                    st.markdown('<p class="status-error">PDB ID must be 4 alphanumeric characters</p>', unsafe_allow_html=True)
         elif protein_method == "Upload File":
             # Add performance timing for PDB file uploader
             pdb_uploader_start = time.time()
@@ -1450,13 +1487,13 @@ def main():
             
             if pdb_file is not None:  # More explicit check
                 if pdb_file.size > 5 * 1024 * 1024:  # 5MB limit
-                    st.error("❌ File too large (max 5MB)")
+                    st.error("File too large (max 5MB)")
                 else:
                     file_path = save_uploaded_file(pdb_file)
                     st.session_state.protein_file_path = file_path
                     st.session_state.protein_pdb_id = None
                     st.session_state.custom_templates = None
-                    st.markdown('<p class="status-success">✅ PDB file uploaded</p>', unsafe_allow_html=True)
+                    st.markdown('<p class="status-success">PDB file uploaded</p>', unsafe_allow_html=True)
         else:  # Custom Templates
             st.markdown("Upload SDF with template molecules for MCS-based pose generation")
             # Add performance timing for template file uploader
@@ -1466,16 +1503,16 @@ def main():
             
             if template_file is not None:  # More explicit check
                 if template_file.size > 10 * 1024 * 1024:  # 10MB limit
-                    st.error("❌ File too large (max 10MB)")
+                    st.error("File too large (max 10MB)")
                 else:
                     templates = load_templates_from_uploaded_sdf(template_file)
                     if templates:
                         st.session_state.custom_templates = templates
                         st.session_state.protein_pdb_id = None
                         st.session_state.protein_file_path = None
-                        st.markdown(f'<p class="status-success">✅ Loaded {len(templates)} template molecules</p>', unsafe_allow_html=True)
+                        st.markdown(f'<p class="status-success">Loaded {len(templates)} template molecules</p>', unsafe_allow_html=True)
                     else:
-                        st.markdown('<p class="status-error">❌ No valid molecules found in SDF</p>', unsafe_allow_html=True)
+                        st.markdown('<p class="status-error">No valid molecules found in SDF</p>', unsafe_allow_html=True)
     
     st.markdown('</div>', unsafe_allow_html=True)
     
@@ -1486,7 +1523,7 @@ def main():
     ready = molecule_input and (protein_input or custom_templates)
     
     # Advanced Settings (Collapsible)
-    with st.expander("🔧 Advanced Settings", expanded=False):
+    with st.expander("Advanced Settings", expanded=False):
         st.markdown("### Pose Generation Options")
         
         col1, col2 = st.columns(2)
@@ -1574,7 +1611,7 @@ def main():
     with col2:
         if ready:
             st.markdown('<div style="text-align: center; margin: 2rem 0;">', unsafe_allow_html=True)
-            if st.button("🚀 PREDICT POSES", type="primary", use_container_width=True):
+            if st.button("PREDICT POSES", type="primary", use_container_width=True):
                 # Create placeholders for non-blocking progress
                 progress_placeholder = st.empty()
                 result_placeholder = st.empty()
@@ -1595,11 +1632,11 @@ def main():
                 if poses:
                     st.session_state.poses = poses
                     progress_placeholder.empty()
-                    result_placeholder.success("POSES PREDICTION COMPLETED!")
+                    result_placeholder.success("Pose prediction completed!")
                     st.rerun()
                 else:
                     progress_placeholder.empty()
-                    result_placeholder.error("PIPELINE FAILED. CHECK ERROR MESSAGES ABOVE.")
+                    result_placeholder.error("Pipeline failed. Check error messages above.")
             st.markdown('</div>', unsafe_allow_html=True)
         else:
             st.markdown('<div style="text-align: center; margin: 2rem 0;">', unsafe_allow_html=True)
@@ -1609,7 +1646,7 @@ def main():
     # Enhanced Results Section
     if st.session_state.poses:
         st.markdown("---")
-        st.header("🎯 Prediction Results")
+        st.header("Prediction Results")
         
         # Detect and fix corruption
         fallback_applied = detect_and_fix_corruption()
@@ -1625,7 +1662,7 @@ def main():
         combo_score = best_scores.get('combo_score', best_scores.get('combo', 0))
         
         # Best Pose Highlight
-        st.markdown("### 🏆 Best Predicted Pose")
+        st.markdown("### Best Predicted Pose")
         
         # Show alignment mode used
         if hasattr(st.session_state, 'poses') and isinstance(st.session_state.poses, dict):
@@ -1648,7 +1685,7 @@ def main():
             st.metric("Overall Score", f"{combo_score:.3f}")
         
         # Template Information (Collapsible)
-        with st.expander("🔍 Template Details", expanded=False):
+        with st.expander("Template Details", expanded=False):
             if st.session_state.template_used and st.session_state.query_mol:
                 col1, col2, col3 = st.columns(3)
                 with col1:
@@ -1683,7 +1720,7 @@ def main():
         
         
         # Download section
-        st.markdown("### 💾 Download Results")
+        st.markdown("### Download Results")
         
         # Calculate counts for display
         best_poses_count = len(poses) if poses else 0
