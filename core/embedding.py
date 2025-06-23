@@ -179,6 +179,17 @@ def _resolve_embedding_path(embedding_path=None):
     
     for path in search_paths:
         if path.exists():
+            # Sanity-check file size – Git-LFS pointers are only ~130 bytes
+            MIN_BYTES = 5_000_000  # 5 MB, real DB is ~90 MB
+            try:
+                if path.stat().st_size < MIN_BYTES:
+                    logger.error(
+                        "Embedding file present but too small (likely an LFS pointer). "
+                        "Ensure 'git lfs pull' ran during deployment or use Dockerfile with git-lfs."
+                    )
+                    continue  # keep searching
+            except Exception:
+                pass
             return str(path)
     
     # If no existing path found, return the environment variable or original path
