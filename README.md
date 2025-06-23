@@ -15,31 +15,30 @@ TEMPL leverages **ligand similarity** and **template superposition** instead of 
 
 ---
 
-## 🚀 Smart One-Click Installation
+## 🚀 One-Click Installation
 
-After cloning this repository, run **one command**:
+**Just run one command and you're ready to go:**
 
 ```bash
 git clone https://github.com/fulopjoz/templ-pipeline
 cd templ-pipeline
-./setup_env_smart.sh    # That's it! 🎉
+./setup_env_smart.sh
 ```
 
-### 🎯 **What the Smart Installer Does:**
+**That's it!** The script will:
+- 🔍 Detect your hardware (CPU cores, RAM, GPU)
+- 📦 Install optimal dependencies for your system
+- ⚙️ Create and activate the `.templ` environment  
+- ✅ Verify everything works
+- 🎯 **Leave you ready to use `templ` immediately**
 
-1. **🔍 Detects your hardware** - CPU cores, RAM, GPU availability
-2. **🎛️ Recommends optimal configuration** - CPU-minimal, CPU-optimized, or GPU-enabled
-3. **📦 Installs tailored dependencies** - No bloat! (PyTorch GPU libs = 5GB+ vs 500MB CPU-only)
-4. **✅ Verifies everything works** - Tests CLI and imports
-5. **🚀 Ready to use immediately** - `templ --help` works right away
-
-### 🔧 **Installation Options:**
+### 🎛️ Installation Options
 
 ```bash
-# Auto-detect hardware and install optimally (recommended)
+# Default: Auto-detect and install optimally (recommended)
 ./setup_env_smart.sh
 
-# Force lightweight CPU-only installation (~500MB)
+# Force lightweight CPU-only installation (~50MB)
 ./setup_env_smart.sh --cpu-only
 
 # Force GPU installation (if auto-detection fails)
@@ -47,119 +46,120 @@ cd templ-pipeline
 
 # Minimal server installation (no web interface)
 ./setup_env_smart.sh --minimal
-
-# Benchmark performance after installation
-./setup_env_smart.sh --benchmark
 ```
 
-**Returning later?** Simply activate the environment:
+### 🔄 Using TEMPL Later
+
+The installation creates a `.templ` environment. For future sessions:
+
 ```bash
-source .venv/bin/activate
+# Easy activation (recommended)
+source activate_templ.sh
+
+# Or manually
+source .templ/bin/activate
 ```
 
-### 💡 **Why Smart Installation?**
-
-- **🏃‍♂️ Efficient**: CPU-minimal (~500MB) vs full AI stack (8GB+)
-- **⚡ Hardware-aware**: Only installs GPU deps if GPU detected
-- **🔧 Optimized**: Right-sized models (ESM-2 150M for CPU, larger for GPU)
-- **🚫 No bloat**: Skip unnecessary ML libraries for basic docking
-
-### Alternative Installation (Advanced Users)
-
-<details>
-<summary>Click to expand manual installation options</summary>
-
-#### Using uv manually:
-```bash
-curl -Ls https://astral.sh/uv/install.sh | bash
-uv venv .venv && source .venv/bin/activate
-uv pip install -e "."                     # CPU-minimal
-uv pip install -e ".[ai-cpu,web]"         # CPU-optimized + web
-uv pip install -e ".[ai-gpu,web]"         # GPU-enabled
-```
-
-#### Using pip:
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e "."
-```
-
-#### Using conda (if RDKit issues):
-```bash
-conda create -n templ python=3.10 rdkit -c conda-forge
-conda activate templ
-pip install -e "."
-```
-</details>
-
----
-
-## Dataset Setup
-TEMPL itself ships **no PDB structures or ligands**. Register and download datasets manually, then place them exactly as shown.
-
-### PDBbind v2020
-1. In this directory `templ_pipeline/data/PDBBind/` (case exact).
-2. Unpack the following archives inside it so the layout becomes:
-```
-PDBBind/
-├─ PDBbind_v2020_refined/refined-set/<PDB>/
-└─ PDBbind_v2020_other_PL/v2020-other-PL/<PDB>/
-```
-TEMPL assumes this layout; if you prefer a different location pass `--data-root` to CLI commands.
-
-### Polaris benchmark
-Pre-processed SDFs plus metadata are already included under
-`templ_pipeline/benchmark/data/polaris/`.
+Once activated, just use `templ` commands directly!
 
 ---
 
 ## Quick Start
+
+**Immediate usage after installation:**
+
 ```bash
-# 1 line pose prediction
+# 1-line pose prediction
 templ run \
   --protein-file examples/1a1c_protein.pdb \
   --ligand-smiles "CN(C)C(=O)Nc1cccc(c1)C2CCN(CC2)C" \
   --output poses.sdf
+
+# Show all available commands  
+templ --help
+
+# Web interface
+python run_streamlit_app.py
 ```
 
 ### Common CLI Commands
 | Command | Purpose |
 |---------|---------|
-| `embed` | Generate or cache protein embeddings (ESM-2) |
-| `find-templates` | K-NN template search in PDBbind |
-| `generate-poses` | Constrained conformer generation & ranking |
-| `run` | One-shot pipeline (`embed → search → pose`) |
-| `benchmark` | Reproduce paper benchmarks (Polaris, time-split) |
+| `templ run` | One-shot pose prediction |
+| `templ embed` | Generate protein embeddings (ESM-2) |
+| `templ find-templates` | K-NN template search in PDBbind |
+| `templ generate-poses` | Constrained conformer generation & ranking |
+| `templ benchmark` | Reproduce paper benchmarks |
 
-Use `templ --help` or `templ <command> --help` for all options.
+Use `templ <command> --help` for detailed options.
 
 ---
 
-## Streamlit Web App
+## Dataset Setup
+
+TEMPL ships **no PDB structures or ligands**. Download datasets manually:
+
+### PDBbind v2020
+1. Register and download from PDBbind website
+2. Place in `templ_pipeline/data/PDBBind/` with this structure:
+```
+PDBBind/
+├─ PDBbind_v2020_refined/refined-set/<PDB>/
+└─ PDBbind_v2020_other_PL/v2020-other-PL/<PDB>/
+```
+
+### Polaris benchmark
+Pre-processed data is already included under `templ_pipeline/benchmark/data/polaris/`.
+
+---
+
+## Web Interface
+
+Start the Streamlit app:
 ```python
 python run_streamlit_app.py
 ```
-* drag-and-drop PDB + SMILES or SDF
-* download best poses as SDF
+* Drag-and-drop PDB + SMILES or SDF
+* Download best poses as SDF
 
 ---
 
 ## Benchmarking Examples
+
 ```bash
 # Polaris challenge (CPU-only, 8 workers)
 templ benchmark polaris --n-workers 8 --n-conformers 200
 
 # PDBbind time-split (ensure PDBBind/ downloaded first)
-# To avoid nested parallelism, keep internal workers = 1 when using many benchmark workers.
 templ benchmark time-split --n-workers 8 --pipeline-workers 1
 ```
+
 ---
 
-## Development & Tests
+## Development & Testing
+
 ```bash
-./setup_env_uv.sh --dev  # Install with dev dependencies
-pytest -q
+# Development installation
+./setup_env_smart.sh --gpu-force  # or --cpu-only
+pip install -e ".[dev]"           # Add dev dependencies
+pytest -q                         # Run tests
 ```
+
+---
+
+## Hardware Requirements
+
+**Minimum:**
+- Python 3.9+
+- 4GB RAM
+- 1GB disk space
+
+**Recommended:**
+- 8+ CPU cores
+- 16GB+ RAM  
+- GPU with 4GB+ VRAM (optional, for faster embeddings)
+
+The installer automatically detects your hardware and installs the optimal configuration!
 
 ---
 
