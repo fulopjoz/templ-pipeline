@@ -3,7 +3,7 @@ Tests for UI caching functionality
 """
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch, MagicMock, call
 import sys
 from pathlib import Path
 
@@ -12,8 +12,9 @@ mock_st = MagicMock()
 
 # Create a flexible cache decorator that handles both @decorator and @decorator() syntax
 def mock_cache_decorator(func=None, **kwargs):
-    """Mock cache decorator that works with or without parentheses"""
+    """Mock cache decorator that preserves function behavior"""
     def decorator(f):
+        # Return the original function so it executes normally
         return f
     
     # If called without parentheses (@cache_data), func will be the decorated function
@@ -33,6 +34,7 @@ sys.modules['stmol'] = MagicMock()
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Now import after mocking
 from templ_pipeline.ui.app import validate_smiles_input, generate_molecule_image
 
 
@@ -120,7 +122,7 @@ class TestUICaching:
             
             # First call
             img1 = generate_molecule_image(mock_mol_binary, 400, 300)
-            assert img1 is expected_img
+            assert img1 == expected_img
             
             # Verify the drawing was called correctly
             mock_draw.MolToImage.assert_called_once_with(
@@ -154,7 +156,7 @@ class TestUICaching:
             
             # Generate with highlights
             img = generate_molecule_image(mock_mol_binary, 400, 300, highlight_atoms)
-            assert img is expected_img
+            assert img == expected_img
             
             # Verify MolToImage was called with highlightAtoms
             mock_draw.MolToImage.assert_called_with(
