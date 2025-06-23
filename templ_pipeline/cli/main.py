@@ -40,13 +40,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger("templ-cli")
 
-# Import hardware detection
-try:
-    from templ_pipeline.core.hardware_utils import get_suggested_worker_config
-    hardware_config = get_suggested_worker_config()
-except ImportError:
-    logger.warning("Hardware detection not available, using conservative defaults")
-    hardware_config = {"n_workers": 4, "internal_pipeline_workers": 1}
+# Lazy hardware detection - only import when needed
+def _get_hardware_config():
+    """Lazy load hardware configuration to avoid heavy imports on startup"""
+    try:
+        from templ_pipeline.core.hardware_utils import get_suggested_worker_config
+        return get_suggested_worker_config()
+    except ImportError:
+        logger.warning("Hardware detection not available, using conservative defaults")
+        return {"n_workers": 4, "internal_pipeline_workers": 1}
 
 def _lazy_import_rdkit():
     """Lazy import RDKit and suppress logging."""
@@ -236,8 +238,8 @@ def setup_parser():
     generate_poses_parser.add_argument(
         "--workers",
         type=int,
-        default=hardware_config["n_workers"],
-        help=f"Number of parallel workers to use (auto-detected: {hardware_config['n_workers']})"
+        default=None,  # Will be set in command handler
+        help="Number of parallel workers to use (auto-detected based on hardware)"
     )
     generate_poses_parser.add_argument(
         "--no-realign",
@@ -304,8 +306,8 @@ def setup_parser():
     run_parser.add_argument(
         "--workers",
         type=int,
-        default=hardware_config["n_workers"],
-        help=f"Number of parallel workers to use (auto-detected: {hardware_config['n_workers']})"
+        default=None,  # Will be set in command handler  
+        help="Number of parallel workers to use (auto-detected based on hardware)"
     )
     run_parser.add_argument(
         "--run-id",
@@ -328,8 +330,8 @@ def setup_parser():
         "--n-workers", "--workers",
         dest="n_workers",
         type=int,
-        default=hardware_config.get("n_workers", 4),
-        help=f"Number of CPU workers to utilise (auto-detected: {hardware_config.get('n_workers', 4)})"
+        default=None,  # Will be set in command handler
+        help="Number of CPU workers to utilise (auto-detected based on hardware)"
     )
     benchmark_parser.add_argument(
         "--n-conformers",
@@ -607,6 +609,11 @@ def generate_poses_command(args):
     from templ_pipeline.core.pipeline import TEMPLPipeline
     
     try:
+        # Set workers if not provided
+        if args.workers is None:
+            hardware_config = _get_hardware_config()
+            args.workers = hardware_config["n_workers"]
+        
         # Initialize pipeline
         pipeline = TEMPLPipeline(
             embedding_path=getattr(args, 'embedding_file', None),
@@ -654,6 +661,11 @@ def run_command(args):
     logger.info("Running full TEMPL pipeline")
     
     try:
+        # Set workers if not provided
+        if not hasattr(args, 'workers') or args.workers is None:
+            hardware_config = _get_hardware_config()
+            args.workers = hardware_config["n_workers"]
+        
         # Initialize pipeline
         pipeline = TEMPLPipeline(
             embedding_path=getattr(args, 'embedding_file', None),
@@ -699,6 +711,11 @@ def load_template_molecules_from_sdf(template_pdbs):
 
 def benchmark_command(args):
     """Execute selected benchmark suite with minimal elegant progress display."""
+    # Set n_workers if not provided
+    if not hasattr(args, 'n_workers') or args.n_workers is None:
+        hardware_config = _get_hardware_config()
+        args.n_workers = hardware_config["n_workers"]
+    
     if args.suite == "polaris":
         try:
             from templ_pipeline.benchmark.polaris.benchmark import main as benchmark_main
@@ -792,26 +809,53 @@ def benchmark_command(args):
 def main():
     """Main entry point for the CLI."""
     try:
+        # Quick check for help arguments to avoid expensive parser setup
+        import sys
+        if len(sys.argv) > 1 and sys.argv[1] in ['--help', '-h']:
+            # Determine help type from additional arguments
+            help_type = "main"  # default
+            if len(sys.argv) > 2:
+                help_type = sys.argv[2]
+            
+            # Ultra-fast help handling - avoid all imports and just use exec
+            try:
+                from .help_system import show_enhanced_help
+                show_enhanced_help(help_type)
+            except ImportError:
+                # Ultra-lightweight fallback - direct code execution
+                import os
+                current_dir = os.path.dirname(__file__)
+                help_file = os.path.join(current_dir, 'help_system.py')
+                
+                # Execute help system directly without importlib overhead
+                namespace = {}
+                with open(help_file, 'r') as f:
+                    exec(f.read(), namespace)
+                
+                namespace['show_enhanced_help'](help_type)
+            
+            return 0
+        
         parser = setup_parser()
         args = parser.parse_args()
         
-        # Handle custom help system
+        # Handle custom help system (backup for other help patterns)
         if hasattr(args, 'help') and args.help is not None:
             try:
                 from .help_system import show_enhanced_help
             except ImportError:
-                # Fallback for direct execution - import directly from file
-                import importlib.util
+                # Ultra-lightweight fallback - direct code execution
+                import os
                 current_dir = os.path.dirname(__file__)
                 help_file = os.path.join(current_dir, 'help_system.py')
                 
-                # Load help_system module directly
-                spec = importlib.util.spec_from_file_location("help_system", help_file)
-                help_system = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(help_system)
-                show_enhanced_help = help_system.show_enhanced_help
+                # Execute help system directly without importlib overhead
+                namespace = {}
+                with open(help_file, 'r') as f:
+                    exec(f.read(), namespace)
+                
+                namespace['show_enhanced_help'](args.help)
             
-            show_enhanced_help(args.help)
             return 0
         
         # Validate arguments
@@ -879,18 +923,18 @@ def main():
             try:
                 from .help_system import show_enhanced_help
             except ImportError:
-                # Fallback for direct execution - import directly from file
-                import importlib.util
+                # Ultra-lightweight fallback - direct code execution
+                import os
                 current_dir = os.path.dirname(__file__)
                 help_file = os.path.join(current_dir, 'help_system.py')
                 
-                # Load help_system module directly
-                spec = importlib.util.spec_from_file_location("help_system", help_file)
-                help_system = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(help_system)
-                show_enhanced_help = help_system.show_enhanced_help
+                # Execute help system directly without importlib overhead
+                namespace = {}
+                with open(help_file, 'r') as f:
+                    exec(f.read(), namespace)
+                
+                namespace['show_enhanced_help']("main")
             
-            show_enhanced_help("main")
             return 1
     
     except Exception as e:
