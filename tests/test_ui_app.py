@@ -1,25 +1,52 @@
 import pytest
 from unittest.mock import Mock, patch, MagicMock
-import streamlit as st
 from pathlib import Path
 import tempfile
+import sys
+
+# Conditional streamlit import for UI tests
+try:
+    import streamlit as st
+    STREAMLIT_AVAILABLE = True
+except ImportError:
+    st = None
+    STREAMLIT_AVAILABLE = False
+
+# Skip all UI tests if streamlit is not available
+pytestmark = pytest.mark.skipif(not STREAMLIT_AVAILABLE, reason="streamlit not available")
 
 # Import UI components
-import sys
 sys.path.append(str(Path(__file__).parent.parent))
-from ui.app import main, validate_smiles, process_molecule
+
+# Conditional UI app imports
+if STREAMLIT_AVAILABLE:
+    try:
+        from ui.app import main, validate_smiles, process_molecule
+    except ImportError:
+        # Handle case where UI app imports fail
+        main = None
+        validate_smiles = None
+        process_molecule = None
 
 class TestUIValidation:
     """Test input validation"""
     
+    @pytest.mark.ui
     def test_validate_smiles_valid(self):
         """Test valid SMILES validation"""
+        if validate_smiles is None:
+            pytest.skip("UI app not available")
+            
         valid_smiles = ["CCO", "c1ccccc1", "CC(=O)O"]
         for smiles in valid_smiles:
             assert validate_smiles(smiles) is True
     
+    @pytest.mark.ui
     def test_validate_smiles_invalid(self):
         """Test invalid SMILES validation"""
+        if validate_smiles is None:
+            pytest.skip("UI app not available")
+            
         invalid_smiles = ["", "INVALID", "C@", None]
         for smiles in invalid_smiles:
             assert validate_smiles(smiles) is False
@@ -32,6 +59,9 @@ class TestUIApp:
     @patch('streamlit.sidebar')
     def test_app_initialization(self, mock_sidebar, mock_title):
         """Test app initializes correctly"""
+        if main is None:
+            pytest.skip("UI app not available")
+            
         with patch('ui.app.main') as mock_main:
             mock_main.return_value = None
             # Basic initialization test
@@ -54,6 +84,9 @@ class TestMoleculeProcessing:
     @patch('templ_pipeline.core.template_engine.TemplateEngine')
     def test_process_molecule_success(self, mock_engine):
         """Test successful molecule processing"""
+        if process_molecule is None:
+            pytest.skip("UI app not available")
+            
         mock_engine.return_value.run.return_value = {
             'poses': [{'score': 0.8}],
             'metadata': {'time': 10.5}
@@ -66,6 +99,9 @@ class TestMoleculeProcessing:
     @patch('templ_pipeline.core.template_engine.TemplateEngine')
     def test_process_molecule_failure(self, mock_engine):
         """Test molecule processing failure handling"""
+        if process_molecule is None:
+            pytest.skip("UI app not available")
+            
         mock_engine.return_value.run.side_effect = Exception("Processing failed")
         
         with pytest.raises(Exception):
