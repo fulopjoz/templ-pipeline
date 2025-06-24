@@ -38,11 +38,12 @@ class TestHelpSystem:
     
     @pytest.mark.fast
     def test_simple_help_formatting(self):
-        """Test simple help displays correctly."""
+        """Test simple help command shows appropriate message."""
         stdout, stderr, returncode = self.runner.capture_output(["--help", "simple"])
         
         assert returncode == 0, f"Simple help failed: {stderr}"
-        assert validate_help_output(stdout, HELP_SIMPLE_KEYWORDS), "Simple help missing expected keywords"
+        # The new help system shows a message for unavailable help topics
+        assert validate_help_output(stdout, HELP_SIMPLE_KEYWORDS), "Simple help missing expected message"
     
     @pytest.mark.fast
     def test_examples_help_commands(self):
@@ -58,29 +59,31 @@ class TestHelpSystem:
     
     @pytest.mark.fast
     def test_performance_help_accuracy(self):
-        """Test performance help displays correctly."""
+        """Test performance help command shows appropriate message."""
         stdout, stderr, returncode = self.runner.capture_output(["--help", "performance"])
         
         assert returncode == 0, f"Performance help failed: {stderr}"
-        assert validate_help_output(stdout, HELP_PERFORMANCE_KEYWORDS), "Performance help missing expected keywords"
+        # The new help system shows a message for unavailable help topics  
+        assert validate_help_output(stdout, HELP_PERFORMANCE_KEYWORDS), "Performance help missing expected message"
     
     @pytest.mark.fast
     def test_ascii_banner_display(self):
-        """Test ASCII banner appears in help."""
+        """Test title appears in help."""
         stdout, stderr, returncode = self.runner.capture_output(["--help"])
         
         assert returncode == 0, f"Help command failed: {stderr}"
-        assert validate_ascii_banner(stdout, ASCII_BANNER_PATTERN), "ASCII banner not found in help output"
+        # The new help system uses a simple title instead of ASCII banner
+        assert "TEMPL Pipeline - Template-based Protein-Ligand Pose Prediction" in stdout, "Title not found in help output"
     
     @pytest.mark.fast
     def test_help_navigation(self):
         """Test all help navigation options work."""
         help_options = [
             ["--help"],
-            ["--help", "simple"],
+            ["--help", "basic"],
             ["--help", "examples"], 
-            ["--help", "workflows"],
-            ["--help", "performance"]
+            ["--help", "intermediate"],
+            ["--help", "expert"]
         ]
         
         for option in help_options:
@@ -93,9 +96,9 @@ class TestHelpSystem:
         """Test invalid help requests are handled gracefully."""
         stdout, stderr, returncode = self.runner.capture_output(["--help", "invalid"])
         
-        # Should either show main help or give helpful error
-        assert returncode in [0, 1], "Invalid help should return 0 or 1"
-        assert len(stdout) > 0 or len(stderr) > 0, "Should provide some output for invalid help"
+        # Should show help not available message
+        assert returncode == 0, "Invalid help should return 0 with helpful message"
+        assert "Help not available for command: invalid" in stdout, "Should show appropriate error message"
 
 
 class TestCommandSpecificHelp:
@@ -156,10 +159,10 @@ class TestRichFormatting:
         
         assert returncode == 0, f"Help command failed: {stderr}"
         
-        # Check for section headers
-        assert "Commands:" in stdout, "Help should have Commands section"
-        assert "Quick Examples:" in stdout, "Help should have Quick Examples section"
-        assert "Additional help functions:" in stdout, "Help should have additional help section"
+        # Check for new section headers in progressive help system
+        assert "Common Commands:" in stdout, "Help should have Common Commands section"
+        assert "Quick Start:" in stdout, "Help should have Quick Start section"
+        assert "Get Help:" in stdout, "Help should have Get Help section"
     
     @pytest.mark.fast
     def test_cross_platform_compatibility(self):
