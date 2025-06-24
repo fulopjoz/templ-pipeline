@@ -133,7 +133,7 @@ def get_core_modules():
 # Configure page
 st.set_page_config(
     page_title="TEMPL Pipeline",
-    page_icon="🏛️",
+    page_icon="🧪",
     layout="wide"
 )
 
@@ -1252,16 +1252,16 @@ def show_hardware_status():
                         st.code("pip install torch transformers --index-url https://download.pytorch.org/whl/cpu", language="bash")
             
             # Performance recommendation
-            config_emoji = {
-                "cpu-minimal": "🏃‍♂️",
-                "cpu-optimized": "💻", 
-                "gpu-small": "🎮",
-                "gpu-medium": "🚀",
-                "gpu-large": "⚡"
+            config_labels = {
+                "cpu-minimal": "BASIC",
+                "cpu-optimized": "STANDARD", 
+                "gpu-small": "ACCELERATED",
+                "gpu-medium": "HIGH-PERFORMANCE",
+                "gpu-large": "MAXIMUM"
             }
             
-            emoji = config_emoji.get(HARDWARE_INFO.recommended_config, "🖥️")
-            st.markdown(f"{emoji} Recommended: {HARDWARE_INFO.recommended_config}")
+            label = config_labels.get(HARDWARE_INFO.recommended_config, "HARDWARE")
+            st.markdown(f"{label}: Recommended: {HARDWARE_INFO.recommended_config}")
 
 def check_ai_requirements_for_feature(feature_name: str) -> bool:
     """Check if AI requirements are met for a specific feature"""
@@ -1385,7 +1385,7 @@ def main():
     with col_desc1:
         st.markdown("""
         <div class="info-card">
-            <h4>❓ What it does</h4>
+            <h4>OVERVIEW: What it does</h4>
             <ul>
                 <li>Predicts 3D binding poses for small molecules</li> 
                 <li>Uses template-guided conformer generation with MCS</li>
@@ -1397,7 +1397,7 @@ def main():
     with col_desc2:
         st.markdown("""
         <div class="info-card">
-            <h4>⚡ How it works</h4>
+            <h4>WORKFLOW: How it works</h4>
             <ol>
                 <li>Enter your molecule (SMILES or file)</li>
                 <li>Provide protein target or SDF templates</li>
