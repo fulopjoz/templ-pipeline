@@ -158,7 +158,7 @@ def has_rhenium_complex(mol: Chem.Mol, pdb_id: str = "") -> Tuple[bool, str]:
     for atom in mol.GetAtoms():
         if atom.GetAtomicNum() == 75:  # Rhenium
             warning_msg = (
-                "❌ Target contains rhenium complex - cannot be processed. "
+                "ERROR: Target contains rhenium complex - cannot be processed. "
                 "Rhenium complexes require specialized force fields not available in this pipeline. "
                 "Consider using quantum mechanical methods for conformer generation."
             )
@@ -187,7 +187,7 @@ def is_large_peptide(mol: Chem.Mol, residue_threshold: int = 8) -> Tuple[bool, s
             
             if num_peptide_bonds > residue_threshold:
                 warning_msg = (
-                    f"❌ Target appears to be a large peptide ({num_peptide_bonds} peptide bonds > {residue_threshold} threshold) - cannot be processed. "
+                    f"ERROR: Target appears to be a large peptide ({num_peptide_bonds} peptide bonds > {residue_threshold} threshold) - cannot be processed. "
                     "This pipeline is designed for drug-like small molecules only. "
                     "Large peptides require specialized conformational sampling methods."
                 )
@@ -204,7 +204,7 @@ def is_large_peptide(mol: Chem.Mol, residue_threshold: int = 8) -> Tuple[bool, s
         estimated_residues = non_h_atoms // 6
         if estimated_residues > residue_threshold:
             warning_msg = (
-                f"❌ Target appears to be a large peptide (estimated {estimated_residues} residues > {residue_threshold} threshold) - cannot be processed. "
+                f"ERROR: Target appears to be a large peptide (estimated {estimated_residues} residues > {residue_threshold} threshold) - cannot be processed. "
                 "This pipeline is designed for drug-like small molecules only. "
                 "Large peptides require specialized conformational sampling methods."
             )
@@ -227,7 +227,7 @@ def validate_target_molecule(mol: Chem.Mol, mol_name: str = "unknown", pdb_id: s
         Tuple[bool, str]: (True if valid, warning message if invalid)
     """
     if mol is None:
-        return False, f"❌ Invalid molecule object for {mol_name}"
+        return False, f"ERROR: Invalid molecule object for {mol_name}"
     
     # Check for rhenium complexes (with 3rj7 exception)
     has_re, re_msg = has_rhenium_complex(mol, pdb_id)
