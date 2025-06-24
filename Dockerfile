@@ -35,4 +35,4 @@ COPY --from=builder /app /app
 
 ENV PORT=8080
 EXPOSE 8080
-CMD ["streamlit", "run", "ui/app.py", "--server.port", "8080", "--server.headless=true"] 
+CMD ["streamlit", "run", "templ_pipeline/ui/app.py", "--server.port", "8080", "--server.headless=true"] 
