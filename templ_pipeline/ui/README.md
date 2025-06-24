@@ -11,11 +11,11 @@ python run_streamlit_app.py
 
 ## Features
 
-- ✅ One-click workflow: Input → Predict → Results
-- ✅ Direct core module integration
-- ✅ Simple, clean interface
-- ✅ SMILES and PDB input validation
-- ✅ Pose visualization and SDF download
+- One-click workflow: Input → Predict → Results
+- Direct core module integration
+- Simple, clean interface
+- SMILES and PDB input validation
+- Pose visualization and SDF download
 
 ## Usage
 

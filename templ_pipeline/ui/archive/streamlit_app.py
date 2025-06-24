@@ -175,7 +175,7 @@ def load_embedding_map_cached():
 # Configure page
 st.set_page_config(
     page_title="TEMPL Pipeline",
-    page_icon="🛕",
+    page_icon="⚗️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
