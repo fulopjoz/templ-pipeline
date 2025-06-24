@@ -15,7 +15,7 @@ TEMPL leverages **ligand similarity** and **template superposition** instead of 
 
 ---
 
-## 🚀 One-Click Installation
+## Quick Installation
 
 **Just run one command and you're ready to go:**
 
@@ -26,13 +26,13 @@ cd templ-pipeline
 ```
 
 **That's it!** The script will:
-- 🔍 Detect your hardware (CPU cores, RAM, GPU)
-- 📦 Install optimal dependencies for your system
-- ⚙️ Create and activate the `.templ` environment  
-- ✅ Verify everything works
-- 🎯 **Leave you ready to use `templ` immediately**
+- Detect your hardware (CPU cores, RAM, GPU)
+- Install optimal dependencies for your system
+- Create and activate the `.templ` environment  
+- Verify everything works
+- **Leave you ready to use `templ` immediately**
 
-### 🎛️ Installation Options
+### Installation Options
 
 ```bash
 # Default: Auto-detect and install optimally (recommended)
@@ -48,7 +48,7 @@ cd templ-pipeline
 ./setup_env_smart.sh --minimal
 ```
 
-### 🔄 Using TEMPL Later
+### Using TEMPL Later
 
 The installation creates a `.templ` environment. For future sessions:
 
