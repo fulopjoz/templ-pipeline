@@ -2,12 +2,20 @@
 """
 TEMPL Pipeline Command Line Interface
 
+Enhanced CLI with Smart Progressive Interface, contextual help, and adaptive UX.
+
 This module provides a command-line interface for the TEMPL pipeline,
 allowing users to:
 1. Generate protein embeddings
 2. Find similar protein templates
 3. Generate poses for a query ligand based on templates
 4. Score and select the best poses
+
+Features:
+- Smart Progressive Interface that adapts to user experience level
+- Context-aware help and suggestions
+- Adaptive verbosity and progress indication
+- User preference learning and optimization
 
 Usage examples:
   # Generate embedding for a protein
@@ -33,11 +41,20 @@ import sys
 import time
 from pathlib import Path
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+# Import UX enhancements
+from .ux_config import (
+    get_ux_config, 
+    configure_logging_for_verbosity,
+    VerbosityLevel, 
+    ExperienceLevel
 )
+from .help_system import create_enhanced_parser, handle_help_request
+from .progress_indicators import progress_context, OperationType
+
+# Configure logging with UX-aware settings
+ux_config = get_ux_config()
+verbosity = ux_config.get_verbosity_level()
+configure_logging_for_verbosity(verbosity, "templ-cli")
 logger = logging.getLogger("templ-cli")
 
 # Lazy hardware detection - only import when needed
@@ -102,33 +119,48 @@ def validate_smiles(smiles_string):
         return False, f"SMILES validation error: {str(e)}"
 
 def setup_parser():
-    """Set up the command-line argument parser."""
-    parser = argparse.ArgumentParser(
-        description="TEMPL Pipeline: Template-based Protein-Ligand Pose Prediction",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        add_help=False  # Disable default help to use custom help system
-    )
+    """Set up the command-line argument parser with UX enhancements."""
+    # Create enhanced parser with smart help system
+    parser, help_system = create_enhanced_parser()
     
-    # Add custom help arguments
-    parser.add_argument(
-        "-h", "--help",
-        nargs="?",
-        const="main",
-        help="Show help message. Options: simple, examples, performance, <command>"
-    )
+    # Get user experience level for adaptive interface
+    experience_level = ux_config.get_effective_experience_level()
+    appropriate_args = ux_config.get_arguments_for_user_level(experience_level)
     
-    # Add common arguments
+    # Show contextual welcome message for new users
+    if experience_level == ExperienceLevel.BEGINNER and ux_config.usage_patterns.total_commands < 3:
+        logger.info("Welcome to TEMPL! For getting started help: templ --help getting-started")
+    
+    # Add common arguments - log-level should always be available for debugging
+    # Map verbosity levels to proper logging levels
+    verbosity_to_log_level = {
+        VerbosityLevel.MINIMAL: "WARNING",
+        VerbosityLevel.NORMAL: "INFO", 
+        VerbosityLevel.DETAILED: "INFO",
+        VerbosityLevel.DEBUG: "DEBUG"
+    }
+    default_log_level = verbosity_to_log_level.get(verbosity, "INFO")
+    
     parser.add_argument(
         "--log-level",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        default="INFO",
+        default=default_log_level,
         help="Set logging level"
     )
+    
+    # Add other common arguments (adapt based on user level)
     parser.add_argument(
         "--output-dir",
         type=str,
         default="output",
         help="Directory for output files"
+    )
+    
+    # Add verbosity control
+    parser.add_argument(
+        "--verbosity",
+        choices=["minimal", "normal", "detailed", "debug"],
+        help="Output verbosity level"
     )
     
     # Add subparsers for different commands
@@ -399,7 +431,7 @@ def setup_parser():
     )
     benchmark_parser.set_defaults(func=benchmark_command)
     
-    return parser
+    return parser, help_system
 
 def set_log_level(level_name):
     """Set the logging level based on the provided name."""
@@ -640,8 +672,9 @@ def generate_poses_command(args):
             n_workers=args.workers
         )
         
-        # Save results
-        output_file = pipeline.save_results(results, args.template_pdb)
+        # Save results - extract poses from results dict
+        poses = results['poses'] if isinstance(results, dict) and 'poses' in results else results
+        output_file = pipeline.save_results(poses, args.template_pdb)
         logger.info(f"Results saved to: {output_file}")
         
         return 0
@@ -807,56 +840,35 @@ def benchmark_command(args):
         return 1
 
 def main():
-    """Main entry point for the CLI."""
+    """Main entry point for the CLI with enhanced UX."""
     try:
-        # Quick check for help arguments to avoid expensive parser setup
+        # Quick check for help arguments to use enhanced help system
         import sys
         if len(sys.argv) > 1 and sys.argv[1] in ['--help', '-h']:
             # Determine help type from additional arguments
-            help_type = "main"  # default
+            help_type = None
             if len(sys.argv) > 2:
                 help_type = sys.argv[2]
             
-            # Ultra-fast help handling - avoid all imports and just use exec
-            try:
-                from .help_system import show_enhanced_help
-                show_enhanced_help(help_type)
-            except ImportError:
-                # Ultra-lightweight fallback - direct code execution
-                import os
-                current_dir = os.path.dirname(__file__)
-                help_file = os.path.join(current_dir, 'help_system.py')
-                
-                # Execute help system directly without importlib overhead
-                namespace = {}
-                with open(help_file, 'r') as f:
-                    exec(f.read(), namespace)
-                
-                namespace['show_enhanced_help'](help_type)
-            
+            # Use enhanced help system
+            from .help_system import TEMPLHelpSystem, handle_help_request
+            help_system = TEMPLHelpSystem()
+            handle_help_request(help_type, help_system)
             return 0
         
-        parser = setup_parser()
+        parser, help_system = setup_parser()
         args = parser.parse_args()
         
         # Handle custom help system (backup for other help patterns)
         if hasattr(args, 'help') and args.help is not None:
-            try:
-                from .help_system import show_enhanced_help
-            except ImportError:
-                # Ultra-lightweight fallback - direct code execution
-                import os
-                current_dir = os.path.dirname(__file__)
-                help_file = os.path.join(current_dir, 'help_system.py')
-                
-                # Execute help system directly without importlib overhead
-                namespace = {}
-                with open(help_file, 'r') as f:
-                    exec(f.read(), namespace)
-                
-                namespace['show_enhanced_help'](args.help)
-            
+            handle_help_request(args.help, help_system)
             return 0
+        
+        # Update verbosity if specified
+        if hasattr(args, 'verbosity') and args.verbosity:
+            verbosity = VerbosityLevel(args.verbosity)
+            configure_logging_for_verbosity(verbosity, "templ-cli")
+            ux_config.update_preferences(default_verbosity=verbosity)
         
         # Validate arguments
         if hasattr(args, 'ligand_smiles') and args.ligand_smiles:
@@ -907,35 +919,50 @@ def main():
         
         # Create output directory
         os.makedirs(args.output_dir, exist_ok=True)
-    
-            # Handle commands
-        if args.command == "embed":
-            return embed_command(args)
-        elif args.command == "find-templates":
-            return find_templates_command(args)
-        elif args.command == "generate-poses":
-            return generate_poses_command(args)
-        elif args.command == "run":
-            return run_command(args)
-        elif args.command == "benchmark":
-            return benchmark_command(args)
-        else:
-            try:
-                from .help_system import show_enhanced_help
-            except ImportError:
-                # Ultra-lightweight fallback - direct code execution
-                import os
-                current_dir = os.path.dirname(__file__)
-                help_file = os.path.join(current_dir, 'help_system.py')
-                
-                # Execute help system directly without importlib overhead
-                namespace = {}
-                with open(help_file, 'r') as f:
-                    exec(f.read(), namespace)
-                
-                namespace['show_enhanced_help']("main")
+        
+        # Apply smart defaults
+        smart_defaults = ux_config.get_smart_defaults(args.command or "run", vars(args))
+        for key, value in smart_defaults.items():
+            if not hasattr(args, key) or getattr(args, key) is None:
+                setattr(args, key, value)
+        
+        # Show contextual help hints
+        help_system.show_contextual_help(args.command or "run", vars(args))
+        
+        # Track command usage and execute
+        start_time = time.time()
+        result = 1
+        
+        try:
+            # Handle commands with usage tracking
+            if args.command == "embed":
+                result = embed_command(args)
+            elif args.command == "find-templates":
+                result = find_templates_command(args)
+            elif args.command == "generate-poses":
+                result = generate_poses_command(args)
+            elif args.command == "run":
+                result = run_command(args)
+            elif args.command == "benchmark":
+                result = benchmark_command(args)
+            else:
+                handle_help_request("main", help_system)
+                result = 1
             
-            return 1
+            # Track successful command completion
+            ux_config.track_command_usage(
+                args.command or "help", 
+                vars(args), 
+                success=(result == 0)
+            )
+            
+            return result
+            
+        except Exception as e:
+            # Track error for learning
+            error_context = f"{args.command or 'unknown'}:{str(e)[:100]}"
+            ux_config.track_error(error_context)
+            raise
     
     except Exception as e:
         logger.error(f"Error: {str(e)}")
