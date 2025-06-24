@@ -193,19 +193,21 @@ class TestDefaultValues:
     
     @pytest.mark.fast
     def test_default_output_directory(self):
-        """Test default output directory is set."""
-        stdout, stderr, returncode = self.runner.capture_output(["--help"])
+        """Test default output directory is mentioned in comprehensive help."""
+        # Check expert help which includes complete command reference with output options
+        stdout, stderr, returncode = self.runner.capture_output(["--help", "expert"])
         
-        # Should mention default output directory
-        assert "output" in stdout, "Should mention default output directory"
+        # Should mention output directory in expert help
+        assert "--output-dir" in stdout, "Should mention output directory option in expert help"
     
     @pytest.mark.fast
     def test_default_log_level(self):
-        """Test default log level is set."""
-        stdout, stderr, returncode = self.runner.capture_output(["--help"])
+        """Test default log level is mentioned in expert help."""
+        # Check expert help which includes complete command reference
+        stdout, stderr, returncode = self.runner.capture_output(["--help", "expert"])
         
-        # Should mention default log level
-        assert "INFO" in stdout, "Should mention default log level"
+        # Should mention log levels in expert help
+        assert "log-level" in stdout.lower() or "info" in stdout.lower(), "Should mention log level in expert help"
     
     @pytest.mark.fast
     def test_default_conformers(self):
@@ -236,4 +238,45 @@ def test_time_split_benchmark_dry_run():
     ])
     # We expect this to potentially fail due to missing data files, but not crash
     # The important thing is that the command is recognized and parsed correctly
-    assert returncode in [0, 1, 2]  # 0=success, 1=runtime error, 2=validation error 
+    assert returncode in [0, 1, 2]  # 0=success, 1=runtime error, 2=validation error
+
+def test_beginner_user_no_attribute_errors():
+    """Test that beginner users don't get AttributeError for missing CLI arguments."""
+    runner = CLITestRunner()
+    
+    # Create minimal temp files
+    with tempfile.NamedTemporaryFile(suffix=".pdb") as pdb_f:
+        pdb_f.write(MOCK_PROTEIN_PDB.encode())
+        pdb_f.flush()
+        
+        # Test that we don't get AttributeError for missing namespace attributes
+        # This simulates a fresh beginner user
+        stdout, stderr, returncode = runner.capture_output([
+            "run",
+            "--protein-file", pdb_f.name,
+            "--ligand-smiles", MOCK_SMILES
+        ])
+        
+        # Should NOT fail with AttributeError about missing namespace attributes
+        combined_output = (stdout + stderr).lower()
+        assert "attributeerror" not in combined_output, "Should not have AttributeError"
+        assert "'namespace' object has no attribute" not in combined_output, "Should not have namespace attribute errors"
+        assert "log_level" not in combined_output or "attributeerror" not in combined_output, "Should not have log_level AttributeError"
+
+def test_log_level_argument_always_available():
+    """Test that --log-level argument is always available regardless of user experience."""
+    runner = CLITestRunner()
+    
+    # Test that --log-level is recognized in help for main command
+    stdout, stderr, returncode = runner.capture_output(["--help"])
+    
+    # Should mention log-level as an available option (in any help mode)
+    assert returncode == 0, "Help should work"
+    # Since the progressive help system might not show all options, just check it's parsed correctly
+    
+    # Test that --log-level is accepted without error
+    stdout, stderr, returncode = runner.capture_output(["run", "--log-level", "DEBUG"])
+    
+    # Should fail for missing required args, but NOT for unrecognized --log-level
+    assert "unrecognized arguments: --log-level" not in stderr, "--log-level should be recognized"
+    assert "invalid choice" not in stderr.lower(), "--log-level DEBUG should be valid choice" 

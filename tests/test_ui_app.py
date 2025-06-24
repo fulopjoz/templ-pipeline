@@ -1,32 +1,60 @@
+"""
+Tests for UI app functionality
+"""
+
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
 import tempfile
 import sys
 
-# Conditional streamlit import for UI tests
-try:
-    import streamlit as st
-    STREAMLIT_AVAILABLE = True
-except ImportError:
-    st = None
-    STREAMLIT_AVAILABLE = False
+# Mock streamlit before any imports
+mock_st = MagicMock()
 
-# Skip all UI tests if streamlit is not available
-pytestmark = pytest.mark.skipif(not STREAMLIT_AVAILABLE, reason="streamlit not available")
+# Create proper cache decorators that handle both with and without arguments
+def mock_cache_data(*args, **kwargs):
+    """Mock cache_data decorator that handles both @st.cache_data and @st.cache_data(ttl=...)"""
+    if len(args) == 1 and callable(args[0]) and not kwargs:
+        # Called without arguments: @st.cache_data
+        return args[0]
+    else:
+        # Called with arguments: @st.cache_data(ttl=3600)
+        def decorator(func):
+            return func
+        return decorator
+
+def mock_cache_resource(*args, **kwargs):
+    """Mock cache_resource decorator that handles both @st.cache_resource and @st.cache_resource(...)"""
+    if len(args) == 1 and callable(args[0]) and not kwargs:
+        # Called without arguments: @st.cache_resource
+        return args[0]
+    else:
+        # Called with arguments: @st.cache_resource(...)
+        def decorator(func):
+            return func
+        return decorator
+
+mock_st.cache_data = mock_cache_data
+mock_st.cache_resource = mock_cache_resource
+mock_st.session_state = {}
+
+sys.modules['streamlit'] = mock_st
+sys.modules['py3Dmol'] = MagicMock()
+sys.modules['stmol'] = MagicMock()
 
 # Import UI components
 sys.path.append(str(Path(__file__).parent.parent))
 
-# Conditional UI app imports
-if STREAMLIT_AVAILABLE:
-    try:
-        from ui.app import main, validate_smiles, process_molecule
-    except ImportError:
-        # Handle case where UI app imports fail
-        main = None
-        validate_smiles = None
-        process_molecule = None
+# Import functions from ui.app
+try:
+    from templ_pipeline.ui.app import validate_smiles, process_molecule, main
+    UI_AVAILABLE = True
+except ImportError:
+    validate_smiles = None
+    process_molecule = None
+    main = None
+    UI_AVAILABLE = False
+
 
 class TestUIValidation:
     """Test input validation"""
@@ -34,7 +62,7 @@ class TestUIValidation:
     @pytest.mark.ui
     def test_validate_smiles_valid(self):
         """Test valid SMILES validation"""
-        if validate_smiles is None:
+        if not UI_AVAILABLE:
             pytest.skip("UI app not available")
             
         valid_smiles = ["CCO", "c1ccccc1", "CC(=O)O"]
@@ -44,7 +72,7 @@ class TestUIValidation:
     @pytest.mark.ui
     def test_validate_smiles_invalid(self):
         """Test invalid SMILES validation"""
-        if validate_smiles is None:
+        if not UI_AVAILABLE:
             pytest.skip("UI app not available")
             
         invalid_smiles = ["", "INVALID", "C@", None]
@@ -59,22 +87,22 @@ class TestUIApp:
     @patch('streamlit.sidebar')
     def test_app_initialization(self, mock_sidebar, mock_title):
         """Test app initializes correctly"""
-        if main is None:
+        if not UI_AVAILABLE:
             pytest.skip("UI app not available")
             
-        with patch('ui.app.main') as mock_main:
+        with patch('templ_pipeline.ui.app.main') as mock_main:
             mock_main.return_value = None
             # Basic initialization test
             assert True  # Placeholder for actual UI testing
     
-    def test_session_state_management(self, mock_streamlit):
+    def test_session_state_management(self):
         """Test session state handling"""
         # Test initial state
-        assert 'results' not in mock_streamlit
+        assert 'results' not in mock_st.session_state
         
         # Test state setting
-        mock_streamlit['results'] = {'test': 'data'}
-        assert mock_streamlit['results']['test'] == 'data'
+        mock_st.session_state['results'] = {'test': 'data'}
+        assert mock_st.session_state['results']['test'] == 'data'
 
 @pytest.mark.ui
 @pytest.mark.slow
@@ -84,7 +112,7 @@ class TestMoleculeProcessing:
     @patch('templ_pipeline.core.template_engine.TemplateEngine')
     def test_process_molecule_success(self, mock_engine):
         """Test successful molecule processing"""
-        if process_molecule is None:
+        if not UI_AVAILABLE:
             pytest.skip("UI app not available")
             
         mock_engine.return_value.run.return_value = {
@@ -99,7 +127,7 @@ class TestMoleculeProcessing:
     @patch('templ_pipeline.core.template_engine.TemplateEngine')
     def test_process_molecule_failure(self, mock_engine):
         """Test molecule processing failure handling"""
-        if process_molecule is None:
+        if not UI_AVAILABLE:
             pytest.skip("UI app not available")
             
         mock_engine.return_value.run.side_effect = Exception("Processing failed")
@@ -110,6 +138,12 @@ class TestMoleculeProcessing:
 @pytest.mark.ui
 class TestFileHandling:
     """Test file upload and processing"""
+    
+    @pytest.fixture
+    def temp_dir(self):
+        """Create temporary directory for testing"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            yield Path(tmp_dir)
     
     def test_file_upload_validation(self, temp_dir):
         """Test file upload validation"""
