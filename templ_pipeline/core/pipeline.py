@@ -396,53 +396,215 @@ class TEMPLPipeline:
         
         return results
     
-    def save_results(self, poses: Dict[str, Tuple[Any, Dict[str, float]]], template_pdb: str = "unknown", target_pdb: Optional[str] = None) -> str:
+    def save_results(self, poses: Dict[str, Tuple[Any, Dict[str, float]]], 
+                    template_pdb: str = "unknown", 
+                    target_pdb: Optional[str] = None,
+                    ligand_smiles: Optional[str] = None,
+                    ligand_file: Optional[str] = None,
+                    template_source: Optional[str] = None,
+                    batch_id: Optional[str] = None,
+                    custom_prefix: Optional[str] = None,
+                    generate_fair_metadata: bool = True) -> str:
         """
-        Save poses to SDF file.
-        Now includes optional target_pdb so output files are named <pdb_id>_poses.sdf for easier identification.
+        Save poses to SDF file using adaptive file naming system.
         
         Args:
             poses: Dictionary of poses from generate_poses
             template_pdb: Template PDB ID for metadata (kept for backwards compatibility)
-            target_pdb: Target PDB ID to embed in filename (optional)
+            target_pdb: Target PDB ID or identifier
+            ligand_smiles: SMILES string of the ligand
+            ligand_file: Path to ligand file (if applicable)
+            template_source: Source of templates ('database', 'sdf', 'custom')
+            batch_id: Batch identifier for batch processing
+            custom_prefix: Custom prefix for filename
+            generate_fair_metadata: Whether to generate FAIR metadata (default: True)
+            
         Returns:
-            Path to output SDF file
+            Path to the saved SDF file
         """
-        from .scoring import generate_properties_for_sdf
-        Chem, _ = self._get_rdkit()
-
-        # Determine filename – embed PDB ID if provided
-        if target_pdb:
-            filename = f"{target_pdb.lower()}_poses.sdf"
-        else:
-            filename = "poses.sdf"
-
-        output_file = self.output_dir / filename
-        logger.info(f"Saving poses to {output_file}")
-
-        with Chem.SDWriter(str(output_file)) as writer:
-            for method, (pose, scores) in poses.items():
-                if pose is None:
-                    logger.warning(f"No valid pose for {method}")
+        if not poses:
+            logger.warning("No poses to save")
+            return ""
+        
+        try:
+            # Create output manager and prediction context
+            from ..core.output_manager import OutputManager, PredictionContext
+            
+            output_manager = OutputManager()
+            
+            # Create prediction context for adaptive naming
+            context = PredictionContext(
+                pdb_id=target_pdb,
+                smiles=ligand_smiles,
+                input_file=ligand_file,
+                template_source=template_source or 'database',
+                batch_id=batch_id,
+                custom_prefix=custom_prefix
+            )
+            
+            # Generate filename using adaptive naming
+            filename = output_manager.generate_output_filename(context, 'poses', 'sdf')
+            
+            # Create SDF writer
+            Chem, _ = self._get_rdkit()
+            writer = Chem.SDWriter(filename)
+            
+            best_scores = {}
+            poses_written = 0
+            
+            # Write poses to file
+            for pose_id, (mol, scores) in poses.items():
+                try:
+                    # Add pose metadata to molecule
+                    mol.SetProp("_Name", pose_id)
+                    mol.SetProp("Template_PDB", template_pdb)
+                    if target_pdb:
+                        mol.SetProp("Target_PDB", target_pdb)
+                    
+                    # Add scores as properties
+                    for score_name, score_value in scores.items():
+                        mol.SetProp(score_name, str(score_value))
+                        
+                        # Track best scores
+                        if score_name not in best_scores or score_value > best_scores[score_name]:
+                            best_scores[score_name] = score_value
+                    
+                    writer.write(mol)
+                    poses_written += 1
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to write pose {pose_id}: {e}")
                     continue
-
-                # Add properties
-                pose_with_props = generate_properties_for_sdf(
-                    pose,
-                    method,
-                    scores.get(method, 0.0),
-                    template_pdb,
-                    {
-                        "shape_score": f"{scores.get('shape', 0.0):.3f}",
-                        "color_score": f"{scores.get('color', 0.0):.3f}",
-                        "combo_score": f"{scores.get('combo', 0.0):.3f}"
-                    }
-                )
-
-                writer.write(pose_with_props)
-
-        logger.info(f"Saved poses to {output_file}")
-        return str(output_file)
+            
+            writer.close()
+            
+            # Generate FAIR metadata if requested
+            if generate_fair_metadata:
+                try:
+                    self._generate_fair_metadata(
+                        filename=filename,
+                        context=context,
+                        poses_count=poses_written,
+                        best_scores=best_scores,
+                        template_pdb=template_pdb,
+                        ligand_smiles=ligand_smiles
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to generate FAIR metadata: {e}")
+            
+            logger.info(f"Saved {poses_written} poses to {filename}")
+            return filename
+            
+        except Exception as e:
+            logger.error(f"Error saving poses: {e}")
+            # Fallback to simple naming if adaptive naming fails
+            fallback_filename = "poses.sdf"
+            try:
+                Chem, _ = self._get_rdkit()
+                writer = Chem.SDWriter(fallback_filename)
+                for pose_id, (mol, scores) in poses.items():
+                    mol.SetProp("_Name", pose_id)
+                    writer.write(mol)
+                writer.close()
+                return fallback_filename
+            except:
+                return ""
+    
+    def _generate_fair_metadata(self, 
+                              filename: str,
+                              context,
+                              poses_count: int,
+                              best_scores: Dict[str, float],
+                              template_pdb: str,
+                              ligand_smiles: Optional[str]) -> None:
+        """
+        Generate comprehensive FAIR metadata for the prediction results.
+        
+        Args:
+            filename: Output filename
+            context: PredictionContext object
+            poses_count: Number of poses generated
+            best_scores: Best scoring values
+            template_pdb: Template PDB identifier
+            ligand_smiles: SMILES string of ligand
+        """
+        try:
+            from ..fair.core.metadata_engine import MetadataEngine
+            from ..fair.biology.molecular_descriptors import calculate_comprehensive_descriptors
+            
+            # Create metadata engine
+            metadata_engine = MetadataEngine(pipeline_version="2.0.0")
+            
+            # Determine input type and value
+            input_type = "unknown"
+            input_value = ""
+            template_identifiers = []
+            
+            if context.pdb_id:
+                input_type = "pdb_id"
+                input_value = context.pdb_id
+            elif ligand_smiles:
+                input_type = "smiles"
+                input_value = ligand_smiles
+            elif context.input_file:
+                input_type = "sdf_file"
+                input_value = context.input_file
+            
+            if template_pdb and template_pdb != "unknown":
+                template_identifiers = [template_pdb]
+            
+            # Create input metadata
+            input_metadata = metadata_engine.create_input_metadata(
+                target_identifier=context.pdb_id,
+                input_type=input_type,
+                input_value=input_value,
+                input_file=context.input_file,
+                template_source=context.template_source,
+                template_identifiers=template_identifiers,
+                parameters={
+                    "batch_id": context.batch_id,
+                    "custom_prefix": context.custom_prefix,
+                    "template_pdb": template_pdb
+                }
+            )
+            
+            # Create output metadata
+            output_metadata = metadata_engine.create_output_metadata(
+                primary_output=filename,
+                output_format="sdf",
+                poses_generated=poses_count,
+                best_scores=best_scores
+            )
+            
+            # Generate molecular descriptors if SMILES available
+            biological_context = {}
+            if ligand_smiles:
+                try:
+                    descriptors = calculate_comprehensive_descriptors(ligand_smiles)
+                    if descriptors.get("calculation_success"):
+                        biological_context["molecular_descriptors"] = descriptors
+                except Exception as e:
+                    logger.warning(f"Failed to calculate molecular descriptors: {e}")
+            
+            # Create scientific metadata
+            scientific_metadata = metadata_engine.create_scientific_metadata(
+                biological_context=biological_context
+            )
+            
+            # Create provenance record
+            provenance_record = metadata_engine.create_provenance_record(
+                input_metadata, output_metadata, scientific_metadata
+            )
+            
+            # Export metadata to JSON
+            metadata_path = filename.replace('.sdf', '_metadata.json')
+            metadata_engine.export_metadata(provenance_record, metadata_path, format="json")
+            
+            logger.info(f"FAIR metadata saved to {metadata_path}")
+            
+        except Exception as e:
+            logger.error(f"Error generating FAIR metadata: {e}")
+            # Don't raise exception - metadata generation failure shouldn't stop pipeline
     
     def run_full_pipeline(self,
                          protein_file: Optional[str] = None,
@@ -501,7 +663,7 @@ class TEMPLPipeline:
                 
                 # Fast path check
                 if embedding_manager.has_embedding(protein_pdb_id):
-                    logger.info(f"✅ Fast path: Using cached embedding for {protein_pdb_id}")
+                    logger.info(f"SUCCESS: Fast path: Using cached embedding for {protein_pdb_id}")
                     embedding, chain_id = embedding_manager.get_embedding(protein_pdb_id)
                     if embedding is not None:
                         logger.info(f"Retrieved embedding with shape {embedding.shape} for chain {chain_id or 'A'}")
@@ -571,7 +733,12 @@ class TEMPLPipeline:
             output_file = self.save_results(
                 results['poses'],
                 template_pdbs[0],
-                target_pdb=protein_pdb_id if protein_pdb_id else None
+                target_pdb=protein_pdb_id if protein_pdb_id else None,
+                ligand_smiles=ligand_smiles,
+                ligand_file=ligand_file,
+                template_source='database' if protein_pdb_id else None,
+                batch_id=None,
+                custom_prefix=None
             )
             results['output_file'] = output_file
             
