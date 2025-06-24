@@ -22,7 +22,7 @@ except ImportError:
 
 def main():
     """Run the Streamlit app with the correct path configuration."""
-    streamlit_app_path = project_root / "ui" / "app.py"
+    streamlit_app_path = project_root / "templ_pipeline" / "ui" / "app.py"
     
     if not streamlit_app_path.exists():
         print(f"Error: Streamlit app not found at: {streamlit_app_path}")
