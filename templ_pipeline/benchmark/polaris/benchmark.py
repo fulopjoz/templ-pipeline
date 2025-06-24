@@ -994,7 +994,7 @@ def main(argv: List[str] | None = None):
                         )
 
     except KeyboardInterrupt:
-        print("\n⚠️  Benchmark interrupted by user")
+        print("\nWARNING: Benchmark interrupted by user")
         return 1
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
