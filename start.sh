@@ -66,5 +66,10 @@ echo "🎯 Starting Streamlit on port $STREAMLIT_SERVER_PORT..."
 echo "🎯 Command: streamlit run templ_pipeline/ui/app.py"
 
 # Use exec to replace the shell process
-exec streamlit run templ_pipeline/ui/app.py --server.port "$STREAMLIT_SERVER_PORT" --server.address "$STREAMLIT_SERVER_ADDRESS"
-
+exec streamlit run templ_pipeline/ui/app.py \
+    --server.port "$STREAMLIT_SERVER_PORT" \
+    --server.address "$STREAMLIT_SERVER_ADDRESS" \
+    --server.headless "$STREAMLIT_SERVER_HEADLESS" \
+    --server.enableCORS "$STREAMLIT_SERVER_ENABLE_CORS" \
+    --server.enableXsrfProtection "$STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION" \
+    --browser.gatherUsageStats "$STREAMLIT_BROWSER_GATHER_USAGE_STATS"
