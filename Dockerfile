@@ -75,7 +75,7 @@ EXPOSE 8080
 
 # Health check using Streamlit's built-in endpoint
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-    CMD curl -f http://localhost:${PORT:-8080}/_stcore/health || exit 1
+    CMD curl -f http://localhost:8080/_stcore/health || exit 1
 
 # Use the startup script as entrypoint
 ENTRYPOINT ["/app/start.sh"]

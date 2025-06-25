@@ -3,19 +3,25 @@ set -e
 
 echo "🚀 Starting TEMPL Pipeline Application"
 echo "📍 Working directory: $(pwd)"
+echo "🕐 Timestamp: $(date)"
 echo "🔧 Raw environment variables:"
 env | grep -E "(PORT|STREAMLIT)" | sort || echo "No PORT/STREAMLIT vars found"
 
 # CRITICAL: Unset any conflicting environment variables first
+echo "🧹 Clearing any existing STREAMLIT environment variables..."
 unset STREAMLIT_SERVER_PORT
 
 # Set port from DigitalOcean's PORT, with extensive logging
+echo "🔌 Configuring port settings..."
 if [ -n "$PORT" ]; then
     export STREAMLIT_SERVER_PORT="$PORT"
     echo "✅ Using DigitalOcean PORT: $PORT"
+    echo "✅ STREAMLIT_SERVER_PORT set to: $STREAMLIT_SERVER_PORT"
 else
     export STREAMLIT_SERVER_PORT="8080"
-    echo "⚠️  PORT not set, using default: 8080"
+    echo "⚠️  PORT environment variable not set by DigitalOcean"
+    echo "✅ Using default port: 8080"
+    echo "✅ STREAMLIT_SERVER_PORT set to: $STREAMLIT_SERVER_PORT"
 fi
 
 # Set all Streamlit configuration explicitly
