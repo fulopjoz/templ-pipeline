@@ -39,15 +39,18 @@ RUN ls -lah data-minimal/embeddings/ && \
 # Runtime stage - minimal
 FROM python:3.10-slim
 
-# Install minimal runtime dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         git-lfs \
         curl \
         libxrender1 \
+        libxext6 \
+        libsm6 \
+        libxft2 \
         && \
     git lfs install && \
     rm -rf /var/lib/apt/lists/*
+
 
 
 WORKDIR /app
