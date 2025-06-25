@@ -55,3 +55,27 @@ venv.bak/
 # OS
 .DS_Store
 Thumbs.db
+
+# Log files
+*.log
+
+# Output directories (timestamped results)
+output_*/
+
+# Backup files
+*.backup
+*_backup.py
+*_broken_backup.py
+*_fast.py
+*_original.py
+*_working_base.py
+
+# Test and diagnostic files
+debug_*.py
+diagnostic_*.py
+ultra_minimal.py
+test_minimal_*.py
+
+# Memory bank backups
+memory-bank/*.backup
+
