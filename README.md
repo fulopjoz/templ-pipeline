@@ -22,7 +22,7 @@ TEMPL leverages **ligand similarity** and **template superposition** instead of 
 ```bash
 git clone https://github.com/fulopjoz/templ-pipeline
 cd templ-pipeline
-./setup_env_smart.sh
+source setup_templ_env.sh
 ```
 
 **That's it!** The script will:
@@ -36,16 +36,16 @@ cd templ-pipeline
 
 ```bash
 # Default: Auto-detect and install optimally (recommended)
-./setup_env_smart.sh
+source setup_templ_env.sh
 
 # Force lightweight CPU-only installation (~50MB)
-./setup_env_smart.sh --cpu-only
+source setup_templ_env.sh --cpu-only
 
 # Force GPU installation (if auto-detection fails)
-./setup_env_smart.sh --gpu-force
+source setup_templ_env.sh --gpu-force
 
 # Minimal server installation (no web interface)
-./setup_env_smart.sh --minimal
+source setup_templ_env.sh --minimal
 ```
 
 ### Using TEMPL Later
@@ -53,10 +53,7 @@ cd templ-pipeline
 The installation creates a `.templ` environment. For future sessions:
 
 ```bash
-# Easy activation (recommended)
-source activate_templ.sh
-
-# Or manually
+# Activate the environment
 source .templ/bin/activate
 ```
 
@@ -66,9 +63,12 @@ Once activated, just use `templ` commands directly!
 
 ## Quick Start
 
-**Immediate usage after installation:**
+**After installation, you're immediately ready to use TEMPL:**
 
 ```bash
+# Make sure you're in the TEMPL environment (should show (.templ) in prompt)
+# If not, activate it: source .templ/bin/activate
+
 # 1-line pose prediction
 templ run \
   --protein-file examples/1a1c_protein.pdb \
@@ -136,13 +136,47 @@ templ benchmark time-split --n-workers 8 --pipeline-workers 1
 
 ---
 
+## Troubleshooting
+
+### "Command not found" Error
+If you get `templ: command not found`, make sure you're in the TEMPL environment:
+
+```bash
+# Check if environment is active (should show (.templ) in prompt)
+# If not active, run:
+source .templ/bin/activate
+
+# If no environment exists, run setup:
+source setup_templ_env.sh
+```
+
+### Environment Not Activating
+Make sure to use `source` (not `./`) when running the setup:
+
+```bash
+# ✅ Correct - creates and activates environment
+source setup_templ_env.sh
+
+# ❌ Wrong - creates environment but doesn't activate it
+./setup_templ_env.sh
+```
+
+### Get Help
+```bash
+templ --help getting-started    # Setup and basic usage
+templ --help troubleshooting    # Common issues and solutions
+templ --help examples           # Copy-paste examples
+```
+
+---
+
 ## Development & Testing
 
 ```bash
 # Development installation
-./setup_env_smart.sh --gpu-force  # or --cpu-only
-pip install -e ".[dev]"           # Add dev dependencies
-pytest -q                         # Run tests
+source setup_templ_env.sh --gpu-force  # or --cpu-only
+pip install -e ".[dev]"                # Add dev dependencies
+pytest -q                              # Run tests
 ```
 
 ---

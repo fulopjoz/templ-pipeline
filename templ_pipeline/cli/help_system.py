@@ -191,6 +191,13 @@ GETTING STARTED WITH TEMPL
 
 TEMPL predicts how small molecules bind to proteins using template-based methods.
 
+Environment Setup:
+  # FIRST TIME - Complete setup with activation:
+  source setup_templ_env.sh
+  
+  # SUBSEQUENT USE - Activate existing environment:
+  source .templ/bin/activate
+
 Prerequisites:
   - Protein structure file (.pdb) OR PDB ID
   - Ligand as SMILES string OR SDF file
@@ -208,6 +215,13 @@ Output: poses_final.sdf with ranked conformations
 """,
                 intermediate="""
 GETTING STARTED WITH TEMPL
+
+Environment Setup:
+  # FIRST TIME SETUP (creates environment + installs + activates):
+  source setup_templ_env.sh
+  
+  # SUBSEQUENT USAGE (activate existing environment):
+  source .templ/bin/activate
 
 Installation Check:
   templ --help        # Should show this help
@@ -239,6 +253,17 @@ Understanding Output:
 GETTING STARTED WITH TEMPL
 
 Complete Setup and Configuration:
+
+Environment Setup:
+  # Complete setup (creates + installs + activates):
+  source setup_templ_env.sh
+  
+  # Manual activation for subsequent use:
+  source .templ/bin/activate
+  
+  # Verify installation:
+  templ --help
+  python -c "import templ_pipeline; print('TEMPL installed successfully')"
 
 Data Requirements:
   - Protein: PDB format, clean structure preferred
@@ -376,8 +401,12 @@ Advanced Configuration:
                 basic="""
 COMMON ISSUES
 
-Problem: "Command not found"
-Solution: Make sure TEMPL is installed and in your PATH
+Problem: "Command not found" or "templ: command not found"
+Solution: 
+  1. Make sure you're in the TEMPL environment:
+     source .templ/bin/activate
+  2. If no environment exists, run setup:
+     source setup_templ_env.sh
 
 Problem: "Invalid SMILES string"
 Solution: Check your SMILES syntax at https://pubchem.ncbi.nlm.nih.gov/
@@ -388,12 +417,21 @@ Solution: Reduce --workers or --num-conformers
 Problem: Slow performance
 Solution: Increase --workers to match your CPU cores
 
+Problem: Environment not activating
+Solution: Use 'source' not './': source setup_templ_env.sh
+
 Get more help: templ --help troubleshooting
 """,
                 intermediate="""
 TROUBLESHOOTING GUIDE
 
 Installation Issues:
+  # First-time setup (creates + installs + activates):
+  source setup_templ_env.sh
+  
+  # Activate existing environment:
+  source .templ/bin/activate
+  
   # Check installation
   templ --help
   python -c "import templ_pipeline; print('OK')"

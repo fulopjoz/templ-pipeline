@@ -851,7 +851,7 @@ def main():
                 help_type = sys.argv[2]
             
             # Use enhanced help system
-            from .help_system import TEMPLHelpSystem, handle_help_request
+            from .help_system import TEMPLHelpSystem
             help_system = TEMPLHelpSystem()
             handle_help_request(help_type, help_system)
             return 0

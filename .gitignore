@@ -80,3 +80,45 @@ test_minimal_*.py
 memory-bank/*.backup
 
 *.pyc
+# ============================================
+# LARGE DATA FILES (keep locally for benchmarking)
+# ============================================
+
+# Complete data directory (except README)
+data/
+!data/README.md
+
+# Large output files
+output/
+templ_benchmark_results_polaris/
+
+# ============================================
+# REDUNDANT DEPLOYMENT FILES
+# ============================================
+
+# Outdated Docker configurations
+Dockerfile.optimized
+templ-app-optimized.yaml
+deploy-optimized.sh
+
+# Temporary test files
+test-docker-local.sh
+
+# ============================================
+# ADDITIONAL CLEANUP PATTERNS
+# ============================================
+
+# Large model files
+*.pth
+*.pkl
+*.h5
+*.hdf5
+
+# Data processing outputs
+*.npz.backup
+*.sdf.backup
+
+# Temporary analysis files
+analysis_*.py
+temp_*.py
+
