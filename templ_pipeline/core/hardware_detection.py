@@ -147,7 +147,7 @@ def get_hardware_recommendation() -> Dict[str, Any]:
     
     config_descriptions = {
         "cpu-minimal": "Minimal CPU-only installation",
-        "cpu-optimized": "CPU-optimized with AI features",
+        "cpu-optimized": "CPU-optimized with embedding features",
         "gpu-small": "GPU-enabled installation (small models)",
         "gpu-medium": "GPU-enabled installation (medium models)",
         "gpu-large": "GPU-enabled installation (large models)"
@@ -178,5 +178,5 @@ class ProteinEmbeddingBenchmark:
     
     def benchmark_cpu_vs_gpu(self, model_sizes: List[str] = None) -> Dict[str, List]:
         """Placeholder benchmark function"""
-        logger.info("Benchmarking functionality requires AI dependencies")
+        logger.info("Benchmarking functionality requires embedding dependencies")
         return {"cpu": [], "gpu": []} 
