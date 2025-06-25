@@ -44,9 +44,11 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         git-lfs \
         curl \
+        libxrender1 \
         && \
     git lfs install && \
     rm -rf /var/lib/apt/lists/*
+
 
 WORKDIR /app
 
