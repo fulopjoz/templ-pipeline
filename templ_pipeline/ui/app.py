@@ -446,19 +446,23 @@ def generate_molecule_image(mol_binary, width=400, height=300, highlight_atoms=N
     try:
         Chem, AllChem, Draw = get_rdkit_modules()
         mol = Chem.Mol(mol_binary)
+        
+        # Skip kekulization - use RDKit's default aromaticity handling
         mol_copy = Chem.RemoveHs(mol)
+        
+        # Ensure we have valid 2D coordinates
         if mol_copy.GetNumConformers() == 0:
             AllChem.Compute2DCoords(mol_copy)
-        
+
         if highlight_atoms:
             img = Draw.MolToImage(mol_copy, size=(width, height), highlightAtoms=highlight_atoms)
         else:
             img = Draw.MolToImage(mol_copy, size=(width, height))
-        
         return img
     except Exception as e:
         logger.error(f"Error generating molecule image: {e}")
         return None
+
 
 def display_molecule(mol, width=400, height=300, title="", highlight_atoms=None):
     """Display molecule as 2D image with optional atom highlighting"""
@@ -467,7 +471,18 @@ def display_molecule(mol, width=400, height=300, title="", highlight_atoms=None)
     
     try:
         # Convert mol to binary for caching
-        mol_binary = mol.ToBinary()
+        # sanitize the molecule carefully
+        import rdkit.Chem as Chem
+        
+        # Create a working copy to avoid modifying the original
+        mol_work = Chem.Mol(mol)
+        try:
+            Chem.SanitizeMol(mol_work)
+        except:
+            # If sanitization fails, try without it
+            mol_work = mol
+        
+        mol_binary = mol_work.ToBinary()
         
         # Ensure highlight_atoms is hashable for caching (convert list to tuple)
         if highlight_atoms is not None:
@@ -545,52 +560,52 @@ def safe_get_mcs_mol(mcs_info):
         return None
 
 
-
-def render_3d_mcs_view(predicted_pose, template_mol, mcs_smarts):
-    """Render 3D view with predicted pose, template, and MCS highlighting"""
-    try:
-        Chem, AllChem, Draw = get_rdkit_modules()
-        py3Dmol = get_py3dmol()
+# not implemented now
+# def render_3d_mcs_view(predicted_pose, template_mol, mcs_smarts):
+#     """Render 3D view with predicted pose, template, and MCS highlighting"""
+#     try:
+#         Chem, AllChem, Draw = get_rdkit_modules()
+#         py3Dmol = get_py3dmol()
         
-        # Make clean copies
-        pose_copy = Chem.Mol(predicted_pose)
-        template_copy = Chem.Mol(template_mol)
+#         # Make clean copies
+#         pose_copy = Chem.Mol(predicted_pose)
+#         template_copy = Chem.Mol(template_mol)
         
-        # Ensure 3D coordinates
-        if pose_copy.GetNumConformers() == 0:
-            AllChem.EmbedMolecule(pose_copy)
-        if template_copy.GetNumConformers() == 0:
-            AllChem.EmbedMolecule(template_copy)
+#         # Ensure 3D coordinates
+#         if pose_copy.GetNumConformers() == 0:
+#             AllChem.EmbedMolecule(pose_copy)
+#         if template_copy.GetNumConformers() == 0:
+#             AllChem.EmbedMolecule(template_copy)
         
-        # Get MCS matches
-        patt = Chem.MolFromSmarts(mcs_smarts)
-        pose_mcs_atoms = list(pose_copy.GetSubstructMatch(patt))
-        template_mcs_atoms = list(template_copy.GetSubstructMatch(patt))
+#         # Get MCS matches
+#         patt = Chem.MolFromSmarts(mcs_smarts)
+#         pose_mcs_atoms = list(pose_copy.GetSubstructMatch(patt))
+#         template_mcs_atoms = list(template_copy.GetSubstructMatch(patt))
         
-        # Create view
-        view = py3Dmol.view(width=700, height=400)
+#         # Create view
+#         view = py3Dmol.view(width=700, height=400)
         
-        # Add predicted pose (blue)
-        pose_block = Chem.MolToMolBlock(pose_copy)
-        view.addModel(pose_block, 'sdf')
-        view.setStyle({'model': 0}, {'stick': {'color': 'blue', 'radius': 0.15}})
+#         # Add predicted pose (blue)
+#         pose_block = Chem.MolToMolBlock(pose_copy)
+#         view.addModel(pose_block, 'sdf')
+#         view.setStyle({'model': 0}, {'stick': {'color': 'blue', 'radius': 0.15}})
         
-        # Add template (gray)  
-        template_block = Chem.MolToMolBlock(template_copy)
-        view.addModel(template_block, 'sdf')
-        view.setStyle({'model': 1}, {'stick': {'color': 'gray', 'radius': 0.15}})
+#         # Add template (gray)  
+#         template_block = Chem.MolToMolBlock(template_copy)
+#         view.addModel(template_block, 'sdf')
+#         view.setStyle({'model': 1}, {'stick': {'color': 'gray', 'radius': 0.15}})
         
-        # Highlight MCS atoms (red)
-        if pose_mcs_atoms:
-            view.addStyle({'model': 0, 'atom': pose_mcs_atoms}, {'stick': {'color': 'red', 'radius': 0.25}})
-        if template_mcs_atoms:
-            view.addStyle({'model': 1, 'atom': template_mcs_atoms}, {'stick': {'color': 'red', 'radius': 0.25}})
+#         # Highlight MCS atoms (red)
+#         if pose_mcs_atoms:
+#             view.addStyle({'model': 0, 'atom': pose_mcs_atoms}, {'stick': {'color': 'red', 'radius': 0.25}})
+#         if template_mcs_atoms:
+#             view.addStyle({'model': 1, 'atom': template_mcs_atoms}, {'stick': {'color': 'red', 'radius': 0.25}})
         
-        view.zoomTo()
-        return view
-    except Exception as e:
-        st.error(f"Error creating 3D visualization: {e}")
-        return None
+#         view.zoomTo()
+#         return view
+#     except Exception as e:
+#         st.error(f"Error creating 3D visualization: {e}")
+#         return None
 
 def create_best_poses_sdf(poses):
     """Create SDF for the best poses using the same helper used by the CLI.
