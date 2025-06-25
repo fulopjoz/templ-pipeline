@@ -15,10 +15,22 @@ import multiprocessing
 import time
 import functools
 import re
+import json
+from datetime import datetime
 
 # Configure logging for better pipeline visibility
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+
+# FAIR imports for metadata generation
+try:
+    from templ_pipeline.fair.core.metadata_engine import MetadataEngine, generate_quick_metadata
+    from templ_pipeline.fair.biology.molecular_descriptors import calculate_molecular_descriptors
+    FAIR_AVAILABLE = True
+    logger.info("FAIR metadata engine available")
+except ImportError:
+    FAIR_AVAILABLE = False
+    logger.warning("FAIR metadata engine not available")
 
 # Performance timing decorator for diagnostics
 def time_function(func):
@@ -46,8 +58,8 @@ except ImportError:
     HARDWARE_INFO = None
     logger.warning("Hardware detection not available")
 
-# Check AI capabilities
-AI_AVAILABLE = False
+# Check ESM2 embedding capabilities
+EMBEDDING_FEATURES_AVAILABLE = False
 TORCH_AVAILABLE = False
 TRANSFORMERS_AVAILABLE = False
 
@@ -59,15 +71,15 @@ try:
     else:
         logger.info("PyTorch CPU-only mode")
 except ImportError:
-    logger.warning("PyTorch not available - AI features disabled")
+    logger.warning("PyTorch not available - embedding similarity disabled")
 
 try:
     import transformers
     TRANSFORMERS_AVAILABLE = True
-    AI_AVAILABLE = TORCH_AVAILABLE and TRANSFORMERS_AVAILABLE
-    logger.info("AI features available")
+    EMBEDDING_FEATURES_AVAILABLE = TORCH_AVAILABLE and TRANSFORMERS_AVAILABLE
+    logger.info("Protein embedding similarity available")
 except ImportError:
-    logger.warning("Transformers not available - AI features disabled")
+    logger.warning("Transformers not available - embedding similarity disabled")
 
 # Fix torch.classes compatibility issue with Streamlit
 try:
@@ -235,15 +247,15 @@ def initialize_session_state():
         "custom_templates": None,
         "all_ranked_poses": None,
         "file_cache": {},
-        "hardware_info": None
+        "hardware_info": None,
+        "show_fair_panel": False,
+        "fair_metadata": None
     }
     
     for key, default_value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = default_value
 
-# Initialize session state
-initialize_session_state()
 
 @st.cache_resource
 @time_function
@@ -960,30 +972,9 @@ class StreamlitProgressHandler(logging.Handler):
             # Don't break on display errors
             logger.debug(f"Progress display error: {e}")
 
-# Add async execution wrapper
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
 
-async def run_pipeline_async(smiles, protein_input=None, custom_templates=None, 
-                           use_aligned_poses=True, max_templates=None, 
-                           similarity_threshold=None):
-    """Async wrapper for pipeline execution to prevent UI blocking"""
-    loop = asyncio.get_event_loop()
-    
-    # Run the blocking pipeline in a thread pool
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        result = await loop.run_in_executor(
-            executor,
-            run_pipeline,
-            smiles,
-            protein_input,
-            custom_templates,
-            use_aligned_poses,
-            max_templates,
-            similarity_threshold
-        )
-    
-    return result
+
+
 
 def run_pipeline(smiles, protein_input=None, custom_templates=None, use_aligned_poses=True, max_templates=None, similarity_threshold=None):
     """Run the complete TEMPL pipeline using TEMPLPipeline class"""
@@ -1219,10 +1210,10 @@ def show_hardware_status():
                 st.markdown("GPU: Not detected")
         
         with col2:
-            st.markdown("**AI Capabilities:**")
+            st.markdown("**Embedding Features:**")
             
-            if AI_AVAILABLE:
-                st.markdown("Full AI Features Available")
+            if EMBEDDING_FEATURES_AVAILABLE:
+                st.markdown("Protein Embedding Similarity Available")
                 if HARDWARE_INFO.gpu_available and TORCH_AVAILABLE:
                     try:
                         import torch
@@ -1233,7 +1224,7 @@ def show_hardware_status():
                     except:
                         st.markdown("CPU Mode: PyTorch CPU-only")
                 else:
-                    st.markdown("CPU Mode: Optimized for CPU inference")
+                    st.markdown("CPU Mode: Optimized for embedding computation")
             else:
                 st.markdown("Limited Features Available")
                 missing = []
@@ -1244,7 +1235,7 @@ def show_hardware_status():
                 
                 if missing:
                     st.markdown(f"Missing: {', '.join(missing)}")
-                    st.markdown("Solution: Install AI dependencies:")
+                    st.markdown("Solution: Install embedding dependencies:")
                     
                     if HARDWARE_INFO.gpu_available:
                         st.code("pip install torch transformers", language="bash")
@@ -1263,10 +1254,10 @@ def show_hardware_status():
             label = config_labels.get(HARDWARE_INFO.recommended_config, "HARDWARE")
             st.markdown(f"{label}: Recommended: {HARDWARE_INFO.recommended_config}")
 
-def check_ai_requirements_for_feature(feature_name: str) -> bool:
-    """Check if AI requirements are met for a specific feature"""
-    if not AI_AVAILABLE:
-        st.error(f"{feature_name} requires AI dependencies (PyTorch + Transformers)")
+def check_embedding_requirements_for_feature(feature_name: str) -> bool:
+    """Check if embedding requirements are met for a specific feature"""
+    if not EMBEDDING_FEATURES_AVAILABLE:
+        st.error(f"{feature_name} requires embedding dependencies (PyTorch + Transformers)")
         st.info("Quick Fix: Install missing dependencies and restart the app")
         
         with st.expander("Installation Instructions", expanded=False):
@@ -1275,7 +1266,7 @@ def check_ai_requirements_for_feature(feature_name: str) -> bool:
 # For GPU acceleration
 pip install torch transformers
 
-# Or install full AI bundle
+# Or install full embedding bundle
 ./setup_env_smart.sh --gpu-force
                 """, language="bash")
             else:
@@ -1337,37 +1328,355 @@ def validate_molecular_connectivity(mol, step_name="unknown"):
         return False, f"{step_name}: Validation error - {str(e)}"
 
 def create_safe_molecular_copy(mol, step_name="copy"):
-    """Create a deep copy of an RDKit molecule without modifying geometry.
-
-    Previous implementation performed SMILES round-trips and coordinate re-embedding
-    which introduced distortions.  A simple deep copy (`Chem.Mol`) already
-    preserves coordinates, properties, and conformers while avoiding any
-    geometry changes, so we rely solely on that.
-    """
-
+    """Create a safe copy of a molecule with validation"""
     if mol is None:
         return None
-
+    
     try:
-        Chem, _, _ = get_rdkit_modules()
-
-        # Deep copy – `Chem.Mol` with default parameters copies conformers & props.
-        mol_copy = Chem.Mol(mol)
-
-        return mol_copy
-
+        Chem, AllChem, Draw = get_rdkit_modules()
+        
+        # Create a copy using SMILES roundtrip
+        smiles = Chem.MolToSmiles(mol)
+        new_mol = Chem.MolFromSmiles(smiles)
+        
+        if new_mol:
+            # Copy coordinates if available
+            if mol.GetNumConformers() > 0:
+                conf = mol.GetConformer()
+                new_conf = Chem.Conformer(new_mol.GetNumAtoms())
+                for i in range(new_mol.GetNumAtoms()):
+                    pos = conf.GetAtomPosition(i)
+                    new_conf.SetAtomPosition(i, pos)
+                new_mol.AddConformer(new_conf)
+            
+            return new_mol
+        else:
+            logger.error(f"Failed to create safe copy in {step_name}")
+            return mol  # Return original if copy fails
+            
     except Exception as e:
-        logger.error(f"Safe molecular copy failed for {step_name}: {e}")
+        logger.error(f"Error in create_safe_molecular_copy ({step_name}): {e}")
+        return mol  # Return original if copy fails
+
+# FAIR Metadata Functions
+def generate_fair_metadata_for_results(poses, input_data):
+    """Generate comprehensive FAIR metadata for pose prediction results"""
+    if not FAIR_AVAILABLE:
+        return None
+    
+    try:
+        # Extract input information
+        target_id = input_data.get('protein_pdb_id') or 'custom'
+        input_type = 'pdb_id' if input_data.get('protein_pdb_id') else 'custom'
+        input_smiles = input_data.get('input_smiles', '')
+        
+        # Calculate basic metrics
+        poses_count = len(poses) if poses else 0
+        best_scores = {}
+        if poses:
+            best_method, (best_mol, scores) = max(poses.items(), 
+                                                key=lambda x: x[1][1].get('combo_score', x[1][1].get('combo', 0)))
+            best_scores = {
+                'shape_score': scores.get('shape_score', scores.get('shape', 0)),
+                'color_score': scores.get('color_score', scores.get('color', 0)),
+                'combo_score': scores.get('combo_score', scores.get('combo', 0))
+            }
+        
+        # Generate quick metadata
+        metadata = generate_quick_metadata(
+            target_id=target_id,
+            input_type=input_type,
+            input_value=input_smiles,
+            output_file="web_interface_results.sdf",
+            poses_count=poses_count,
+            scores=best_scores
+        )
+        
+        # Add web interface specific metadata
+        metadata['interface'] = {
+            'type': 'web_interface',
+            'platform': 'streamlit',
+            'session_id': id(st.session_state),
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # Add molecular descriptors if available
+        if input_smiles and hasattr(st.session_state, 'query_mol') and st.session_state.query_mol:
+            try:
+                descriptors = calculate_molecular_descriptors(st.session_state.query_mol)
+                metadata['molecular_descriptors'] = descriptors
+            except Exception as e:
+                logger.warning(f"Could not calculate molecular descriptors: {e}")
+        
+        return metadata
+        
+    except Exception as e:
+        logger.error(f"Error generating FAIR metadata: {e}")
         return None
 
+def render_fair_panel_trigger():
+    """Render the subtle trigger button for the FAIR panel"""
+    if st.session_state.get('poses') and FAIR_AVAILABLE:
+        # Create a subtle trigger in the top-right area
+        col1, col2, col3 = st.columns([20, 1, 1])
+        with col3:
+            if st.button("📊", 
+                        help="View Scientific Data & Metadata", 
+                        key="fair_trigger",
+                        use_container_width=True):
+                st.session_state.show_fair_panel = True
+                # Generate metadata if not already done
+                if not st.session_state.get('fair_metadata'):
+                    input_data = {
+                        'protein_pdb_id': st.session_state.get('protein_pdb_id'),
+                        'input_smiles': st.session_state.get('input_smiles')
+                    }
+                    st.session_state.fair_metadata = generate_fair_metadata_for_results(
+                        st.session_state.poses, input_data
+                    )
+                st.rerun()
 
+def render_fair_sliding_panel():
+    """Render the FAIR data in a sliding sidebar panel"""
+    if st.session_state.get('show_fair_panel', False) and FAIR_AVAILABLE:
+        with st.sidebar:
+            # Panel Header
+            st.markdown("### 🔬 Scientific Data & Metadata")
+            col1, col2 = st.columns([4, 1])
+            with col2:
+                if st.button("✕", help="Close Panel", key="close_fair"):
+                    st.session_state.show_fair_panel = False
+                    st.rerun()
+            
+            # FAIR Compliance Badge
+            if st.session_state.get('fair_metadata'):
+                st.success("✅ FAIR Compliant Dataset")
+            
+            # Content Tabs
+            panel_tab = st.selectbox(
+                "Select Data Type:",
+                ["📋 Metadata", "🧬 Properties", "🔄 Provenance", "📥 Export"],
+                key="fair_panel_tab"
+            )
+            
+            # Render selected content
+            if panel_tab == "📋 Metadata":
+                render_fair_metadata_tab()
+            elif panel_tab == "🧬 Properties":
+                render_molecular_properties_tab()
+            elif panel_tab == "🔄 Provenance":
+                render_provenance_tab()
+            elif panel_tab == "📥 Export":
+                render_enhanced_exports_tab()
 
-@time_function
+def render_fair_metadata_tab():
+    """Render the metadata tab content"""
+    metadata = st.session_state.get('fair_metadata')
+    if not metadata:
+        st.warning("No metadata available")
+        return
+    
+    st.markdown("#### Quick Summary")
+    
+    # Key metrics
+    if 'scores' in metadata and metadata['scores']:
+        scores = metadata['scores']
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Best Score", f"{scores.get('combo_score', 0):.3f}")
+        with col2:
+            st.metric("Poses Generated", metadata.get('poses_count', 0))
+    
+    # Expandable metadata sections
+    with st.expander("📋 Core Metadata"):
+        if 'input' in metadata:
+            st.json(metadata['input'])
+    
+    with st.expander("⚙️ Computational Environment"):
+        if 'computational' in metadata:
+            st.json(metadata['computational'])
+    
+    with st.expander("🔬 Scientific Context"):
+        if 'scientific' in metadata:
+            st.json(metadata['scientific'])
+
+def render_molecular_properties_tab():
+    """Render the molecular properties tab content"""
+    metadata = st.session_state.get('fair_metadata')
+    if not metadata or 'molecular_descriptors' not in metadata:
+        st.warning("No molecular descriptors available")
+        return
+    
+    descriptors = metadata['molecular_descriptors']
+    
+    st.markdown("#### Molecular Properties")
+    
+    # Basic properties
+    if 'basic_properties' in descriptors:
+        basic = descriptors['basic_properties']
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Molecular Weight", f"{basic.get('molecular_weight', 0):.2f}")
+        with col2:
+            st.metric("LogP", f"{basic.get('logp', 0):.2f}")
+        with col3:
+            st.metric("TPSA", f"{basic.get('tpsa', 0):.2f}")
+    
+    # Drug-likeness
+    if 'drug_likeness' in descriptors:
+        drug_like = descriptors['drug_likeness']
+        st.markdown("#### Drug-Likeness Assessment")
+        
+        lipinski_violations = drug_like.get('lipinski_violations', 0)
+        if lipinski_violations == 0:
+            st.success("✅ Passes Lipinski Rule of Five")
+        else:
+            st.warning(f"⚠️ {lipinski_violations} Lipinski violations")
+    
+    # Detailed properties
+    with st.expander("📊 All Molecular Descriptors"):
+        st.json(descriptors)
+
+def render_provenance_tab():
+    """Render the provenance tab content"""
+    metadata = st.session_state.get('fair_metadata')
+    if not metadata:
+        st.warning("No provenance data available")
+        return
+    
+    st.markdown("#### Workflow Provenance")
+    
+    # Timeline
+    if 'computational' in metadata:
+        comp = metadata['computational']
+        st.markdown("**Execution Timeline:**")
+        st.write(f"• Started: {comp.get('start_time', 'Unknown')}")
+        if comp.get('end_time'):
+            st.write(f"• Completed: {comp.get('end_time')}")
+        if comp.get('execution_time'):
+            st.write(f"• Duration: {comp.get('execution_time'):.2f} seconds")
+    
+    # Parameters
+    if 'input' in metadata and 'parameters' in metadata['input']:
+        with st.expander("⚙️ Input Parameters"):
+            st.json(metadata['input']['parameters'])
+    
+    # System info
+    if 'computational' in metadata:
+        with st.expander("💻 System Information"):
+            comp = metadata['computational']
+            sys_info = {
+                'platform': comp.get('platform'),
+                'python_version': comp.get('python_version'),
+                'pipeline_version': comp.get('pipeline_version'),
+                'gpu_available': comp.get('gpu_available')
+            }
+            st.json(sys_info)
+
+def render_enhanced_exports_tab():
+    """Render the enhanced exports tab content"""
+    st.markdown("#### 📥 Scientific Export Options")
+    
+    # Standard downloads with metadata
+    st.markdown("**Results with Metadata:**")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("📄 Download SDF + Metadata", use_container_width=True):
+            create_fair_sdf_download()
+    
+    with col2:
+        if st.button("📊 Download JSON Metadata", use_container_width=True):
+            create_metadata_download()
+    
+    # Citation information
+    st.markdown("**Citation & Attribution:**")
+    if st.button("🔗 Copy Citation Information", use_container_width=True):
+        create_citation_export()
+
+def create_fair_sdf_download():
+    """Create SDF download with embedded FAIR metadata"""
+    if not st.session_state.get('poses'):
+        st.error("No poses available for download")
+        return
+    
+    # Create enhanced SDF with metadata
+    sdf_data, file_name = create_best_poses_sdf(st.session_state.poses)
+    
+    # Add metadata to download
+    metadata = st.session_state.get('fair_metadata')
+    if metadata:
+        # Create a bundle with both SDF and metadata
+        import zipfile
+        import io
+        
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # Add SDF file
+            zip_file.writestr(file_name, sdf_data)
+            # Add metadata file
+            metadata_json = json.dumps(metadata, indent=2)
+            zip_file.writestr(f"{file_name.replace('.sdf', '_metadata.json')}", metadata_json)
+        
+        zip_buffer.seek(0)
+        st.download_button(
+            "📦 Download Complete Package",
+            data=zip_buffer.getvalue(),
+            file_name=f"{file_name.replace('.sdf', '_with_metadata.zip')}",
+            mime="application/zip"
+        )
+    else:
+        st.download_button(
+            "📄 Download SDF",
+            data=sdf_data,
+            file_name=file_name,
+            mime="chemical/x-mdl-sdfile"
+        )
+
+def create_metadata_download():
+    """Create standalone metadata download"""
+    metadata = st.session_state.get('fair_metadata')
+    if not metadata:
+        st.error("No metadata available")
+        return
+    
+    metadata_json = json.dumps(metadata, indent=2)
+    st.download_button(
+        "📊 Download Metadata",
+        data=metadata_json,
+        file_name="templ_prediction_metadata.json",
+        mime="application/json"
+    )
+
+def create_citation_export():
+    """Create citation information"""
+    citation_text = """
+TEMPL Pipeline Pose Prediction
+
+Generated using TEMPL (Template-based Protein-Ligand Pose Prediction)
+Web Interface: Streamlit Application
+Timestamp: {timestamp}
+
+Please cite:
+[Add appropriate citation information here]
+
+Data generated following FAIR principles:
+- Findable: Unique identifiers and comprehensive metadata
+- Accessible: Standard formats and open access
+- Interoperable: JSON/SDF formats with standard descriptors  
+- Reusable: Complete provenance and methodology documentation
+    """.format(timestamp=datetime.now().isoformat())
+    
+    st.text_area("Citation Information", citation_text, height=300)
+    st.info("Citation information copied to display. Copy text above for your records.")
+
 def main():
     """Main application"""
     
+    # Initialize session state
+    initialize_session_state()
     # Header with branding and hardware status
-    header_color = "#667eea" if AI_AVAILABLE else "#FFA500"  # Blue if AI available, orange if not
+    header_color = "#667eea" if EMBEDDING_FEATURES_AVAILABLE else "#FFA500"  # Blue if embeddings available, orange if not
     
     st.markdown(f"""
     <div style="text-align: center; padding: 2rem 0 1rem 0; background: linear-gradient(90deg, {header_color} 0%, #764ba2 100%); color: white; border-radius: 0.5rem; margin-bottom: 1rem;">
@@ -1554,11 +1863,11 @@ def main():
         # Template Filtering Options
         st.markdown("### Template Filtering Options")
         
-        # Template filtering method selection - only show similarity if AI available
+        # Template filtering method selection - only show similarity if embeddings available
         filter_options = ["KNN (Top-K)"]
         filter_help = "Choose how to filter templates: by count (KNN)"
         
-        if AI_AVAILABLE:
+        if EMBEDDING_FEATURES_AVAILABLE:
             filter_options.append("Similarity Threshold")
             filter_help = "Choose how to filter templates: by count (KNN) or by embedding similarity"
         
@@ -1571,9 +1880,9 @@ def main():
             horizontal=True
         )
         
-        # Show AI requirement notice if similarity desired but not available
-        if not AI_AVAILABLE and len(filter_options) == 1:
-            st.info("Embedding Similarity: Install AI dependencies to enable protein embedding-based filtering")
+        # Show embedding requirement notice if similarity desired but not available
+        if not EMBEDDING_FEATURES_AVAILABLE and len(filter_options) == 1:
+            st.info("Embedding Similarity: Install embedding dependencies to enable protein embedding-based filtering")
         
         col1, col2 = st.columns([3, 2])
         
@@ -1623,15 +1932,15 @@ def main():
                 with progress_placeholder.container():
                     st.info("Initializing TEMPL Pipeline...")
                 
-                # Run pipeline asynchronously
-                poses = asyncio.run(run_pipeline_async(
+                # Run pipeline directly
+                poses = run_pipeline(
                     molecule_input, 
                     protein_input, 
                     custom_templates,
                     use_aligned_poses=use_aligned_poses,
                     max_templates=max_templates,
                     similarity_threshold=similarity_threshold
-                ))
+                )
                 
                 if poses:
                     st.session_state.poses = poses
@@ -1650,6 +1959,10 @@ def main():
     # Enhanced Results Section
     if st.session_state.poses:
         st.markdown("---")
+        
+        # Add FAIR panel trigger (subtle, top-right)
+        render_fair_panel_trigger()
+        
         st.header("Prediction Results")
         
         # Detect and fix corruption
@@ -1762,6 +2075,8 @@ def main():
                     use_container_width=True
                 )
         
+    # Render FAIR sliding panel if activated
+    render_fair_sliding_panel()
 
 def simple_alignment_fallback(poses_dict):
     """Simple fallback processing when molecular corruption is detected"""
@@ -1845,5 +2160,6 @@ def detect_and_fix_corruption():
     
     return False
 
-if __name__ == "__main__":
-    main() 
+
+# Call main function directly for Streamlit
+main()
