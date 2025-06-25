@@ -58,19 +58,24 @@ COPY --from=builder /app /app
 # Create symlink for backward compatibility
 RUN ln -sf /app/data-minimal /app/data
 
-# Copy startup script
+# Copy startup script with explicit permissions
 COPY start.sh /app/start.sh
-RUN chmod +x /app/start.sh
+RUN chmod +x /app/start.sh && \
+    echo "✅ Startup script permissions:" && \
+    ls -la /app/start.sh
 
-# Environment variables (Streamlit will use STREAMLIT_* env vars set in start.sh)
+# Environment variables - minimal set, let startup script handle Streamlit config
 ENV PYTHONPATH=/app
+
+# Force rebuild by adding build timestamp
+RUN echo "Build timestamp: $(date)" > /app/build_info.txt
 
 # Expose port (DigitalOcean will set PORT dynamically)
 EXPOSE 8080
 
-# Health check - use a simple approach that works with dynamic ports
-HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
+# Health check using Streamlit's built-in endpoint
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
     CMD curl -f http://localhost:${PORT:-8080}/_stcore/health || exit 1
 
-# Use the startup script
-CMD ["/app/start.sh"]
+# Use the startup script as entrypoint
+ENTRYPOINT ["/app/start.sh"]
