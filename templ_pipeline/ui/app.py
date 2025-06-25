@@ -634,7 +634,15 @@ def create_all_conformers_sdf():
     writer = Chem.SDWriter(sdf_buffer)
     
     for rank, (pose, scores, original_cid) in enumerate(st.session_state.all_ranked_poses, 1):
-        mol_copy = Chem.Mol(pose)
+        # Create a safe copy of the molecule
+        try:
+            if isinstance(pose, int):
+                # Skip invalid poses
+                continue
+            mol_copy = Chem.Mol(pose)
+        except Exception as e:
+            logger.warning(f"Skipping pose {rank} due to copy error: {e}")
+            continue
         mol_copy.SetProp("Rank", str(rank))
         mol_copy.SetProp("Shape_Score", f"{scores['shape']:.3f}")
         mol_copy.SetProp("Color_Score", f"{scores['color']:.3f}")
@@ -1766,7 +1774,7 @@ def main():
     with col_desc1:
         st.markdown("""
         <div class="info-card">
-            <h4>OVERVIEW: What it does</h4>
+            <h4>What it does</h4>
             <ul>
                 <li>Predicts 3D binding poses for small molecules</li> 
                 <li>Uses template-guided conformer generation with MCS</li>
@@ -1778,7 +1786,7 @@ def main():
     with col_desc2:
         st.markdown("""
         <div class="info-card">
-            <h4>WORKFLOW: How it works</h4>
+            <h4>How it works</h4>
             <ol>
                 <li>Enter your molecule (SMILES or file)</li>
                 <li>Provide protein target or SDF templates</li>

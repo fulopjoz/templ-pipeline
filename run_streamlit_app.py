@@ -2,6 +2,7 @@
 """
 Helper script to run the TEMPL Pipeline Web Application.
 Runs the redesigned, modern interface with one-click workflow.
+Updated with working configuration that resolves WebSocket connection issues.
 """
 
 import os
@@ -21,29 +22,34 @@ except ImportError:
     sys.exit(1)
 
 def main():
-    """Run the Streamlit app with the correct path configuration."""
+    """Run the Streamlit app with the working configuration."""
     streamlit_app_path = project_root / "templ_pipeline" / "ui" / "app.py"
     
     if not streamlit_app_path.exists():
         print(f"Error: Streamlit app not found at: {streamlit_app_path}")
         sys.exit(1)
     
-    # Configure sys.argv for Streamlit with production settings
+    # Configure sys.argv for Streamlit with WORKING settings
+    # These settings resolve the WebSocket connection issues
     sys.argv = [
         "streamlit", 
         "run", 
         str(streamlit_app_path),
-        "--server.headless", "true",
-        "--server.enableCORS", "false",
-        "--server.enableXsrfProtection", "false",
-        "--server.port", "8501",
-        "--server.address", "0.0.0.0",
-        "--browser.gatherUsageStats", "false"
+        "--server.port", "8502",                    # Use working port
+        "--server.address", "127.0.0.1",           # Use localhost binding (fixes WebSocket)
+        "--server.headless", "false",               # Enable browser integration
+        "--server.enableCORS", "true",              # Enable CORS for remote access
+        "--server.enableXsrfProtection", "false",   # Disable XSRF for development
+        "--browser.gatherUsageStats", "false"       # Disable usage stats
     ]
     
     # Check if PYTHONPATH is set, if not, set it
     if "PYTHONPATH" not in os.environ:
         os.environ["PYTHONPATH"] = str(project_root)
+    
+    print("🚀 Starting TEMPL Pipeline with working configuration...")
+    print("📍 URL: http://127.0.0.1:8502")
+    print("⚙️  Configuration: localhost binding, CORS enabled, headless=false")
     
     # Run the Streamlit app
     sys.exit(stcli.main())
