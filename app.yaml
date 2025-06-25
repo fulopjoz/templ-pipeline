@@ -1,0 +1,33 @@
+name: templ-pipeline
+services:
+- name: web
+  source_dir: /
+  github:
+    repo: fulopjoz/templ-pipeline
+    branch: speedrun
+    deploy_on_push: true
+  run_command: streamlit run templ_pipeline/ui/app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true --server.enableCORS false --server.enableXsrfProtection false --browser.gatherUsageStats false
+  environment_slug: python
+  instance_count: 1
+  instance_size_slug: professional-xs
+  http_port: 8080
+  health_check:
+    http_path: /?healthz
+    initial_delay_seconds: 60
+    period_seconds: 10
+    timeout_seconds: 5
+    success_threshold: 1
+    failure_threshold: 3
+  envs:
+  - key: STREAMLIT_SERVER_HEADLESS
+    value: "true"
+  - key: STREAMLIT_SERVER_ENABLE_CORS
+    value: "false"
+  - key: STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION
+    value: "false"
+  - key: STREAMLIT_BROWSER_GATHER_USAGE_STATS
+    value: "false"
+  - key: PYTHONPATH
+    value: "/app"
+  - key: STREAMLIT_THEME_BASE
+    value: "light" 

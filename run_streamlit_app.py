@@ -28,8 +28,18 @@ def main():
         print(f"Error: Streamlit app not found at: {streamlit_app_path}")
         sys.exit(1)
     
-    # Pass arguments to Streamlit
-    sys.argv = ["streamlit", "run", str(streamlit_app_path), "--", "--demo", "True"]
+    # Configure sys.argv for Streamlit with production settings
+    sys.argv = [
+        "streamlit", 
+        "run", 
+        str(streamlit_app_path),
+        "--server.headless", "true",
+        "--server.enableCORS", "false",
+        "--server.enableXsrfProtection", "false",
+        "--server.port", "8501",
+        "--server.address", "0.0.0.0",
+        "--browser.gatherUsageStats", "false"
+    ]
     
     # Check if PYTHONPATH is set, if not, set it
     if "PYTHONPATH" not in os.environ:

@@ -1133,6 +1133,50 @@ def run_pipeline(smiles, protein_input=None, custom_templates=None, use_aligned_
     
     return None
 
+async def run_pipeline_async(smiles, protein_input=None, custom_templates=None, use_aligned_poses=True, max_templates=None, similarity_threshold=None):
+    """
+    Async wrapper for run_pipeline to prevent UI blocking.
+    
+    This function provides non-blocking execution of the TEMPL pipeline within 
+    the Streamlit web interface, enabling progress feedback and responsive UI
+    during long-running molecular processing operations.
+    
+    Args:
+        smiles (str): SMILES string for target molecule
+        protein_input (str, optional): PDB ID or file path for protein target
+        custom_templates (list, optional): Custom template molecules for MCS-based pose generation
+        use_aligned_poses (bool): Whether to return aligned poses (default: True)
+        max_templates (int, optional): Maximum number of templates for KNN filtering
+        similarity_threshold (float, optional): Similarity threshold for template filtering
+    
+    Returns:
+        dict or None: Same format as run_pipeline - dict with pose results or None on failure
+        
+    Raises:
+        Same exceptions as run_pipeline, properly propagated from the async wrapper
+        
+    Note:
+        This is a simple ThreadPoolExecutor-based async wrapper that maintains
+        full compatibility with the synchronous run_pipeline function while
+        enabling async/await usage patterns in UI code.
+    """
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+    
+    # Get the current event loop
+    loop = asyncio.get_event_loop()
+    
+    # Execute the synchronous pipeline in a thread pool to avoid blocking
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        result = await loop.run_in_executor(
+            executor, 
+            run_pipeline,
+            smiles, protein_input, custom_templates, 
+            use_aligned_poses, max_templates, similarity_threshold
+        )
+    
+    return result
+
 def validate_smiles(smiles: str) -> bool:
     """Validate SMILES string using RDKit (real validation)."""
     if not smiles or not isinstance(smiles, str):
@@ -1670,11 +1714,39 @@ Data generated following FAIR principles:
     st.text_area("Citation Information", citation_text, height=300)
     st.info("Citation information copied to display. Copy text above for your records.")
 
+def health_check():
+    """Health check endpoint for DigitalOcean deployment monitoring"""
+    st.write("OK")
+    st.stop()
+
 def main():
     """Main application"""
     
-    # Initialize session state
-    initialize_session_state()
+    # Handle health check endpoint
+    if st.query_params.get("health") == "check":
+        health_check()
+    
+    # Handle DigitalOcean health check endpoint
+    if st.query_params.get("healthz") is not None:
+        health_check()
+    
+    # Show loading indicator during initialization
+    if 'app_initialized' not in st.session_state:
+        loading_placeholder = st.empty()
+        with loading_placeholder.container():
+            st.info("🔄 Initializing TEMPL Pipeline...")
+            st.write("Loading molecular processing modules and hardware detection...")
+        
+        # Initialize session state
+        initialize_session_state()
+        
+        # Mark app as initialized
+        st.session_state.app_initialized = True
+        loading_placeholder.empty()
+    else:
+        # Initialize session state for already initialized app
+        initialize_session_state()
+    
     # Header with branding and hardware status
     header_color = "#667eea" if EMBEDDING_FEATURES_AVAILABLE else "#FFA500"  # Blue if embeddings available, orange if not
     
@@ -2161,5 +2233,7 @@ def detect_and_fix_corruption():
     return False
 
 
-# Call main function directly for Streamlit
-main()
+
+# Call main function only when run directly
+if __name__ == "__main__":
+    main()
