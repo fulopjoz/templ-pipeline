@@ -79,3 +79,4 @@ test_minimal_*.py
 # Memory bank backups
 memory-bank/*.backup
 
+*.pyc
