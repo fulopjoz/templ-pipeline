@@ -58,22 +58,19 @@ COPY --from=builder /app /app
 # Create symlink for backward compatibility
 RUN ln -sf /app/data-minimal /app/data
 
-# Environment variables - PORT will be set by DigitalOcean
-ENV STREAMLIT_SERVER_HEADLESS=true
-ENV STREAMLIT_SERVER_ENABLE_CORS=false
-ENV STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=false
-ENV STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+# Copy startup script
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
+# Environment variables (Streamlit will use STREAMLIT_* env vars set in start.sh)
 ENV PYTHONPATH=/app
 
-# Expose port (will be dynamically set by DigitalOcean)
+# Expose port (DigitalOcean will set PORT dynamically)
 EXPOSE 8080
 
-# Create startup script that uses dynamic PORT
-RUN echo '#!/bin/bash\nstreamlit run templ_pipeline/ui/app.py --server.port ${PORT:-8080} --server.address 0.0.0.0 --server.headless true --server.enableCORS false --server.enableXsrfProtection false --browser.gatherUsageStats false' > /app/start.sh && \
-    chmod +x /app/start.sh
+# Health check - use a simple approach that works with dynamic ports
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
+    CMD curl -f http://localhost:${PORT:-8080}/_stcore/health || exit 1
 
-# Health check using dynamic port
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:${PORT:-8080}/?healthz || exit 1
-
+# Use the startup script
 CMD ["/app/start.sh"]
