@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# setup_env_smart.sh – TEMPL Pipeline Installation Script
-# Usage: ./setup_env_smart.sh [OPTIONS]
-#    OR: source setup_env_smart.sh [OPTIONS]  (for automatic activation)
+# TEMPL Pipeline - Complete Setup & Activation Script
+# 
+# USAGE (RECOMMENDED):
+#   source setup_templ_env.sh [OPTIONS]    # Creates env + installs + activates immediately
+#
+# ALTERNATIVE:
+#   ./setup_templ_env.sh [OPTIONS]         # Creates env + installs (manual activation needed)
 
 set -euo pipefail
 IFS=$'\n\t'
 
-# Detect if script is being sourced (allows automatic activation)
+# Detect if script is being sourced (enables automatic activation)
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     SCRIPT_SOURCED=true
 else
@@ -34,7 +38,7 @@ FORCE_CPU_ONLY=false
 FORCE_GPU=false
 MINIMAL_INSTALL=false
 RUN_BENCHMARK=false
-INTERACTIVE=false  # Default to non-interactive for automated installation
+INTERACTIVE=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -45,11 +49,14 @@ while [[ $# -gt 0 ]]; do
         --interactive) INTERACTIVE=true; shift ;;
         --help|-h)
             cat << EOF
-TEMPL Pipeline Installation Script
+TEMPL Pipeline - Complete Setup & Activation Script
 
-USAGE:
-    $0 [OPTIONS]                 # Standard installation  
-    source $0 [OPTIONS]          # Install + auto-activate environment
+RECOMMENDED USAGE:
+    source $0 [OPTIONS]         # Creates environment + installs dependencies + activates immediately
+                               # This puts you directly into the TEMPL environment ready to use!
+
+ALTERNATIVE USAGE:
+    ./$0 [OPTIONS]             # Creates environment + installs dependencies (requires manual activation)
 
 OPTIONS:
     --cpu-only          Force CPU-only installation
@@ -60,10 +67,13 @@ OPTIONS:
     --help, -h          Show this help message
 
 EXAMPLES:
-    $0                  # Standard install (requires manual activation)
-    source $0           # Install + auto-activate (recommended)
-    $0 --cpu-only       # Force CPU-only installation
-    $0 --minimal        # Minimal installation for resource-constrained environments
+    source $0               # Recommended: Complete setup with immediate activation
+    source $0 --cpu-only    # Force CPU-only installation with activation
+    source $0 --minimal     # Minimal installation with activation
+
+AFTER SETUP:
+    templ --help           # Check available commands
+    python run_streamlit_app.py  # Run the web interface
 
 EOF
             if [[ "$SCRIPT_SOURCED" == "true" ]]; then
@@ -77,7 +87,12 @@ EOF
 done
 
 #------------- header ---------------------------------------------------------
-info "Installing TEMPL Pipeline..."
+if [[ "$SCRIPT_SOURCED" == "true" ]]; then
+    info "Setting up TEMPL Pipeline with automatic activation..."
+else
+    info "Setting up TEMPL Pipeline..."
+    warn "For automatic activation, use: source $0"
+fi
 
 #------------- python check ---------------------------------------------------
 PY_MIN=3.9
@@ -117,9 +132,10 @@ if ! command -v uv >/dev/null 2>&1; then
     fi
 fi
 
-#------------- hardware detection ---------------------------------------------
+#------------- environment creation & activation ------------------------------
 ENV_DIR=".templ"
 if [[ ! -d "$ENV_DIR" ]]; then
+    info "Creating virtual environment..."
     uv venv "$ENV_DIR" >/dev/null 2>&1 || abort "Failed to create .templ virtual environment"
     CREATED_VENV=true
 fi
@@ -131,7 +147,7 @@ if ! python -c "import psutil" >/dev/null 2>&1; then
     uv pip install psutil >/dev/null 2>&1 || abort "Failed to install system detection dependencies"
 fi
 
-# Hardware detection with fallback
+#------------- hardware detection ---------------------------------------------
 HARDWARE_DETECTION_OUTPUT=$(python3 -c "
 import json, sys, os
 sys.path.insert(0, os.getcwd())
@@ -182,7 +198,7 @@ RECOMMENDED_CONFIG=$(echo "$HARDWARE_DETECTION_OUTPUT" | python3 -c "import sys,
 RECOMMENDED_COMMAND=$(echo "$HARDWARE_DETECTION_OUTPUT" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data['recommended_installation']['command'])")
 RECOMMENDED_DESC=$(echo "$HARDWARE_DETECTION_OUTPUT" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data['recommended_installation']['description'])")
 
-#------------- determine installation configuration --------------------------- 
+#------------- determine installation configuration ---------------------------
 if [[ "$FORCE_CPU_ONLY" == "true" ]]; then
     INSTALL_CONFIG="cpu-minimal"
     INSTALL_COMMAND="uv pip install -e ."
@@ -287,7 +303,7 @@ except Exception as e:
 "
 fi
 
-#------------- environment activation setup -----------------------------------
+#------------- environment customization --------------------------------------
 # Enhance activation script with custom prompt
 ACTIVATE_SCRIPT=".templ/bin/activate"
 if [[ -f "$ACTIVATE_SCRIPT" ]]; then
@@ -304,47 +320,32 @@ EOF
     fi
 fi
 
-# Create convenience activation script for future sessions
-cat > "activate_templ.sh" << EOF
-#!/bin/bash
-# TEMPL Pipeline Environment Activation Script
-# Usage: source activate_templ.sh
-
-if [[ -f ".templ/bin/activate" ]]; then
-    source .templ/bin/activate
-    echo "TEMPL Pipeline environment activated"
-    echo "Available commands: templ --help"
-else
-    echo "Error: .templ environment not found"
-    echo "Please run: ./setup_env_smart.sh"
-    exit 1
-fi
-EOF
-
-chmod +x activate_templ.sh
-
-#------------- installation summary -------------------------------------------
+#------------- completion summary ---------------------------------------------
 ok "TEMPL Pipeline installed successfully (${INSTALL_DURATION}s)"
+ok "Configuration: $INSTALL_CONFIG"
 
-# Check if .templ environment is active in current shell
-if [[ "${VIRTUAL_ENV:-}" == *".templ"* ]]; then
-    ENV_STATUS="Active"
-    ACTIVATION_NEEDED=false
-else
-    ENV_STATUS="Ready"
-    ACTIVATION_NEEDED=true
-fi
-
-echo "Environment: $ENV_STATUS | Config: $INSTALL_CONFIG"
-
-if [[ "$ACTIVATION_NEEDED" == "true" ]]; then
-    echo "Activate: source activate_templ.sh"
-fi
-
-echo "Usage: templ --help | python run_streamlit_app.py"
-
-# Automatic activation when sourced
+# Check actual environment status in current shell
 if [[ "$SCRIPT_SOURCED" == "true" ]]; then
-    source "$ENV_DIR/bin/activate"
-    ok "Environment activated! Try: templ --help"
+    # When sourced, the environment should be active in the current shell
+    if [[ "${VIRTUAL_ENV:-}" == *".templ"* ]]; then
+        ok "Environment is ACTIVE and ready to use!"
+        echo ""
+        echo "   You're now in the TEMPL environment! Try these commands:"
+        echo "   templ --help                    # View available commands"
+        echo "   python run_streamlit_app.py    # Launch web interface"
+        echo ""
+    else
+        warn "Environment was created but activation failed."
+        echo "   Manual activation: source .templ/bin/activate"
+    fi
+else
+    echo ""
+    echo "   Environment created but NOT activated."
+    echo "   To activate now: source .templ/bin/activate"
+    echo "   Or run with activation: source $0"
+    echo ""
+    echo "After activation, try:"
+    echo "   templ --help                    # View available commands"
+    echo "   python run_streamlit_app.py    # Launch web interface"
+    echo ""
 fi 

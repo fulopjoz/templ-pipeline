@@ -1,0 +1,42 @@
+name: templ-pipeline-minimal
+region: fra
+features:
+- buildpack-stack=ubuntu-22
+
+services:
+- name: templ-pipeline
+  dockerfile_path: ./Dockerfile.minimal
+  source_dir: /
+  http_port: 8080
+  instance_count: 1
+  # Use professional-xs since we optimized the build
+  instance_size_slug: apps-s-2vcpu-4gb-fixed
+  environment_slug: docker
+  
+  # Health check configuration
+  health_check:
+    http_path: /?healthz
+    initial_delay_seconds: 90  # Allow time for minimal data loading
+    period_seconds: 30
+    timeout_seconds: 10
+    success_threshold: 1
+    failure_threshold: 3
+  
+  # Environment variables
+  envs:
+  - key: STREAMLIT_SERVER_HEADLESS
+    value: "true"
+  - key: STREAMLIT_SERVER_ENABLE_CORS
+    value: "false"
+  - key: STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION
+    value: "false"
+  - key: STREAMLIT_BROWSER_GATHER_USAGE_STATS
+    value: "false"
+  - key: PYTHONPATH
+    value: "/app"
+  - key: STREAMLIT_THEME_BASE
+    value: "light"
+
+alerts:
+- rule: DEPLOYMENT_FAILED
+- rule: DOMAIN_FAILED
