@@ -1,4 +1,4 @@
-# TEMPL Pipeline - Server Deployment (CPU-only)
+# TEMPL Pipeline - Server Deployment with Embedding Support
 # Core molecular processing dependencies
 
 # Core Python libraries
@@ -28,7 +28,11 @@ psutil>=5.8.0
 requests>=2.25.0
 pillow>=8.0.0
 
-# Optional: CPU-only PyTorch (for embedding features)
-# Uncomment if you want embedding similarity features
-# torch>=1.10.0,<2.0.0 --index-url https://download.pytorch.org/whl/cpu
-# transformers>=4.10.0
+# Embedding Support - CPU-only PyTorch for lightweight deployment
+torch>=1.10.0,<2.0.0 --index-url https://download.pytorch.org/whl/cpu
+transformers>=4.10.0,<5.0.0
+tokenizers>=0.13.0
+
+# Additional dependencies for ESM2 embeddings
+sentencepiece>=0.1.95
+protobuf>=3.20.0
