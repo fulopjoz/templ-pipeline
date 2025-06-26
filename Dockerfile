@@ -22,7 +22,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
         --disable-pip-version-check \
         --no-warn-script-location \
-        "torch>=1.10.0,<2.0.0" --index-url https://download.pytorch.org/whl/cpu && \
+        "torch==2.1.2" --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir \
         --disable-pip-version-check \
         --no-warn-script-location \

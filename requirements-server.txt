@@ -1,6 +1,3 @@
-# TEMPL Pipeline - Server Deployment with Embedding Support
-# Core molecular processing dependencies
-
 # Core Python libraries
 numpy>=1.20.0
 pandas>=1.3.0
@@ -29,8 +26,8 @@ requests>=2.25.0
 pillow>=8.0.0
 
 # Embedding Support - CPU-only PyTorch for lightweight deployment
-torch>=1.10.0,<2.0.0 --index-url https://download.pytorch.org/whl/cpu
-transformers>=4.10.0,<5.0.0
+torch==2.1.2 --index-url https://download.pytorch.org/whl/cpu
+transformers>=4.30.0,<5.0.0
 tokenizers>=0.13.0
 
 # Additional dependencies for ESM2 embeddings
