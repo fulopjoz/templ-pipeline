@@ -31,6 +31,22 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy project files (excluding large data via .dockerignore)
 COPY . .
 
+# Pull Git LFS files to ensure we have actual data, not pointer files
+RUN git lfs pull || echo "Git LFS pull failed - may not be a git repo or LFS files not available"
+
+# Verify LFS files are actual data, not pointers
+RUN if [ -f "data-minimal/embeddings/protein_embeddings_base.npz" ]; then \
+        file_size=$(stat -f%z "data-minimal/embeddings/protein_embeddings_base.npz" 2>/dev/null || stat -c%s "data-minimal/embeddings/protein_embeddings_base.npz" 2>/dev/null || echo "0"); \
+        if [ "$file_size" -lt 5000000 ]; then \
+            echo "ERROR: Embedding file is too small ($file_size bytes) - likely an LFS pointer file"; \
+            echo "The file contains:"; \
+            head -5 "data-minimal/embeddings/protein_embeddings_base.npz"; \
+            exit 1; \
+        else \
+            echo "Embedding file size OK: $file_size bytes"; \
+        fi; \
+    fi
+
 # Decompress SDF file for runtime use
 RUN cd data-minimal/ligands && \
     gunzip processed_ligands_new.sdf.gz && \
@@ -78,7 +94,7 @@ RUN ln -sf /app/data-minimal /app/data
 # Copy startup script with explicit permissions
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh && \
-    echo "✅ Startup script permissions:" && \
+    echo "Startup script permissions:" && \
     ls -la /app/start.sh
 
 # Environment variables - minimal set, let startup script handle Streamlit config
