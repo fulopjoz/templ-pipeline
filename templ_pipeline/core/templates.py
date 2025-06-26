@@ -58,26 +58,22 @@ def resolve_ligands_file_path() -> Optional[str]:
         log.debug(f"Found ligands file via TEMPL_LIGANDS_PATH: {env_path}")
         return env_path
     
-    # Possible paths in order of preference
+    # Possible paths in order of preference - PRIORITIZE .gz files (fewer format errors)
     possible_paths = [
-        # Relative paths from project root
-        "templ_pipeline/data/ligands/processed_ligands_new.sdf.gz",
+        # PRIORITY 1: .gz files (relative paths) - fewer SDF format errors
         "data/ligands/processed_ligands_new.sdf.gz",
+        "templ_pipeline/data/ligands/processed_ligands_new.sdf.gz",
         
-        # Unzipped version fallback
-        "templ_pipeline/data/ligands/processed_ligands_new_unzipped.sdf",
-        "data/ligands/processed_ligands_new_unzipped.sdf",
-        
-        # Absolute paths for common deployment scenarios
+        # PRIORITY 2: .gz files (absolute paths) - fewer SDF format errors
         "/home/ubuntu/mcs/templ_pipeline/data/ligands/processed_ligands_new.sdf.gz",
         "/home/ubuntu/mcs/mcs_bench/data/processed_ligands_new.sdf.gz",
+        "data-minimal/ligands/processed_ligands_new.sdf.gz",
         
-        # Unzipped absolute paths
+        # FALLBACK: Unzipped versions (more format errors, use only if .gz unavailable)
+        "data/ligands/processed_ligands_new_unzipped.sdf",
+        "templ_pipeline/data/ligands/processed_ligands_new_unzipped.sdf",
         "/home/ubuntu/mcs/templ_pipeline/data/ligands/processed_ligands_new_unzipped.sdf",
         "/home/ubuntu/mcs/mcs_bench/data/processed_ligands_new_unzipped.sdf",
-
-        # server-specific paths
-        "data-minimal/ligands/processed_ligands_new.sdf.gz",
         "data-minimal/ligands/processed_ligands_new_unzipped.sdf"
     ]
     
@@ -186,6 +182,7 @@ def load_template_molecules_standardized(
     
     This function ensures identical template loading behavior across all pipeline
     components by using the same RDKit parameters, validation, and filtering.
+    Enhanced with error tolerance for SDF format issues.
     
     Args:
         template_pdb_ids: List of PDB IDs to load
@@ -196,12 +193,16 @@ def load_template_molecules_standardized(
     Returns:
         Tuple of (template_molecules_list, loading_stats_dict)
     """
+    # CRITICAL: Suppress RDKit warnings for SDF format issues
+    from rdkit import RDLogger
+    RDLogger.DisableLog('rdApp.*')
+    
     # Resolve the ligands file path
     ligands_file_path = resolve_ligands_file_path()
     if not ligands_file_path:
         return [], {"error": "Ligands file not found"}
     
-    log.info(f"Loading templates from: {ligands_file_path}")
+    log.info(f"Loading templates from: {ligands_file_path} (with error tolerance)")
     
     # Convert inputs to consistent format
     template_pdb_ids_lower = [pdb_id.lower() for pdb_id in template_pdb_ids]
@@ -226,17 +227,24 @@ def load_template_molecules_standardized(
         else:
             file_handle = open(ligands_file_path, 'rb')
         
-        # Use the exact same parameters as true_mcs_pipeline.py
-        supplier = Chem.ForwardSDMolSupplier(file_handle, removeHs=False, sanitize=False)
+        # Use enhanced parameters with error tolerance for corrupted SDF entries
+        supplier = Chem.ForwardSDMolSupplier(
+            file_handle, 
+            removeHs=False, 
+            sanitize=False,
+            strictParsing=False  # CRITICAL: Allow malformed entries to be skipped
+        )
         
         molecules_processed = 0
         molecules_loaded = 0
+        format_errors = 0
         
         for mol in supplier:
             molecules_processed += 1
             
-            # Apply the same filtering as true_mcs_pipeline.py
+            # Enhanced error handling for corrupted SDF entries
             if not mol:
+                format_errors += 1
                 continue
             
             # Critical: Check for 3D conformers (same as true_mcs_pipeline.py)
@@ -305,19 +313,27 @@ def load_template_molecules_standardized(
         
         file_handle.close()
         
-        # Compile loading statistics
+        # Compile enhanced loading statistics with error tolerance info
         missing_pdb_ids = set(template_pdb_ids_lower) - loaded_pdb_ids
         loading_stats = {
             "molecules_processed": molecules_processed,
             "molecules_loaded": molecules_loaded,
+            "format_errors": format_errors,
+            "error_rate": format_errors / molecules_processed if molecules_processed > 0 else 0,
             "requested_pdbs": len(template_pdb_ids_lower),
             "loaded_pdbs": len(loaded_pdb_ids),
             "missing_pdbs": list(missing_pdb_ids),
             "skipped_reasons": dict(skipped_reasons),
-            "source_file": ligands_file_path
+            "source_file": ligands_file_path,
+            "error_tolerance_enabled": True
         }
         
         log.info(f"Template loading complete: {molecules_loaded} templates loaded from {molecules_processed} processed")
+        
+        # Report format errors with tolerance
+        if format_errors > 0:
+            error_rate = format_errors / molecules_processed * 100
+            log.info(f"Format errors handled gracefully: {format_errors}/{molecules_processed} ({error_rate:.1f}%) - pipeline continues normally")
         
         if missing_pdb_ids:
             log.warning(f"Could not find templates for: {', '.join(sorted(missing_pdb_ids))}")
@@ -339,6 +355,7 @@ def load_all_template_molecules(
     
     This function loads all templates similar to how true_mcs_pipeline.py loads
     the complete ligands dictionary for neighbor searching.
+    Enhanced with error tolerance for SDF format issues.
     
     Args:
         max_templates: Maximum number of templates to load
@@ -347,11 +364,15 @@ def load_all_template_molecules(
     Returns:
         Tuple of (pdb_id_to_molecule_dict, loading_stats_dict)
     """
+    # Suppress RDKit warnings for SDF format issues
+    from rdkit import RDLogger
+    RDLogger.DisableLog('rdApp.*')
+    
     ligands_file_path = resolve_ligands_file_path()
     if not ligands_file_path:
         return {}, {"error": "Ligands file not found"}
     
-    log.info(f"Loading all templates from: {ligands_file_path}")
+    log.info(f"Loading all templates from: {ligands_file_path} (with error tolerance)")
     
     templates_dict = {}
     
@@ -371,15 +392,25 @@ def load_all_template_molecules(
         else:
             file_handle = open(ligands_file_path, 'rb')
         
-        supplier = Chem.ForwardSDMolSupplier(file_handle, removeHs=False, sanitize=False)
+        supplier = Chem.ForwardSDMolSupplier(
+            file_handle, 
+            removeHs=False, 
+            sanitize=False,
+            strictParsing=False  # Allow malformed entries to be skipped
+        )
         
         molecules_processed = 0
         molecules_loaded = 0
+        format_errors = 0
         
         for mol in supplier:
             molecules_processed += 1
             
-            if not mol or not mol.GetNumConformers():
+            if not mol:
+                format_errors += 1
+                continue
+                
+            if not mol.GetNumConformers():
                 continue
             
             pdb_id = safe_name(mol, "lig_placeholder")[:4].lower()
@@ -410,10 +441,16 @@ def load_all_template_molecules(
         loading_stats = {
             "molecules_processed": molecules_processed,
             "molecules_loaded": molecules_loaded,
-            "source_file": ligands_file_path
+            "format_errors": format_errors,
+            "error_rate": format_errors / molecules_processed if molecules_processed > 0 else 0,
+            "source_file": ligands_file_path,
+            "error_tolerance_enabled": True
         }
         
         log.info(f"All templates loaded: {molecules_loaded} from {molecules_processed} processed")
+        if format_errors > 0:
+            error_rate = format_errors / molecules_processed * 100
+            log.info(f"Format errors handled gracefully: {format_errors}/{molecules_processed} ({error_rate:.1f}%)")
         return templates_dict, loading_stats
         
     except Exception as e:
