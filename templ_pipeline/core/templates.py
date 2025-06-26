@@ -75,6 +75,10 @@ def resolve_ligands_file_path() -> Optional[str]:
         # Unzipped absolute paths
         "/home/ubuntu/mcs/templ_pipeline/data/ligands/processed_ligands_new_unzipped.sdf",
         "/home/ubuntu/mcs/mcs_bench/data/processed_ligands_new_unzipped.sdf",
+
+        # server-specific paths
+        "data-minimal/ligands/processed_ligands_new.sdf.gz",
+        "data-minimal/ligands/processed_ligands_new_unzipped.sdf"
     ]
     
     for path in possible_paths:
