@@ -43,12 +43,12 @@ RUN ls -lah data-minimal/embeddings/ && \
 
 # Pre-download ESM2 model to reduce startup time (optional - adds ~2.6GB)
 # Uncomment the next lines if you want to pre-cache the model
-# RUN python -c "from transformers import EsmModel, EsmTokenizer; \
-#     model_id='facebook/esm2_t33_650M_UR50D'; \
-#     print('Downloading ESM2 model...'); \
-#     EsmTokenizer.from_pretrained(model_id); \
-#     EsmModel.from_pretrained(model_id); \
-#     print('ESM2 model cached successfully')"
+RUN python -c "from transformers import EsmModel, EsmTokenizer; \
+    model_id='facebook/esm2_t33_650M_UR50D'; \
+    print('Downloading ESM2 model...'); \
+    EsmTokenizer.from_pretrained(model_id); \
+    EsmModel.from_pretrained(model_id); \
+    print('ESM2 model cached successfully')"
 
 # Runtime stage - minimal
 FROM python:3.10-slim
