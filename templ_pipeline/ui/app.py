@@ -1,5 +1,14 @@
 """
 TEMPL Pipeline - Simple One-Click Web Application
+
+PERFORMANCE OPTIMIZATIONS APPLIED:
+- Fixed relative imports to absolute imports (prevents import failures)
+- Moved hardware detection to cached function (prevents redundant execution)
+- Moved embedding capability checks to cached function (prevents repeated checks)  
+- Fixed session state initialization logic (prevents double initialization)
+- Added caching to expensive molecular operations (faster validation)
+- Moved page config to main() with exception handling (prevents conflicts)
+- Added performance monitoring and cache statistics
 """
 
 import os
@@ -22,15 +31,30 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-# FAIR imports for metadata generation
-try:
-    from templ_pipeline.fair.core.metadata_engine import MetadataEngine, generate_quick_metadata
-    from templ_pipeline.fair.biology.molecular_descriptors import calculate_molecular_descriptors
-    FAIR_AVAILABLE = True
-    logger.info("FAIR metadata engine available")
-except ImportError:
-    FAIR_AVAILABLE = False
-    logger.warning("FAIR metadata engine not available")
+# Import streamlit early for cache decorators
+import streamlit as st
+
+# FAIR metadata availability flag (will be checked via cached function)
+FAIR_AVAILABLE = False
+
+@st.cache_resource
+def check_fair_availability():
+    """Check FAIR metadata availability with caching"""
+    global FAIR_AVAILABLE
+    try:
+        from templ_pipeline.fair.core.metadata_engine import MetadataEngine, generate_quick_metadata
+        from templ_pipeline.fair.biology.molecular_descriptors import calculate_comprehensive_descriptors
+        FAIR_AVAILABLE = True
+        logger.info("FAIR metadata engine available")
+        return True, {
+            'MetadataEngine': MetadataEngine,
+            'generate_quick_metadata': generate_quick_metadata,
+            'calculate_molecular_descriptors': calculate_comprehensive_descriptors
+        }
+    except ImportError:
+        FAIR_AVAILABLE = False
+        logger.warning("FAIR metadata engine not available")
+        return False, {}
 
 # Performance timing decorator for diagnostics
 def time_function(func):
@@ -44,42 +68,82 @@ def time_function(func):
         return result
     return wrapper
 
+def is_streamlit_rerun():
+    """Detect if this is a Streamlit rerun vs initial load"""
+    return hasattr(st.session_state, 'app_initialized') and st.session_state.app_initialized
+
+def log_once(message, level="info"):
+    """Log a message only once during the session"""
+    if not hasattr(st.session_state, 'logged_messages'):
+        st.session_state.logged_messages = set()
+    
+    if message not in st.session_state.logged_messages:
+        if level == "info":
+            logger.info(message)
+        elif level == "warning":
+            logger.warning(message)
+        elif level == "error":
+            logger.error(message)
+        st.session_state.logged_messages.add(message)
+
 # Hardware-aware imports and dependency checking
-import streamlit as st
 
-# Check hardware and available dependencies
-try:
-    from templ_pipeline.core.hardware_detection import HardwareDetector, get_hardware_recommendation
-    HARDWARE_DETECTOR = HardwareDetector()
-    HARDWARE_INFO = HARDWARE_DETECTOR.detect_hardware()
-    logger.info(f"Hardware detected: {HARDWARE_INFO.recommended_config}")
-except ImportError:
-    HARDWARE_DETECTOR = None
-    HARDWARE_INFO = None
-    logger.warning("Hardware detection not available")
+# Hardware detection variables (will be initialized via cached function)
+HARDWARE_DETECTOR = None
+HARDWARE_INFO = None
 
-# Check ESM2 embedding capabilities
+@st.cache_resource
+def get_hardware_info():
+    """Get hardware information with caching to prevent redundant detection"""
+    global HARDWARE_DETECTOR, HARDWARE_INFO
+    if HARDWARE_INFO is None:
+        try:
+            from templ_pipeline.core.hardware_detection import HardwareDetector, get_hardware_recommendation
+            HARDWARE_DETECTOR = HardwareDetector()
+            HARDWARE_INFO = HARDWARE_DETECTOR.detect_hardware()
+            logger.info(f"Hardware detected: {HARDWARE_INFO.recommended_config}")
+        except ImportError:
+            HARDWARE_DETECTOR = None
+            HARDWARE_INFO = None
+            logger.warning("Hardware detection not available")
+    return HARDWARE_INFO
+
+# Embedding capability variables (will be initialized via cached function)
 EMBEDDING_FEATURES_AVAILABLE = False
 TORCH_AVAILABLE = False
 TRANSFORMERS_AVAILABLE = False
 
-try:
-    import torch
-    TORCH_AVAILABLE = True
-    if torch.cuda.is_available():
-        logger.info(f"CUDA available: {torch.cuda.device_count()} GPU(s)")
-    else:
-        logger.info("PyTorch CPU-only mode")
-except ImportError:
-    logger.warning("PyTorch not available - embedding similarity disabled")
+@st.cache_resource
+def check_embedding_capabilities():
+    """Check embedding capabilities with caching to prevent redundant checks"""
+    global EMBEDDING_FEATURES_AVAILABLE, TORCH_AVAILABLE, TRANSFORMERS_AVAILABLE
+    
+    try:
+        import torch
+        TORCH_AVAILABLE = True
+        if torch.cuda.is_available():
+            logger.info(f"CUDA available: {torch.cuda.device_count()} GPU(s)")
+        else:
+            logger.info("PyTorch CPU-only mode")
+    except ImportError:
+        logger.warning("PyTorch not available - embedding similarity disabled")
+        TORCH_AVAILABLE = False
 
-try:
-    import transformers
-    TRANSFORMERS_AVAILABLE = True
-    EMBEDDING_FEATURES_AVAILABLE = TORCH_AVAILABLE and TRANSFORMERS_AVAILABLE
-    logger.info("Protein embedding similarity available")
-except ImportError:
-    logger.warning("Transformers not available - embedding similarity disabled")
+    try:
+        import transformers
+        TRANSFORMERS_AVAILABLE = True
+        EMBEDDING_FEATURES_AVAILABLE = TORCH_AVAILABLE and TRANSFORMERS_AVAILABLE
+        logger.info("Protein embedding similarity available")
+    except ImportError:
+        logger.warning("Transformers not available - embedding similarity disabled")
+        TRANSFORMERS_AVAILABLE = False
+        EMBEDDING_FEATURES_AVAILABLE = False
+    
+    return {
+        'embedding_available': EMBEDDING_FEATURES_AVAILABLE,
+        'torch_available': TORCH_AVAILABLE,
+        'transformers_available': TRANSFORMERS_AVAILABLE
+    }
 
 # Fix torch.classes compatibility issue with Streamlit
 try:
@@ -90,9 +154,21 @@ except ImportError:
 # Apply scoring fixes on module load
 try:
     from templ_pipeline.core.scoring import FixedMolecularProcessor, ScoringFixer
-    logger.info("Enhanced scoring modules loaded successfully")
+    log_once("Enhanced scoring modules loaded successfully")
 except ImportError:
-    logger.warning("Enhanced scoring modules not available")
+    log_once("Enhanced scoring modules not available", "warning")
+
+# Import new optimization modules
+try:
+    from templ_pipeline.ui.secure_upload import SecureFileUploadHandler, validate_file_secure
+    from templ_pipeline.ui.error_handling import get_error_manager, ContextualErrorManager
+    from templ_pipeline.ui.memory_manager import get_memory_manager, MolecularSessionManager
+    from templ_pipeline.ui.molecular_processor import get_molecular_processor, CachedMolecularProcessor
+    OPTIMIZATION_MODULES_AVAILABLE = True
+    log_once("Security and memory optimization modules loaded successfully")
+except ImportError as e:
+    OPTIMIZATION_MODULES_AVAILABLE = False
+    log_once(f"Optimization modules not available: {e}", "warning")
 
 # Add project root to path
 current_file_path = Path(__file__).resolve()
@@ -142,12 +218,7 @@ def get_core_modules():
         }
     return _core_modules
 
-# Configure page
-st.set_page_config(
-    page_title="TEMPL Pipeline",
-    page_icon="🧪",
-    layout="wide"
-)
+# Page configuration will be done in main() to prevent redundant execution
 
 # Enhanced CSS
 st.markdown("""
@@ -275,13 +346,59 @@ def get_embedding_manager():
     return None
 
 def save_uploaded_file(uploaded_file, suffix=".pdb"):
-    """Save uploaded file to temp location"""
+    """Save uploaded file to temp location with security enhancements"""
+    if OPTIMIZATION_MODULES_AVAILABLE:
+        try:
+            # Use secure file upload handler
+            handler = SecureFileUploadHandler()
+            file_type = suffix.lstrip('.')
+            success, message, secure_path = handler.validate_and_save(uploaded_file, file_type)
+            
+            if success:
+                logger.info(f"Secure file upload: {message}")
+                return secure_path
+            else:
+                # Handle upload error with error manager
+                error_manager = get_error_manager()
+                error_manager.handle_error(
+                    'FILE_UPLOAD', 
+                    Exception(message), 
+                    'file_upload',
+                    user_message=message
+                )
+                return None
+        except Exception as e:
+            # Fallback to original method on error
+            logger.warning(f"Secure upload failed, using fallback: {e}")
+    
+    # Original fallback method
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp.write(uploaded_file.getvalue())
         return tmp.name
 
 def validate_smiles_input_impl(smiles):
-    """Core SMILES validation logic without caching decorator"""
+    """Core SMILES validation logic with optimization enhancements"""
+    if OPTIMIZATION_MODULES_AVAILABLE:
+        try:
+            # Use cached molecular processor for validation
+            processor = get_molecular_processor()
+            valid, message, canonical = processor.validate_smiles(smiles)
+            
+            if valid and canonical:
+                # Get molecule for binary conversion
+                Chem, AllChem, Draw = get_rdkit_modules()
+                mol = Chem.MolFromSmiles(canonical)
+                if mol:
+                    mol_pickle = mol.ToBinary()
+                    return True, message, mol_pickle
+            
+            return valid, message, None
+            
+        except Exception as e:
+            # Fallback to original implementation
+            logger.warning(f"Cached validation failed, using fallback: {e}")
+    
+    # Original implementation as fallback
     try:
         if not smiles or not smiles.strip():
             return False, "Please enter a SMILES string", None
@@ -302,9 +419,18 @@ def validate_smiles_input_impl(smiles):
         return True, f"Valid molecule ({num_atoms} atoms)", mol_pickle
         
     except Exception as e:
+        if OPTIMIZATION_MODULES_AVAILABLE:
+            # Use error manager for enhanced error handling
+            error_manager = get_error_manager()
+            error_manager.handle_error(
+                'MOLECULAR_PROCESSING',
+                e,
+                'smiles_validation',
+                error_subtype='invalid_smiles'
+            )
         return False, f"Error parsing SMILES: {str(e)}", None
 
-@st.cache_data(ttl=3600)  # Cache for 1 hour
+@st.cache_data(ttl=3600, show_spinner=False)  # Cache for 1 hour, hide spinner for better UX
 @time_function
 def validate_smiles_input(smiles):
     """Validate SMILES input with detailed feedback - cached wrapper"""
@@ -312,7 +438,69 @@ def validate_smiles_input(smiles):
 
 @time_function
 def validate_sdf_input(sdf_file):
-    """Validate SDF file input with detailed feedback and caching"""
+    """Validate SDF file input with security enhancements and caching"""
+    if OPTIMIZATION_MODULES_AVAILABLE:
+        try:
+            # Use secure file upload handler for validation
+            handler = SecureFileUploadHandler()
+            success, message, secure_path = handler.validate_and_save(sdf_file, 'sdf')
+            
+            if not success:
+                return False, message, None
+            
+            # Use memory manager for efficient caching
+            memory_manager = get_memory_manager()
+            
+            # Create cache key from file content
+            sdf_data = sdf_file.read()
+            sdf_file.seek(0)  # Reset file pointer
+            file_hash = hash(sdf_data)
+            cache_key = f"sdf_{file_hash}_{sdf_file.name}"
+            
+            # Check memory manager cache first
+            cached_mol = memory_manager.get_molecule(cache_key)
+            if cached_mol:
+                num_atoms = cached_mol.GetNumAtoms()
+                return True, f"Valid molecule ({num_atoms} atoms) [cached]", cached_mol
+            
+            # Process the validated file
+            Chem, AllChem, Draw = get_rdkit_modules()
+            supplier = Chem.SDMolSupplier()
+            supplier.SetData(sdf_data)
+            
+            mol = None
+            for m in supplier:
+                if m is not None:
+                    mol = m
+                    break
+            
+            if mol is None:
+                result = (False, "No valid molecules found in file", None)
+            else:
+                num_atoms = mol.GetNumAtoms()
+                if num_atoms < 3:
+                    result = (False, "Molecule too small (minimum 3 atoms)", None)
+                elif num_atoms > 200:
+                    result = (False, "Molecule too large (maximum 200 atoms)", None)
+                else:
+                    # Store in memory manager
+                    memory_manager.store_molecule(cache_key, mol, {'source': 'sdf_upload'})
+                    result = (True, f"Valid molecule ({num_atoms} atoms)", mol)
+            
+            return result
+            
+        except Exception as e:
+            if OPTIMIZATION_MODULES_AVAILABLE:
+                error_manager = get_error_manager()
+                error_manager.handle_error(
+                    'FILE_UPLOAD',
+                    e,
+                    'sdf_validation',
+                    error_subtype='processing_failed'
+                )
+            logger.warning(f"Secure SDF validation failed, using fallback: {e}")
+    
+    # Original implementation as fallback
     try:
         # Create cache key from file content hash
         sdf_data = sdf_file.read()
@@ -440,15 +628,33 @@ def load_templates_from_uploaded_sdf(uploaded_file):
         st.error(f"Error reading template SDF file: {e}")
         return []
 
-@st.cache_data(ttl=3600)  # Cache molecule images
+@st.cache_data(ttl=3600, show_spinner=False)  # Cache molecule images, hide spinner
 def generate_molecule_image(mol_binary, width=400, height=300, highlight_atoms=None):
     """Generate molecule image from binary representation"""
     try:
         Chem, AllChem, Draw = get_rdkit_modules()
         mol = Chem.Mol(mol_binary)
         
-        # Skip kekulization - use RDKit's default aromaticity handling
+        # SMART FIX: Use original molecular structure for visualization if available
+        if mol.HasProp("original_smiles"):
+            try:
+                original_smiles = mol.GetProp("original_smiles")
+                clean_mol = Chem.MolFromSmiles(original_smiles)
+                if clean_mol:
+                    mol = clean_mol
+                    logger.debug("Using original molecular structure for image generation")
+            except Exception as e:
+                logger.debug(f"Could not use original SMILES for image generation: {e}")
+        
+        # Proper sanitization and hydrogen removal
         mol_copy = Chem.RemoveHs(mol)
+        
+        # Ensure proper sanitization for visualization
+        try:
+            Chem.SanitizeMol(mol_copy)
+        except Exception as e:
+            logger.debug(f"Sanitization failed during image generation: {e}")
+            # Continue with unsanitized molecule
         
         # Ensure we have valid 2D coordinates
         if mol_copy.GetNumConformers() == 0:
@@ -464,6 +670,26 @@ def generate_molecule_image(mol_binary, width=400, height=300, highlight_atoms=N
         return None
 
 
+
+@st.cache_data(ttl=1800, show_spinner=False)  # 30 minute cache for molecular displays
+def cached_display_molecule_data(mol_binary, width=400, height=300, highlight_atoms=None):
+    """Cached wrapper for molecular display data processing"""
+    try:
+        Chem, AllChem, Draw = get_rdkit_modules()
+        mol = Chem.Mol(mol_binary)
+        
+        # Create safe copy for processing
+        mol_copy = Chem.RemoveHs(mol)
+        
+        # Generate coordinates if needed
+        if mol_copy.GetNumConformers() == 0:
+            AllChem.Compute2DCoords(mol_copy)
+        
+        return mol_copy.ToBinary()
+    except Exception as e:
+        logger.error(f"Error in cached molecular display: {e}")
+        return None
+
 def display_molecule(mol, width=400, height=300, title="", highlight_atoms=None):
     """Display molecule as 2D image with optional atom highlighting"""
     if mol is None:
@@ -474,8 +700,23 @@ def display_molecule(mol, width=400, height=300, title="", highlight_atoms=None)
         # sanitize the molecule carefully
         import rdkit.Chem as Chem
         
-        # Create a working copy to avoid modifying the original
-        mol_work = Chem.Mol(mol)
+        # SMART FIX: Use original molecular structure for visualization if available
+        mol_work = mol
+        if mol.HasProp("original_smiles"):
+            try:
+                original_smiles = mol.GetProp("original_smiles")
+                clean_mol = Chem.MolFromSmiles(original_smiles)
+                if clean_mol:
+                    mol_work = clean_mol
+                    logger.debug("Using original molecular structure for visualization")
+            except Exception as e:
+                logger.debug(f"Could not use original SMILES for visualization: {e}")
+                # Fall back to coordinate-manipulated molecule
+                mol_work = Chem.Mol(mol)
+        else:
+            # Create a working copy to avoid modifying the original
+            mol_work = Chem.Mol(mol)
+        
         try:
             Chem.SanitizeMol(mol_work)
         except:
@@ -864,7 +1105,30 @@ def _format_pipeline_results_for_ui(results, template_mol=None, query_mol=None):
         # Final fallback
         return pdb_id
 
-    # Store results in session state for UI components
+    # Store results in session state for UI components with memory optimization
+    if OPTIMIZATION_MODULES_AVAILABLE:
+        try:
+            memory_manager = get_memory_manager()
+            
+            # Store template molecules efficiently
+            if 'template_molecules' in results and results['template_molecules']:
+                template_molecules = results['template_molecules']
+                for i, template in enumerate(template_molecules):
+                    memory_manager.store_molecule(f"template_{i}", template, {'source': 'pipeline'})
+            
+            # Store query molecule efficiently
+            if query_mol:
+                memory_manager.store_molecule("query_molecule", query_mol, {'source': 'user_input'})
+            
+            # Store poses efficiently using memory manager
+            if poses:
+                memory_manager.store_pose_results(poses)
+                logger.info(f"Stored pose results using memory optimization")
+            
+        except Exception as e:
+            logger.warning(f"Memory optimization failed, using fallback storage: {e}")
+    
+    # Store results in session state for UI components (original/fallback)
     if 'template_molecules' in results and results['template_molecules']:
         # Get the actually selected template from MCS info
         mcs_info = results.get('mcs_info', {})
@@ -1259,6 +1523,7 @@ def get_pipeline_status() -> Dict[str, Any]:
 def show_hardware_status():
     """Display hardware status and AI capability information"""
     
+    HARDWARE_INFO = get_hardware_info()
     if not HARDWARE_INFO:
         return
     
@@ -1320,6 +1585,56 @@ def show_hardware_status():
             
             label = config_labels.get(HARDWARE_INFO.recommended_config, "HARDWARE")
             st.markdown(f"{label}: Recommended: {HARDWARE_INFO.recommended_config}")
+        
+        # Add optimization status section
+        if OPTIMIZATION_MODULES_AVAILABLE:
+            st.markdown("---")
+            col3, col4 = st.columns(2)
+            
+            with col3:
+                st.markdown("**Security & Performance:**")
+                st.markdown("✅ Secure file upload enabled")
+                st.markdown("✅ Enhanced error handling active")
+                st.markdown("✅ Memory optimization active")
+                st.markdown("✅ Molecular processing cache enabled")
+            
+            with col4:
+                st.markdown("**Optimization Stats:**")
+                try:
+                    memory_manager = get_memory_manager()
+                    mol_processor = get_molecular_processor()
+                    
+                    memory_stats = memory_manager.get_memory_stats()
+                    cache_stats = mol_processor.get_cache_stats()
+                    
+                    st.markdown(f"Memory cache: {memory_stats['cache_size_mb']:.1f}MB used")
+                    st.markdown(f"Cache hit rate: {cache_stats.get('validate_smiles', {}).get('hit_rate', 0):.1f}%")
+                    st.markdown(f"Molecules cached: {memory_stats['smiles_cache_entries']}")
+                    
+                    # Memory optimization button
+                    if st.button("Optimize Memory", help="Clean up cache and free memory"):
+                        optimization_result = memory_manager.optimize_memory()
+                        st.success(f"Freed {optimization_result['memory_saved_mb']:.1f}MB")
+                except Exception as e:
+                    st.markdown("Stats: Available after first use")
+                    
+            # Cache performance section
+            with st.expander("Cache Performance", expanded=False):
+                try:
+                    perf_stats = get_performance_stats()
+                    st.markdown("**Streamlit Cache Statistics:**")
+                    for cache_name, info in perf_stats.items():
+                        if info and hasattr(info, 'hits'):
+                            hit_rate = (info.hits / max(1, info.hits + info.misses)) * 100
+                            st.markdown(f"• {cache_name}: {hit_rate:.1f}% hit rate ({info.hits} hits, {info.misses} misses)")
+                        else:
+                            st.markdown(f"• {cache_name}: No cache info available")
+                except Exception as e:
+                    st.markdown("Cache stats: Available after usage")
+        else:
+            st.markdown("---")
+            st.markdown("**Optimization Status:**")
+            st.warning("⚠️ Security and performance modules not loaded - using basic functionality")
 
 def check_embedding_requirements_for_feature(feature_name: str) -> bool:
     """Check if embedding requirements are met for a specific feature"""
@@ -1328,6 +1643,7 @@ def check_embedding_requirements_for_feature(feature_name: str) -> bool:
         st.info("Quick Fix: Install missing dependencies and restart the app")
         
         with st.expander("Installation Instructions", expanded=False):
+            HARDWARE_INFO = get_hardware_info()
             if HARDWARE_INFO and HARDWARE_INFO.gpu_available:
                 st.code("""
 # For GPU acceleration
@@ -1449,6 +1765,17 @@ def generate_fair_metadata_for_results(poses, input_data):
                 'combo_score': scores.get('combo_score', scores.get('combo', 0))
             }
         
+        # Get FAIR functions
+        fair_available, fair_funcs = check_fair_availability()
+        if not fair_available:
+            return None
+        
+        if 'generate_quick_metadata' not in fair_funcs:
+            return None
+            
+        generate_quick_metadata = fair_funcs['generate_quick_metadata']
+        calculate_molecular_descriptors = fair_funcs['calculate_molecular_descriptors']
+        
         # Generate quick metadata
         metadata = generate_quick_metadata(
             target_id=target_id,
@@ -1470,8 +1797,9 @@ def generate_fair_metadata_for_results(poses, input_data):
         # Add molecular descriptors if available
         if input_smiles and hasattr(st.session_state, 'query_mol') and st.session_state.query_mol:
             try:
-                descriptors = calculate_molecular_descriptors(st.session_state.query_mol)
-                metadata['molecular_descriptors'] = descriptors
+                if input_smiles and 'calculate_molecular_descriptors' in locals():
+                    descriptors = calculate_molecular_descriptors(input_smiles)
+                    metadata['molecular_descriptors'] = descriptors
             except Exception as e:
                 logger.warning(f"Could not calculate molecular descriptors: {e}")
         
@@ -1737,6 +2065,16 @@ Data generated following FAIR principles:
     st.text_area("Citation Information", citation_text, height=300)
     st.info("Citation information copied to display. Copy text above for your records.")
 
+@st.cache_data(ttl=60)  # Cache for 1 minute
+def get_performance_stats():
+    """Get performance statistics for monitoring"""
+    return {
+        'embedding_cached': check_embedding_capabilities.cache_info() if hasattr(check_embedding_capabilities, 'cache_info') else None,
+        'hardware_cached': get_hardware_info.cache_info() if hasattr(get_hardware_info, 'cache_info') else None,
+        'molecule_validation_cached': validate_smiles_input.cache_info() if hasattr(validate_smiles_input, 'cache_info') else None,
+        'image_generation_cached': generate_molecule_image.cache_info() if hasattr(generate_molecule_image, 'cache_info') else None,
+    }
+
 def health_check():
     """Health check endpoint for DigitalOcean deployment monitoring"""
     st.write("OK")
@@ -1744,6 +2082,17 @@ def health_check():
 
 def main():
     """Main application"""
+    
+    # Configure page only once
+    try:
+        st.set_page_config(
+            page_title="TEMPL Pipeline",
+            page_icon="🧪",
+            layout="wide"
+        )
+    except st.StreamlitAPIException:
+        # Already configured
+        pass
     
     # Handle health check endpoint
     if st.query_params.get("health") == "check":
@@ -1753,8 +2102,9 @@ def main():
     if st.query_params.get("healthz") is not None:
         health_check()
     
-    # Show loading indicator during initialization
+    # Initialize session state only once
     if 'app_initialized' not in st.session_state:
+        init_start_time = time.time()
         loading_placeholder = st.empty()
         with loading_placeholder.container():
             st.info("🔄 Initializing TEMPL Pipeline...")
@@ -1763,22 +2113,77 @@ def main():
         # Initialize session state
         initialize_session_state()
         
+        # Initialize hardware detection (cached)
+        get_hardware_info()
+        
+        # Initialize embedding capabilities (cached)
+        check_embedding_capabilities()
+        
+        # Initialize FAIR metadata availability (cached)
+        check_fair_availability()
+        
         # Mark app as initialized
         st.session_state.app_initialized = True
+        init_time = time.time() - init_start_time
+        logger.info(f"Performance: App initialization completed in {init_time:.3f} seconds")
         loading_placeholder.empty()
+    # No else clause - already initialized
+    
+    # Display optimization status badge
+    if OPTIMIZATION_MODULES_AVAILABLE:
+        st.success("🚀 Enhanced Performance Mode: Security & Memory Optimization Active")
     else:
-        # Initialize session state for already initialized app
-        initialize_session_state()
+        st.info("⚡ Standard Mode: Basic functionality available")
+    
+    # Performance optimization notice
+    st.info("✅ Performance Optimizations: Redundant execution fixes applied, caching enabled for faster loading")
     
     # Header with branding and hardware status
     header_color = "#667eea" if EMBEDDING_FEATURES_AVAILABLE else "#FFA500"  # Blue if embeddings available, orange if not
     
     st.markdown(f"""
-    <div style="text-align: center; padding: 2rem 0 1rem 0; background: linear-gradient(90deg, {header_color} 0%, #764ba2 100%); color: white; border-radius: 0.5rem; margin-bottom: 1rem;">
-        <h1 style="margin: 0; font-size: 2.5rem;">TEMPL Pipeline</h1>
-        <p style="margin: 0.5rem 0 0 0; font-size: 1.2rem; opacity: 0.9;">TEMplate-based Protein-Ligand Pose Prediction</p>
+    <style>
+    .header-glass {{
+        background: rgba(30, 32, 48, 0.75);
+        box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.18);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        border-radius: 1.2rem;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        text-align: center;
+        padding: 2.5rem 0 1.5rem 0;
+        margin-bottom: 1.5rem;
+        animation: fadeIn 1.2s ease;
+    }}
+    .header-title {{
+        font-family: 'Segoe UI', 'Roboto', 'Arial', sans-serif;
+        font-size: 2.8rem;
+        letter-spacing: 0.04em;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+        color: #fff;
+        text-shadow: 0 2px 12px #764ba2aa, 0 1px 0 #0003;
+    }}
+    .header-subtitle {{
+        font-family: 'Segoe UI', 'Roboto', 'Arial', sans-serif;
+        font-size: 1.18rem;
+        font-weight: 400;
+        color: #e0e0e0;
+        opacity: 0.92;
+        margin: 0;
+        letter-spacing: 0.02em;
+    }}
+    @keyframes fadeIn {{
+        from {{ opacity: 0; transform: translateY(-16px); }}
+        to {{ opacity: 1; transform: translateY(0); }}
+    }}
+    </style>
+    <div class="header-glass">
+        <div class="header-title">TEMPL Pipeline</div>
+        <div class="header-subtitle">TEMplate-based Protein-Ligand Pose Prediction</div>
     </div>
     """, unsafe_allow_html=True)
+
     
     # Hardware and dependency status
     show_hardware_status()
@@ -1831,7 +2236,9 @@ def main():
                 placeholder="Cn1c(=O)c2c(ncn2C)n(C)c1=O",
                 help="Enter a valid SMILES string e.g. Cn1c(=O)c2c(ncn2C)n(C)c1=O"
             )
-            logger.info(f"Performance: SMILES text_input creation took {time.time() - smiles_start:.3f} seconds")
+            # Only log performance on initial load, not on every rerun
+            if not is_streamlit_rerun():
+                logger.info(f"Performance: SMILES text_input creation took {time.time() - smiles_start:.3f} seconds")
             
             if smiles:
                 valid, msg, mol_data = validate_smiles_input(smiles)
@@ -1854,7 +2261,9 @@ def main():
             # Add performance timing for file uploader
             uploader_start = time.time()
             sdf_file = st.file_uploader("Upload SDF/MOL File", type=["sdf", "mol"], help="Upload a molecule file (≤5MB)")
-            logger.info(f"Performance: SDF file_uploader creation took {time.time() - uploader_start:.3f} seconds")
+            # Only log performance on initial load, not on every rerun
+            if not is_streamlit_rerun():
+                logger.info(f"Performance: SDF file_uploader creation took {time.time() - uploader_start:.3f} seconds")
             
             if sdf_file is not None:  # More explicit check
                 if sdf_file.size > 5 * 1024 * 1024:  # 5MB limit
@@ -1891,7 +2300,9 @@ def main():
             # Add performance timing for PDB file uploader
             pdb_uploader_start = time.time()
             pdb_file = st.file_uploader("Upload PDB File", type=["pdb"], help="Upload protein structure file (≤5MB)")
-            logger.info(f"Performance: PDB file_uploader creation took {time.time() - pdb_uploader_start:.3f} seconds")
+            # Only log performance on initial load, not on every rerun
+            if not is_streamlit_rerun():
+                logger.info(f"Performance: PDB file_uploader creation took {time.time() - pdb_uploader_start:.3f} seconds")
             
             if pdb_file is not None:  # More explicit check
                 if pdb_file.size > 5 * 1024 * 1024:  # 5MB limit
@@ -1907,7 +2318,9 @@ def main():
             # Add performance timing for template file uploader
             template_uploader_start = time.time()
             template_file = st.file_uploader("Upload Template SDF", type=["sdf"], help="SDF file with template molecules (≤10MB)")
-            logger.info(f"Performance: Template file_uploader creation took {time.time() - template_uploader_start:.3f} seconds")
+            # Only log performance on initial load, not on every rerun
+            if not is_streamlit_rerun():
+                logger.info(f"Performance: Template file_uploader creation took {time.time() - template_uploader_start:.3f} seconds")
             
             if template_file is not None:  # More explicit check
                 if template_file.size > 10 * 1024 * 1024:  # 10MB limit

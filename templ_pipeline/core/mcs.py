@@ -655,6 +655,15 @@ def central_atom_embed(tgt: Chem.Mol, ref: Chem.Mol, n_conformers: int, n_worker
         except Exception as uff_e:
             logger.debug(f"UFF optimisation warning (conf {cid}): {uff_e}")
     
+    # CRITICAL FIX: Sanitize molecule after coordinate translation to preserve connectivity
+    try:
+        Chem.SanitizeMol(probe)
+        # Ensure ring information is properly maintained for visualization
+        probe.GetRingInfo()
+    except Exception as e:
+        logger.warning(f"Sanitization after central atom translation failed: {e}")
+        # Continue with translated molecule even if sanitization fails
+    
     logger.info(f"Generated {len(conf_ids)} conformers using central atom alignment")
     return probe
 
@@ -706,6 +715,15 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
             # Align conformers to reference
             for cid in conf_ids:
                 rdMolAlign.AlignMol(all_conformers, ref_processed, atomMap=pairs, prbCid=cid)
+            
+            # CRITICAL FIX: Sanitize molecule after alignment to preserve connectivity
+            try:
+                Chem.SanitizeMol(all_conformers)
+                # Ensure ring information is properly maintained for visualization
+                all_conformers.GetRingInfo()
+            except Exception as e:
+                logger.warning(f"Sanitization after alignment failed: {e}")
+                # Continue with aligned molecule even if sanitization fails
                 
             return all_conformers
         else:
@@ -1024,6 +1042,32 @@ def transform_ligand(mob_pdb: str, lig: Chem.Mol, pid: str, ref_struct: AtomArra
         for i, (x, y, z) in enumerate(transformed_coords):
             conf.SetAtomPosition(i, Point3D(float(x), float(y), float(z)))
         
+        # CRITICAL FIX: Sanitize molecule after coordinate transformation to preserve connectivity
+        try:
+            Chem.SanitizeMol(moved)
+            # Ensure ring information is properly maintained for visualization
+            moved.GetRingInfo()
+        except Exception as e:
+            logger.warning(f"Sanitization after coordinate transformation failed for {pid}: {e}")
+            # If sanitization fails, create a clean copy from SMILES to preserve connectivity
+            try:
+                original_smiles = Chem.MolToSmiles(lig)
+                clean_mol = Chem.MolFromSmiles(original_smiles)
+                if clean_mol:
+                    # Copy the transformed coordinates to the clean molecule
+                    Chem.AddHs(clean_mol)
+                    AllChem.EmbedMolecule(clean_mol)
+                    # Set the transformed coordinates
+                    clean_conf = clean_mol.GetConformer()
+                    for i, (x, y, z) in enumerate(transformed_coords[:clean_mol.GetNumAtoms()]):
+                        clean_conf.SetAtomPosition(i, Point3D(float(x), float(y), float(z)))
+                    moved = clean_mol
+            except Exception as e2:
+                logger.error(f"Failed to create clean molecule copy for {pid}: {e2}")
+
+        # Store original molecular structure for visualization
+        moved.SetProp("original_smiles", Chem.MolToSmiles(lig))
+
         # Store alignment metadata as properties
         moved.SetProp("template_pdb", pid)
         moved.SetProp("ref_chains", ",".join(selected_ref_chains))
