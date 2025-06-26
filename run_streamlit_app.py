@@ -35,7 +35,7 @@ def main():
         "streamlit", 
         "run", 
         str(streamlit_app_path),
-        "--server.port", "8502",                    # Use working port
+        "--server.port", "8503",                    # Use working port
         "--server.address", "127.0.0.1",           # Use localhost binding (fixes WebSocket)
         "--server.headless", "false",               # Enable browser integration
         "--server.enableCORS", "true",              # Enable CORS for remote access
@@ -48,7 +48,7 @@ def main():
         os.environ["PYTHONPATH"] = str(project_root)
     
     print("🚀 Starting TEMPL Pipeline with working configuration...")
-    print("📍 URL: http://127.0.0.1:8502")
+    print("📍 URL: http://127.0.0.1:8503")
     print("⚙️  Configuration: localhost binding, CORS enabled, headless=false")
     
     # Run the Streamlit app

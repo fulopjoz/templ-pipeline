@@ -362,24 +362,32 @@ class TEMPLPipeline:
         if n_generated == 0:
             raise RuntimeError("No conformers generated")
         
-        # Score and select best poses - use alignment control parameter
+        # PERFORMANCE FIX: Score conformers once and extract both best poses and ranked poses
         logger.info(f"Scoring and selecting best poses (aligned_poses={use_aligned_poses})")
-        best_poses = select_best(
-            conformers, 
-            template_mols[0], 
-            n_workers=n_workers, 
-            return_all_ranked=False,
-            no_realign=not use_aligned_poses  # Invert the logic: no_realign=True means return original conformers
-        )
         
-        # Also get all ranked poses for comprehensive download
+        # Score all conformers once (get all ranked poses first)
         all_ranked_poses = select_best(
             conformers, 
             template_mols[0], 
             n_workers=n_workers, 
-            return_all_ranked=True,
+            return_all_ranked=True,  # Get all ranked poses
             no_realign=not use_aligned_poses
         )
+        
+        # Extract best poses from the ranked results (no additional scoring)
+        best_poses = {}
+        if all_ranked_poses:
+            # Group poses by scoring metric and select best for each
+            for metric in ['shape', 'color', 'combo']:
+                # Find best pose for this metric from already-scored poses
+                # Note: all_ranked_poses format is (conf_id, scores, mol)
+                metric_poses = [(cid, scores, mol) for cid, scores, mol in all_ranked_poses if metric in scores]
+                if metric_poses:
+                    # Sort by this metric and get the best
+                    metric_poses.sort(key=lambda x: x[1][metric], reverse=True)
+                    _, best_scores, best_mol = metric_poses[0]  # Fixed unpacking order
+                    best_poses[metric] = (best_mol, best_scores)
+                    logger.debug(f"Best {metric}: score {best_scores[metric]:.3f} (extracted from ranked results)")
         
         if not best_poses:
             raise RuntimeError("Failed to score poses")
