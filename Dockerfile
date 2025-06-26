@@ -1,4 +1,4 @@
-# Optimized Dockerfile for minimal data deployment
+# Optimized Dockerfile with lightweight embedding support
 FROM python:3.10-slim AS builder
 
 # Install minimal system dependencies
@@ -17,7 +17,12 @@ WORKDIR /app
 COPY requirements-server.txt ./
 
 # Install Python dependencies with memory optimization
+# Install PyTorch CPU first (largest dependency) for better caching
 RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir \
+        --disable-pip-version-check \
+        --no-warn-script-location \
+        torch>=1.10.0,<2.0.0 --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir \
         --disable-pip-version-check \
         --no-warn-script-location \
@@ -36,6 +41,15 @@ RUN ls -lah data-minimal/embeddings/ && \
     ls -lah data-minimal/ligands/ && \
     echo "✅ Essential data files verified"
 
+# Pre-download ESM2 model to reduce startup time (optional - adds ~2.6GB)
+# Uncomment the next lines if you want to pre-cache the model
+# RUN python -c "from transformers import EsmModel, EsmTokenizer; \
+#     model_id='facebook/esm2_t33_650M_UR50D'; \
+#     print('Downloading ESM2 model...'); \
+#     EsmTokenizer.from_pretrained(model_id); \
+#     EsmModel.from_pretrained(model_id); \
+#     print('ESM2 model cached successfully')"
+
 # Runtime stage - minimal
 FROM python:3.10-slim
 
@@ -50,8 +64,6 @@ RUN apt-get update && \
         && \
     git lfs install && \
     rm -rf /var/lib/apt/lists/*
-
-
 
 WORKDIR /app
 
@@ -71,6 +83,11 @@ RUN chmod +x /app/start.sh && \
 
 # Environment variables - minimal set, let startup script handle Streamlit config
 ENV PYTHONPATH=/app
+ENV TRANSFORMERS_CACHE=/app/.cache/transformers
+ENV HF_HOME=/app/.cache/huggingface
+
+# Create cache directories
+RUN mkdir -p /app/.cache/transformers /app/.cache/huggingface
 
 # Force rebuild by adding build timestamp
 RUN echo "Build timestamp: $(date)" > /app/build_info.txt

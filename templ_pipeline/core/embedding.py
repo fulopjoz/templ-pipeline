@@ -425,6 +425,12 @@ def calculate_embedding(sequence: str) -> Optional[np.ndarray]:
             emb_cpu = emb.cpu()
             
             # Step 5: Convert to numpy with correct dtype
+            # Step 5: Convert to numpy with correct dtype - handle BFloat16
+            if emb_cpu.dtype == torch.bfloat16:
+                # Convert BFloat16 to Float32 first
+                emb_cpu = emb_cpu.to(torch.float32)
+            
+            # Now convert to numpy
             embedding_array = emb_cpu.numpy().astype(np.float32)
             
             # Step 6: Clean up tensors to free GPU memory immediately
