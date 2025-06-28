@@ -1,38 +1,58 @@
-# TEMPL Pipeline Project Brief
+# TEMPL Pipeline - Project Brief
 
 ## Project Overview
-TEMPL Pipeline is a template-based protein-ligand pose prediction tool that provides both CLI and Streamlit web interfaces.
+Template-based protein–ligand pose prediction system with both CLI and web interface capabilities.
 
-## Core Capabilities
-- Template-based ligand pose prediction
-- Ligand similarity and template superposition
-- Constrained conformer generation (ETKDG v3)
-- Shape/pharmacophore scoring
+## Core Mission
+TEMPL leverages **ligand similarity** and **template superposition** instead of exhaustive docking or deep neural networks. For familiar chemical space it provides fast, accurate poses with minimal compute.
+
+## Key Features
+- Alignment driven by maximal common substructure (MCS)
+- Constrained conformer generation (ETKDG v3) 
+- Shape / pharmacophore scoring for pose selection
 - Built-in benchmarks (Polaris, time-split PDBbind)
-- CPU-only by default, optional GPU support
+- CPU-only by default; GPU optional for protein embeddings
+- Streamlit web interface
+- Single command-line interface
 
-## Technical Stack
-- **Language**: Python 3.9+
-- **Core Libraries**: RDKit (cheminformatics), ESM-2 (protein embeddings)
-- **Web Framework**: Streamlit
-- **CLI Framework**: Click
-- **Environment**: Virtual environment (.templ)
+## Target Users
+- Computational chemists
+- Bioinformatics researchers
+- Drug discovery teams
+- Academic researchers in structural biology
 
-## Project Structure
-- `templ_pipeline/` - Main package directory
-  - `core/` - Core functionality
-  - `cli/` - Command-line interface
-  - `ui/` - Web interface (Streamlit)
-  - `fair/` - FAIR integration
-  - `benchmark/` - Benchmarking tools
+## Technical Architecture
+- Python 3.9+ with scientific computing stack
+- RDKit for chemical informatics
+- Biotite/BioPython for protein handling
+- Optional GPU acceleration for embeddings
+- Web interface via Streamlit
 
-## Key Commands
-- `templ run` - One-shot pose prediction
-- `templ embed` - Generate protein embeddings
-- `templ find-templates` - K-NN template search
-- `templ generate-poses` - Conformer generation & ranking
-- `templ benchmark` - Run benchmarks
+## Current Status
+- Active development project
+- Version 0.1.0
+- Full CLI and web interface implemented
+- Benchmarking capabilities included
+- Hardware-adaptive installation system
 
-## Current State
-- Project is functional with CLI and web interfaces
-- Awaiting specific task/enhancement requirements
+## Hardware Support
+- **Minimum:** Python 3.9+, 4GB RAM, 1GB disk
+- **Recommended:** 8+ cores, 16GB+ RAM, GPU with 4GB+ VRAM
+
+## Repository Structure
+- Main pipeline code in `templ_pipeline/`
+- Examples and benchmark data included
+- Docker support available
+- Comprehensive testing framework
+
+## Installation Model
+Single-command setup with hardware detection and optimal dependency installation.
+
+## Date Created
+2024 (Active)
+
+## Current Focus Areas
+- Performance optimization
+- Benchmarking accuracy
+- User experience improvements
+- Hardware compatibility
