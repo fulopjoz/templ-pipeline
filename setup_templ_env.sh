@@ -118,7 +118,7 @@ if ! command -v uv >/dev/null 2>&1; then
         abort "Failed to install uv package manager. Please check internet connection."
     fi
     
-    # Add uv to PATH
+    # Add uv to PATH for current session
     UV_PATHS=("$HOME/.cargo/bin" "$HOME/.local/bin")
     for uv_path in "${UV_PATHS[@]}"; do
         if [[ -f "$uv_path/uv" ]]; then
@@ -127,27 +127,60 @@ if ! command -v uv >/dev/null 2>&1; then
         fi
     done
     
+    # Verify uv is now available
     if ! command -v uv >/dev/null 2>&1; then
-        abort "uv package manager installation failed"
+        abort "uv package manager installation failed - not found in PATH"
     fi
+    
+    ok "uv package manager installed successfully"
 fi
 
-#------------- environment creation & activation ------------------------------
+# Verify uv version
+UV_VERSION=$(uv --version 2>/dev/null || echo "unknown")
+info "Using uv version: $UV_VERSION"
+
+#------------- environment creation -------------------------------------------
 ENV_DIR=".templ"
 if [[ ! -d "$ENV_DIR" ]]; then
-    info "Creating virtual environment..."
-    uv venv "$ENV_DIR" >/dev/null 2>&1 || abort "Failed to create .templ virtual environment"
+    info "Creating virtual environment with uv..."
+    if ! uv venv "$ENV_DIR" --python python3 2>/dev/null; then
+        abort "Failed to create .templ virtual environment with uv"
+    fi
     CREATED_VENV=true
+    ok "Virtual environment created successfully"
+else
+    info "Using existing virtual environment"
 fi
 
+# Verify environment structure
+if [[ ! -f "$ENV_DIR/bin/activate" ]]; then
+    abort "Virtual environment activation script not found"
+fi
+
+#------------- environment activation -----------------------------------------
+info "Activating virtual environment..."
 source "$ENV_DIR/bin/activate" || abort "Failed to activate .templ virtual environment"
 
-# Install minimal dependencies for hardware detection
-if ! python -c "import psutil" >/dev/null 2>&1; then
-    uv pip install psutil >/dev/null 2>&1 || abort "Failed to install system detection dependencies"
+# Verify we're in the right environment
+if [[ "${VIRTUAL_ENV:-}" != *".templ"* ]]; then
+    abort "Environment activation failed - not in .templ environment"
+fi
+
+ok "Virtual environment activated: $VIRTUAL_ENV"
+
+# Verify uv works in the activated environment
+if ! uv --version >/dev/null 2>&1; then
+    abort "uv not available in activated environment"
+fi
+
+#------------- install minimal dependencies for hardware detection ------------
+info "Installing system detection dependencies..."
+if ! uv pip install psutil --quiet 2>/dev/null; then
+    abort "Failed to install system detection dependencies"
 fi
 
 #------------- hardware detection ---------------------------------------------
+info "Detecting hardware configuration..."
 HARDWARE_DETECTION_OUTPUT=$(python3 -c "
 import json, sys, os
 sys.path.insert(0, os.getcwd())
@@ -183,7 +216,7 @@ except Exception:
             'recommended_config': config
         },
         'recommended_installation': {
-            'command': f'uv pip install -e .[{\"ai-cpu,web\" if config != \"cpu-minimal\" else \"\"}]',
+            'extras': f'ai-cpu,web' if config != 'cpu-minimal' else '',
             'description': f'{config} installation'
         }
     }
@@ -195,25 +228,25 @@ CPU_COUNT=$(echo "$HARDWARE_DETECTION_OUTPUT" | python3 -c "import sys, json; da
 RAM_GB=$(echo "$HARDWARE_DETECTION_OUTPUT" | python3 -c "import sys, json; data=json.load(sys.stdin); print(f\"{data['hardware_info']['total_ram_gb']:.1f}\")")
 GPU_AVAILABLE=$(echo "$HARDWARE_DETECTION_OUTPUT" | python3 -c "import sys, json; data=json.load(sys.stdin); print(str(data['hardware_info']['gpu_available']).lower())")
 RECOMMENDED_CONFIG=$(echo "$HARDWARE_DETECTION_OUTPUT" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data['hardware_info']['recommended_config'])")
-RECOMMENDED_COMMAND=$(echo "$HARDWARE_DETECTION_OUTPUT" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data['recommended_installation']['command'])")
+RECOMMENDED_EXTRAS=$(echo "$HARDWARE_DETECTION_OUTPUT" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data['recommended_installation'].get('extras', ''))")
 RECOMMENDED_DESC=$(echo "$HARDWARE_DETECTION_OUTPUT" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data['recommended_installation']['description'])")
 
 #------------- determine installation configuration ---------------------------
 if [[ "$FORCE_CPU_ONLY" == "true" ]]; then
     INSTALL_CONFIG="cpu-minimal"
-    INSTALL_COMMAND="uv pip install -e ."
+    INSTALL_EXTRAS=""
     INSTALL_DESC="CPU-only installation"
 elif [[ "$FORCE_GPU" == "true" ]]; then
     INSTALL_CONFIG="gpu-medium"
-    INSTALL_COMMAND="uv pip install -e .[ai-gpu,web]"
+    INSTALL_EXTRAS="ai-gpu,web"
     INSTALL_DESC="GPU-accelerated installation"
 elif [[ "$MINIMAL_INSTALL" == "true" ]]; then
     INSTALL_CONFIG="cpu-minimal"
-    INSTALL_COMMAND="uv pip install -e ."
+    INSTALL_EXTRAS=""
     INSTALL_DESC="Minimal installation"
 else
     INSTALL_CONFIG="$RECOMMENDED_CONFIG"
-    INSTALL_COMMAND="$RECOMMENDED_COMMAND"
+    INSTALL_EXTRAS="$RECOMMENDED_EXTRAS"
     INSTALL_DESC="$RECOMMENDED_DESC"
 fi
 
@@ -221,7 +254,7 @@ info "System: ${CPU_COUNT} CPUs, ${RAM_GB}GB RAM, GPU: ${GPU_AVAILABLE} → ${IN
 
 # User confirmation for interactive mode
 if [[ "$INTERACTIVE" == "true" ]]; then
-    read -p "Proceed with installation? [Y/n] " -n 1 -r
+    read -p "Proceed with $INSTALL_DESC? [Y/n] " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Nn]$ ]]; then
         info "Installation cancelled by user"
@@ -234,56 +267,90 @@ if [[ "$INTERACTIVE" == "true" ]]; then
 fi
 
 #------------- dependency installation ----------------------------------------
-info "Installing dependencies..."
+info "Installing dependencies using uv..."
+info "Configuration: $INSTALL_DESC"
 
-INSTALL_ARGS="${INSTALL_COMMAND#uv pip install }"
 INSTALL_START_TIME=$(date +%s)
 
-if ! uv pip install $INSTALL_ARGS >/dev/null 2>&1; then
-    abort "Dependency installation failed. Please check package requirements."
+# Build installation command
+if [[ -n "$INSTALL_EXTRAS" ]]; then
+    INSTALL_ARGS="-e .[${INSTALL_EXTRAS}]"
+else
+    INSTALL_ARGS="-e ."
+fi
+
+info "Running: uv pip install $INSTALL_ARGS"
+
+if ! uv pip install $INSTALL_ARGS --quiet 2>/dev/null; then
+    err "Dependency installation failed"
+    err "Trying without quiet mode for debugging..."
+    uv pip install $INSTALL_ARGS || abort "Dependency installation failed completely"
+fi
+
+# Also install from requirements.txt to ensure all dependencies are covered
+if [[ -f "requirements.txt" ]]; then
+    info "Installing additional dependencies from requirements.txt..."
+    if ! uv pip install -r requirements.txt --quiet 2>/dev/null; then
+        warn "Some dependencies from requirements.txt failed to install"
+    fi
 fi
 
 INSTALL_END_TIME=$(date +%s)
 INSTALL_DURATION=$((INSTALL_END_TIME - INSTALL_START_TIME))
 
 #------------- installation verification --------------------------------------
+info "Verifying installation..."
 python3 -c "
 import sys
 errors = []
 
 try:
     import templ_pipeline
+    print('✓ templ_pipeline imported successfully')
 except ImportError as e:
     errors.append(f'templ_pipeline: {e}')
 
 try:
     import numpy, pandas, rdkit
+    print('✓ Scientific libraries (numpy, pandas, rdkit) imported successfully')
 except ImportError as e:
     errors.append(f'Scientific libraries: {e}')
 
 if '$INSTALL_CONFIG' != 'cpu-minimal':
     try:
         import torch
+        print('✓ PyTorch imported successfully')
         if torch.cuda.is_available():
-            pass  # Silent success
+            print('✓ CUDA available')
+        else:
+            print('✓ PyTorch CPU-only mode')
     except ImportError as e:
         errors.append(f'PyTorch: {e}')
 
 try:
     from templ_pipeline.cli.main import main
+    print('✓ CLI interface available')
 except ImportError as e:
     errors.append(f'CLI interface: {e}')
 
 if errors:
+    print('\\nERRORS FOUND:')
     for error in errors:
-        print(f'ERROR: {error}')
+        print(f'  {error}')
     sys.exit(1)
-" 2>/dev/null || abort "Installation verification failed"
+else:
+    print('\\n All core components verified successfully')
+" || abort "Installation verification failed"
 
-# CLI functionality verification
-CLI_SCRIPT="$ENV_DIR/bin/templ"
-if [[ ! -f "$CLI_SCRIPT" ]] || ! "$CLI_SCRIPT" --help >/dev/null 2>&1; then
-    warn "CLI script not available. Use: python -m templ_pipeline.cli.main"
+# Verify CLI functionality
+if command -v templ >/dev/null 2>&1; then
+    if templ --help >/dev/null 2>&1; then
+        ok "CLI command 'templ' is working"
+    else
+        warn "CLI command 'templ' exists but not working properly"
+    fi
+else
+    warn "CLI command 'templ' not available. Use: python -m templ_pipeline.cli.main"
 fi
 
 #------------- optional benchmark ---------------------------------------------
@@ -314,7 +381,7 @@ if [[ -f "$ACTIVATE_SCRIPT" ]]; then
 export TEMPL_ENV_ACTIVE=1
 if [[ -z "${TEMPL_PROMPT_BACKUP:-}" ]]; then
     export TEMPL_PROMPT_BACKUP="$PS1"
-    export PS1="(templ) $PS1"
+    export PS1="(.templ) $PS1"
 fi
 EOF
     fi
@@ -323,6 +390,14 @@ fi
 #------------- completion summary ---------------------------------------------
 ok "TEMPL Pipeline installed successfully (${INSTALL_DURATION}s)"
 ok "Configuration: $INSTALL_CONFIG"
+ok "Using uv for package management"
+
+# Final verification
+if python3 -c "import rdkit; print(f'rdkit {rdkit.__version__} available')" 2>/dev/null; then
+    ok "rdkit is properly installed and accessible"
+else
+    warn "rdkit verification failed"
+fi
 
 # Check actual environment status in current shell
 if [[ "$SCRIPT_SOURCED" == "true" ]]; then
@@ -333,6 +408,7 @@ if [[ "$SCRIPT_SOURCED" == "true" ]]; then
         echo "   You're now in the TEMPL environment! Try these commands:"
         echo "   templ --help                    # View available commands"
         echo "   python run_streamlit_app.py    # Launch web interface"
+        echo "   python -c \"import rdkit; print('rdkit version:', rdkit.__version__)\"  # Test rdkit"
         echo ""
     else
         warn "Environment was created but activation failed."
@@ -340,12 +416,9 @@ if [[ "$SCRIPT_SOURCED" == "true" ]]; then
     fi
 else
     echo ""
-    echo "   Environment created but NOT activated."
-    echo "   To activate now: source .templ/bin/activate"
-    echo "   Or run with activation: source $0"
+    echo "Installation completed successfully!"
     echo ""
-    echo "After activation, try:"
-    echo "   templ --help                    # View available commands"
-    echo "   python run_streamlit_app.py    # Launch web interface"
+    echo "To activate the TEMPL environment, run:"
+    echo "   source .templ/bin/activate"
     echo ""
 fi 
