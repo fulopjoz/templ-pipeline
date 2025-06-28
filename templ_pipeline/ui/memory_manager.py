@@ -243,6 +243,144 @@ class MolecularSessionManager:
             logger.error(f"Failed to retrieve pose results: {e}")
             return None
     
+    def store_large_object(self, key: str, value: Any, metadata: Optional[Dict] = None) -> bool:
+        """Store large object with intelligent routing to appropriate storage method
+        
+        This method provides the interface expected by SessionManager.set() and routes
+        objects to the most appropriate storage method based on their type.
+        
+        Args:
+            key: Storage key for the object
+            value: Object to store
+            metadata: Optional metadata dictionary
+        
+        Returns:
+            True if stored successfully
+        """
+        if value is None:
+            logger.debug(f"Skipping storage of None value for key: {key}")
+            return True
+        
+        try:
+            # Route to appropriate storage method based on object type
+            
+            # Check if it's an RDKit molecule object
+            if hasattr(value, 'ToBinary') and hasattr(value, 'GetNumAtoms'):
+                logger.debug(f"Storing {key} as molecule object")
+                return self.store_molecule(key, value, metadata)
+            
+            # Check if it's a poses dictionary (dict with tuple values containing molecules)
+            elif isinstance(value, dict) and value:
+                # Check if it looks like poses (contains tuples with molecule-like objects)
+                sample_key = next(iter(value))
+                sample_value = value[sample_key]
+                
+                if (isinstance(sample_value, tuple) and len(sample_value) == 2 and
+                    hasattr(sample_value[0], 'ToBinary')):
+                    logger.debug(f"Storing {key} as pose results")
+                    return self.store_pose_results(value)
+            
+            # For other large objects, store using general strategy
+            logger.debug(f"Storing {key} as general large object")
+            
+            # Estimate object size for storage strategy
+            try:
+                if hasattr(value, '__sizeof__'):
+                    obj_size = value.__sizeof__()
+                else:
+                    # Rough estimate using pickle
+                    obj_size = len(pickle.dumps(value))
+                    
+                logger.debug(f"Object {key} estimated size: {obj_size} bytes")
+                
+                # Storage strategy based on size
+                if obj_size < 100000:  # 100KB threshold for direct storage
+                    self._store_general_direct(key, value, metadata)
+                    
+                elif obj_size < 500000:  # 500KB threshold for compressed storage
+                    self._store_general_compressed(key, value, metadata)
+                    
+                else:
+                    # Very large objects - store reference only
+                    logger.warning(f"Very large object {key} ({obj_size} bytes) - storing reference only")
+                    if STREAMLIT_AVAILABLE:
+                        st.session_state[f"{key}_large_ref"] = True
+                        # Store minimal reference info
+                        if metadata:
+                            self.metadata_cache[key] = metadata.copy()
+                
+                return True
+                
+            except Exception as size_error:
+                logger.warning(f"Could not estimate size for {key}: {size_error}")
+                # Fallback to direct storage
+                self._store_general_direct(key, value, metadata)
+                return True
+            
+        except Exception as e:
+            logger.error(f"Failed to store large object {key}: {e}")
+            # Last resort - try to store in session state directly
+            try:
+                if STREAMLIT_AVAILABLE:
+                    st.session_state[key] = value
+                    if metadata:
+                        self.metadata_cache[key] = metadata.copy()
+                    logger.debug(f"Fallback storage successful for {key}")
+                    return True
+            except Exception as fallback_error:
+                logger.error(f"Fallback storage also failed for {key}: {fallback_error}")
+                return False
+            
+            return False
+    
+    def _store_general_direct(self, key: str, obj: Any, metadata: Optional[Dict] = None):
+        """Store general object directly
+        
+        Args:
+            key: Storage key
+            obj: Object to store
+            metadata: Optional metadata
+        """
+        if STREAMLIT_AVAILABLE:
+            st.session_state[key] = obj
+        
+        if metadata:
+            self.metadata_cache[key] = metadata.copy()
+            
+        logger.debug(f"Stored general object {key} directly")
+    
+    def _store_general_compressed(self, key: str, obj: Any, metadata: Optional[Dict] = None):
+        """Store general object in compressed format
+        
+        Args:
+            key: Storage key
+            obj: Object to store
+            metadata: Optional metadata
+        """
+        try:
+            # Serialize and compress
+            serialized = pickle.dumps(obj)
+            compressed = gzip.compress(serialized)
+            
+            # Store in compressed cache
+            self.compressed_cache[f"{key}_general"] = compressed
+            
+            # Store metadata
+            if metadata:
+                self.metadata_cache[key] = metadata.copy()
+            
+            # Remove from session state if present to save memory
+            if STREAMLIT_AVAILABLE and key in st.session_state:
+                del st.session_state[key]
+            
+            compression_ratio = len(compressed) / len(serialized)
+            logger.debug(f"Compressed general object {key}: {len(serialized)} -> {len(compressed)} bytes ({compression_ratio:.2%})")
+            
+        except Exception as e:
+            logger.error(f"Failed to compress general object {key}: {e}")
+            # Fallback to direct storage
+            self._store_general_direct(key, obj, metadata)
+    
     def _store_direct(self, key: str, mol: Any):
         """Store molecule directly in cache
         
