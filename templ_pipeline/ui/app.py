@@ -628,7 +628,8 @@ def load_templates_from_uploaded_sdf(uploaded_file):
         st.error(f"Error reading template SDF file: {e}")
         return []
 
-@st.cache_data(ttl=3600, show_spinner=False)  # Cache molecule images, hide spinner
+# @st.cache_data(ttl=3600, show_spinner=False)  # Cache molecule images, hide spinner
+# when we used cache there was a distruption in the image generation because of 3D coordinates
 def generate_molecule_image(mol_binary, width=400, height=300, highlight_atoms=None):
     """Generate molecule image from binary representation"""
     try:
@@ -659,6 +660,9 @@ def generate_molecule_image(mol_binary, width=400, height=300, highlight_atoms=N
         # Ensure we have valid 2D coordinates
         if mol_copy.GetNumConformers() == 0:
             AllChem.Compute2DCoords(mol_copy)
+        
+        mol_copy = Chem.MolToSmiles(mol_copy)
+        mol_copy = Chem.MolFromSmiles(mol_copy)
 
         if highlight_atoms:
             img = Draw.MolToImage(mol_copy, size=(width, height), highlightAtoms=highlight_atoms)
