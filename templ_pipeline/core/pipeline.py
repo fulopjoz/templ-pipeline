@@ -28,7 +28,7 @@ except ImportError:
 class TEMPLPipeline:
     """Main pipeline orchestrator for TEMPL."""
     
-    def __init__(self, embedding_path: Optional[str] = None, output_dir: str = "output", run_id: Optional[str] = None):
+    def __init__(self, embedding_path: Optional[str] = None, output_dir: str = "output", run_id: Optional[str] = None, auto_cleanup: bool = False):
         """
         Initialize the TEMPL pipeline.
         
@@ -36,8 +36,11 @@ class TEMPLPipeline:
             embedding_path: Path to embedding database
             output_dir: Base directory for output files
             run_id: Custom run identifier (default: timestamp)
+            auto_cleanup: Whether to automatically clean up output directory on exit
         """
         self.embedding_path = embedding_path
+        self.auto_cleanup = auto_cleanup
+        self._cleanup_registered = False
         
         # Create timestamped output directory
         if run_id:
@@ -48,9 +51,39 @@ class TEMPLPipeline:
         
         self.output_dir.mkdir(exist_ok=True)
         
+        # Register cleanup if requested
+        if self.auto_cleanup and not self._cleanup_registered:
+            import atexit
+            atexit.register(self._cleanup_output_dir)
+            self._cleanup_registered = True
+            logger.debug(f"Registered auto-cleanup for {self.output_dir}")
+        
         # Initialize components lazily
         self._embedding_manager = None
         self._rdkit_modules = None
+    
+    def _cleanup_output_dir(self):
+        """Clean up the output directory."""
+        if self.output_dir and self.output_dir.exists():
+            try:
+                import shutil
+                shutil.rmtree(self.output_dir)
+                logger.debug(f"Cleaned up output directory: {self.output_dir}")
+            except Exception as e:
+                logger.warning(f"Failed to clean up output directory {self.output_dir}: {e}")
+    
+    def cleanup(self):
+        """Manually clean up the output directory."""
+        self._cleanup_output_dir()
+    
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit with cleanup."""
+        if self.auto_cleanup:
+            self._cleanup_output_dir()
         
     def _get_embedding_manager(self):
         """Lazy initialization of embedding manager."""
