@@ -286,7 +286,7 @@ class MetadataEngine:
         
         citation_info = {
             "method": "TEMPL: Template-based Protein Ligand Pose Prediction",
-            "authors": "Fülöp et al.",
+            "authors": "J. Fülöp, M. Šícho, W. Dehaen",
             "description": "A template-based protein ligand pose prediction baseline",
             "version": self.pipeline_version
         }
