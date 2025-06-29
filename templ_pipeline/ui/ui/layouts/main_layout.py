@@ -49,6 +49,10 @@ class MainLayout:
     def render(self):
         """Render the complete application layout"""
         try:
+            # PHASE 3: ADVANCED LAYOUT STABILIZATION - DISABLED
+            # Advanced layout features disabled to prevent interference with immediate layout fixes
+            # self._inject_advanced_layout_features()
+            
             # Start performance monitoring
             self.performance_monitor.start_render("main_layout")
             
@@ -73,6 +77,102 @@ class MainLayout:
         except Exception as e:
             logger.error(f"Error rendering main layout: {e}", exc_info=True)
             self._render_error_state(e)
+    
+    def _inject_advanced_layout_features(self):
+        """Inject advanced layout stabilization features"""
+        st.markdown("""
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+        <style>
+        /* ===== SURGICAL ADVANCED LAYOUT STABILIZATION ===== */
+        
+        /* Target only main containers with surgical precision */
+        section.main > div.block-container,
+        .main > div.block-container,
+        section[data-testid="stMainBlockContainer"] {
+            max-width: none !important;
+            width: 100% !important;
+            padding-left: max(1rem, 2%) !important;
+            padding-right: max(1rem, 2%) !important;
+            box-sizing: border-box !important;
+        }
+        
+        /* Enhanced viewport control */
+        html, body {
+            width: 100% !important;
+            overflow-x: hidden !important;
+            -webkit-text-size-adjust: 100% !important;
+            -ms-text-size-adjust: 100% !important;
+        }
+        
+        /* App container targeting */
+        .stApp,
+        section.main,
+        div[data-testid="stAppViewContainer"] {
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+        
+        /* Responsive breakpoints for main containers only */
+        @media (min-width: 768px) {
+            section.main > div.block-container,
+            .main > div.block-container {
+                padding-left: max(2rem, 3%) !important;
+                padding-right: max(2rem, 3%) !important;
+            }
+        }
+        
+        @media (min-width: 1200px) {
+            section.main > div.block-container,
+            .main > div.block-container {
+                padding-left: max(3rem, 4%) !important;
+                padding-right: max(3rem, 4%) !important;
+            }
+        }
+        
+        /* Mobile optimization */
+        @media (max-width: 767px) {
+            section.main > div.block-container,
+            .main > div.block-container {
+                padding-left: 0.75rem !important;
+                padding-right: 0.75rem !important;
+            }
+        }
+        </style>
+        
+        <script>
+        // Surgical JavaScript layout enforcement for main containers only
+        function enforceLayoutOnAdvanced() {
+                // Immediate layout enforcement - NO DELAYS
+                const mainContainers = document.querySelectorAll(
+                    'section.main > div.block-container, .main > div.block-container'
+                );
+                
+                mainContainers.forEach(container => {
+                    container.style.setProperty('max-width', 'none', 'important');
+                    container.style.setProperty('width', '100%', 'important');
+                });
+                
+                // Force immediate layout recalculation
+                document.body.offsetHeight;
+                window.dispatchEvent(new Event('resize'));
+                // Target only main layout containers
+                const mainContainers = document.querySelectorAll(
+                    'section.main > div.block-container, .main > div.block-container'
+                );
+                
+                mainContainers.forEach(container => {
+                    container.style.setProperty('max-width', 'none', 'important');
+                    container.style.setProperty('width', '100%', 'important');
+                });
+                
+                // Force minimal layout recalculation
+                window.dispatchEvent(new Event('resize'));
+        }
+        
+        // Run layout enforcement
+        enforceLayoutOnAdvanced();
+        </script>
+        """, unsafe_allow_html=True)
     
     def _render_system_status(self):
         """Render system status section"""

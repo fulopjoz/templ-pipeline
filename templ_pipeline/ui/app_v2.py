@@ -1,245 +1,361 @@
 """
 TEMPL Pipeline Web Application - Version 2.0
 
-Clean, modular entry point for the refactored TEMPL Pipeline UI.
-This replaces the monolithic app.py with a clean architecture.
+Hybrid solution: Working layout (direct execution) + Working pipeline (real functionality)
 """
 
 import streamlit as st
+
+# PHASE 1: IMMEDIATE PAGE CONFIG - Set page config first (exactly like working version)
+st.set_page_config(
+    page_title="TEMPL Pipeline",
+    page_icon="🧪",
+    layout="wide"
+)
+
+# PHASE 2: IMMEDIATE LAYOUT FIXES - Apply immediately (exactly like working version)
+from templ_pipeline.ui.ui.styles.early_layout import apply_layout_fixes
+apply_layout_fixes()
+
+# PHASE 3: Essential imports after layout fixes
 import logging
 import sys
+import multiprocessing
 from pathlib import Path
-import traceback
 
-# Add project root to path for imports
+# Add project root to path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-# Import refactored modules
-from templ_pipeline.ui.config.settings import get_config
-from templ_pipeline.ui.core.session_manager import get_session_manager
-from templ_pipeline.ui.core.hardware_manager import get_hardware_manager
-from templ_pipeline.ui.ui.layouts.main_layout import MainLayout
-
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# PHASE 4: Import pipeline functionality (after layout fixes)
+from templ_pipeline.ui.app import (
+    run_pipeline, 
+    validate_smiles_input, 
+    validate_sdf_input,
+    load_templates_from_uploaded_sdf,
+    save_uploaded_file,
+    create_best_poses_sdf,
+    create_all_conformers_sdf,
+    display_molecule,
+    get_rdkit_modules
+)
 
-def handle_health_check():
-    """Handle health check endpoints for deployment monitoring"""
-    query_params = st.query_params
-    
-    # Check for health check endpoints
-    if query_params.get("health") == "check" or query_params.get("healthz") is not None:
-        st.write("OK")
-        st.stop()
+# Initialize session state if needed (simple, direct)
+if 'app_initialized' not in st.session_state:
+    st.session_state.app_initialized = True
+    st.session_state.query_mol = None
+    st.session_state.input_smiles = None
+    st.session_state.protein_pdb_id = None
+    st.session_state.protein_file_path = None
+    st.session_state.custom_templates = None
+    st.session_state.poses = {}
 
+# DIRECT EXECUTION - NO FUNCTION WRAPPING (like working test_layout_fix.py)
 
-def initialize_app():
-    """Initialize application configuration and core services"""
-    # Get configuration
-    config = get_config()
-    
-    # Configure Streamlit page
-    try:
-        st.set_page_config(**config.page_config)
-    except st.errors.StreamlitAPIException:
-        # Page already configured (on rerun)
-        pass
-    
-    # Get session manager
-    session = get_session_manager(config)
-    
-    # Initialize session state
-    session.initialize()
-    
-    # Initialize hardware detection (cached)
-    hardware_manager = get_hardware_manager()
-    hardware_info = hardware_manager.detect_hardware()
-    session.set("hardware_info", hardware_info)
-    
-    # Log initialization
-    if not session.get("initialization_logged", False):
-        logger.info(f"TEMPL Pipeline v{config.app_version} initialized")
-        logger.info(f"Hardware: {hardware_info.recommended_config}")
-        logger.info(f"Features: {config.features}")
-        session.set("initialization_logged", True)
-    
-    return config, session
+# Header
+st.title("TEMPL Pipeline")
+st.markdown("**Template-based Protein-Ligand Pose Prediction**")
 
+# Layout test
+st.info("🧪 Layout Test: This should be full-width from first load")
 
-def main():
-    """Main application entry point"""
-    try:
-        # Add debug marker
-        st.session_state._debug_marker = "app_v2_main_started"
-        logger.info("Main function started")
+# Test columns (exactly like working version)
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.success("Left column - should be full width immediately")
+with col2:
+    st.info("Middle column - no narrow->wide transition")  
+with col3:
+    st.warning("Right column - consistent width on first load")
+
+# Add divider
+st.divider()
+
+# What it does section
+st.markdown("### What it does")
+col1, col2 = st.columns(2)
+
+with col1:
+    st.markdown("""
+    **TEMPL Pipeline Features:**
+    - Predicts 3D binding poses for small molecules
+    - Uses template-guided conformer generation
+    - Provides comprehensive scoring
+    """)
+
+with col2:
+    st.markdown("""
+    **How it works:**
+    1. Enter your molecule (SMILES or file)
+    2. Provide protein target
+    3. Get ranked poses with scores
+    """)
+
+st.divider()
+
+# Enhanced Input section with REAL functionality
+st.header("Input Configuration")
+
+col1, col2 = st.columns(2, gap="large")
+
+with col1:
+    st.markdown("#### Query Molecule")
+    
+    input_method = st.radio(
+        "Input method:",
+        ["SMILES", "Upload File"],
+        horizontal=True,
+        key="mol_input_method"
+    )
+    
+    if input_method == "SMILES":
+        smiles = st.text_input(
+            "SMILES String", 
+            placeholder="Enter SMILES (e.g., C1CC(=O)N(C1)CC(=O)N )",
+            key="smiles_input"
+        )
         
-        # Handle health checks first
-        handle_health_check()
+        if smiles:
+            # Use REAL validation function
+            valid, msg, mol_data = validate_smiles_input(smiles)
+            if valid:
+                # Convert from cached binary format if needed
+                if mol_data is not None:
+                    Chem, AllChem, Draw = get_rdkit_modules()
+                    mol = Chem.Mol(mol_data)
+                else:
+                    mol = None
+                st.session_state.query_mol = mol
+                st.session_state.input_smiles = smiles
+                st.success(f"✅ {msg}")
+                # Show molecule preview
+                if mol:
+                    display_molecule(mol, width=280, height=200)
+            else:
+                st.error(f"❌ {msg}")
+    else:
+        uploaded_file = st.file_uploader(
+            "Upload SDF/MOL File",
+            type=["sdf", "mol"],
+            key="mol_file_upload"
+        )
         
-        # Initialize application
-        logger.info("Initializing application...")
-        config, session = initialize_app()
-        logger.info("Application initialized successfully")
+        if uploaded_file is not None:
+            if uploaded_file.size > 5 * 1024 * 1024:  # 5MB limit
+                st.error("File too large (max 5MB)")
+            else:
+                # Use REAL validation function
+                valid, msg, mol = validate_sdf_input(uploaded_file)
+                if valid:
+                    st.session_state.query_mol = mol
+                    Chem, AllChem, Draw = get_rdkit_modules()
+                    st.session_state.input_smiles = Chem.MolToSmiles(mol)
+                    st.success(f"✅ {msg}")
+                    # Show molecule preview
+                    display_molecule(mol, width=280, height=200)
+                else:
+                    st.error(f"❌ {msg}")
+
+with col2:
+    st.markdown("#### Target Protein")
+    
+    protein_method = st.radio(
+        "Input method:",
+        ["PDB ID", "Upload File", "Custom Templates"],
+        horizontal=True,
+        key="prot_input_method"
+    )
+    
+    if protein_method == "PDB ID":
+        pdb_id = st.text_input(
+            "PDB ID",
+            placeholder="Enter 4-character PDB ID (e.g., 1iky)",
+            key="pdb_id_input"
+        )
         
-        # Debug: Log session state
-        logger.info(f"Session has_results: {session.has_results()}")
-        logger.info(f"Session has_valid_input: {session.has_valid_input()}")
+        if pdb_id:
+            if len(pdb_id) == 4 and pdb_id.isalnum():
+                st.session_state.protein_pdb_id = pdb_id.lower()
+                st.session_state.protein_file_path = None
+                st.session_state.custom_templates = None
+                st.success(f"✅ PDB ID: {pdb_id.upper()}")
+            else:
+                st.error("❌ PDB ID must be 4 alphanumeric characters")
+                
+    elif protein_method == "Upload File":
+        pdb_file = st.file_uploader(
+            "Upload PDB File",
+            type=["pdb"],
+            key="pdb_file_upload"
+        )
         
-        # Create layout components
-        logger.info("Creating main layout...")
-        layout = MainLayout(config, session)
-        
-        # Import header component
-        from templ_pipeline.ui.ui.components.header import render_header
-        
-        # Render header
-        render_header(config, session)
-        
-        # Add pipeline explanation
-        col1, col2 = st.columns(2, gap="large")
-        
-        with col1:
-            st.markdown("""
-            <div style="background: rgba(128, 128, 128, 0.1); padding: 1.5rem; border-radius: 0.8rem; border: 1px solid rgba(128, 128, 128, 0.2);">
-                <h4 style="margin-top: 0;">What it does</h4>
-                <ul>
-                    <li>Predicts 3D binding poses for small molecules</li> 
-                    <li>Uses template-guided conformer generation with MCS</li>
-                    <li>Provides shape, pharmacophore, and combined scoring</li>
-                </ul>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col2:
-            st.markdown("""
-            <div style="background: rgba(128, 128, 128, 0.1); padding: 1.5rem; border-radius: 0.8rem; border: 1px solid rgba(128, 128, 128, 0.2);">
-                <h4 style="margin-top: 0;">How it works</h4>
-                <ol>
-                    <li>Enter your molecule (SMILES or file)</li>
-                    <li>Provide protein target or SDF templates</li>
-                    <li>Get ranked poses with confidence scores</li>
-                </ol>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        st.divider()
-        
-        # Render main content without system status
-        logger.info("Rendering main content...")
-        
-        # Check if we have results to show
-        if session.has_results():
-            # Create tabs for input and results
-            tab1, tab2 = st.tabs(["New Prediction", "Results"])
+        if pdb_file is not None:
+            if pdb_file.size > 5 * 1024 * 1024:  # 5MB limit
+                st.error("File too large (max 5MB)")
+            else:
+                # Use REAL file handling function
+                file_path = save_uploaded_file(pdb_file)
+                st.session_state.protein_file_path = file_path
+                st.session_state.protein_pdb_id = None
+                st.session_state.custom_templates = None
+                st.success(f"✅ PDB file uploaded: {pdb_file.name}")
             
-            with tab1:
-                layout.input_section.render()
-                if session.has_valid_input():
-                    col1, col2, col3 = st.columns([1, 2, 1])
-                    with col2:
-                        if st.button("PREDICT POSES", type="primary", use_container_width=True):
-                            layout._handle_prediction()
+    else:  # Custom Templates
+        st.markdown("Upload SDF with template molecules for MCS-based pose generation")
+        template_file = st.file_uploader(
+            "Upload Template SDF",
+            type=["sdf"],
+            key="template_file_upload"
+        )
+        
+        if template_file is not None:
+            if template_file.size > 10 * 1024 * 1024:  # 10MB limit
+                st.error("File too large (max 10MB)")
+            else:
+                # Use REAL template loading function
+                templates = load_templates_from_uploaded_sdf(template_file)
+                if templates:
+                    st.session_state.custom_templates = templates
+                    st.session_state.protein_pdb_id = None
+                    st.session_state.protein_file_path = None
+                    st.success(f"✅ Loaded {len(templates)} template molecules")
+                else:
+                    st.error("❌ No valid molecules found in SDF")
+
+# Check if we have valid input
+protein_input = st.session_state.get('protein_pdb_id') or st.session_state.get('protein_file_path')
+custom_templates = st.session_state.get('custom_templates')
+molecule_input = st.session_state.get('input_smiles')
+ready = molecule_input and (protein_input or custom_templates)
+
+# Advanced Settings (simple version)
+with st.expander("Advanced Settings", expanded=False):
+    use_aligned_poses = st.radio(
+        "Pose Alignment Mode:",
+        ["Aligned Poses", "Original Geometry"],
+        index=0,
+        help="Aligned poses are positioned relative to templates. Original geometry preserves conformer shape.",
+        key="pose_alignment_mode"
+    ) == "Aligned Poses"
+
+# Action button with REAL pipeline execution
+if ready:
+    st.divider()
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button("🚀 PREDICT POSES", type="primary", use_container_width=True):
+            # REAL PIPELINE EXECUTION - Using the actual run_pipeline function
+            logger.info("Running REAL TEMPL pipeline...")
             
-            with tab2:
-                layout.results_section.render()
+            poses = run_pipeline(
+                molecule_input, 
+                protein_input, 
+                custom_templates,
+                use_aligned_poses=use_aligned_poses,
+                max_templates=100,  # Default
+                similarity_threshold=None
+            )
+            
+            if poses:
+                st.session_state.poses = poses
+                st.success("✅ Pose prediction completed!")
+                logger.info("Pipeline execution successful")
+            else:
+                st.error("❌ Pipeline failed. Check error messages above.")
+
+# Results Section with REAL functionality
+if st.session_state.get('poses'):
+    st.divider()
+    st.header("🎯 Prediction Results")
+    
+    poses = st.session_state.poses
+    
+    # Find best pose by combo score
+    best_method, (best_mol, best_scores) = max(poses.items(), 
+                                             key=lambda x: x[1][1].get('combo_score', x[1][1].get('combo', 0)))
+    
+    shape_score = best_scores.get('shape_score', best_scores.get('shape', 0))
+    color_score = best_scores.get('color_score', best_scores.get('color', 0))
+    combo_score = best_scores.get('combo_score', best_scores.get('combo', 0))
+    
+    # Show results
+    st.markdown("### Best Predicted Pose")
+    st.info(f"Best method: {best_method}")
+    
+    # Score metrics
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Shape Similarity", f"{shape_score:.3f}")
+    with col2:
+        st.metric("Pharmacophore", f"{color_score:.3f}")
+    with col3:
+        st.metric("Overall Score", f"{combo_score:.3f}")
+    
+    # Quality assessment
+    if combo_score >= 0.8:
+        quality = "Excellent - High confidence pose"
+        color = "green"
+    elif combo_score >= 0.6:
+        quality = "Good - Reliable pose prediction"
+        color = "blue"
+    elif combo_score >= 0.4:
+        quality = "Fair - Moderate confidence"
+        color = "orange"
+    else:
+        quality = "Poor - Low confidence, consider alternatives"
+        color = "red"
+    
+    st.markdown(f"**Quality Assessment:** :{color}[{quality}]")
+    
+    # Download section with REAL functionality
+    st.markdown("### 📥 Download Results")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Use REAL SDF creation function
+        sdf_data, file_name = create_best_poses_sdf(poses)
+        st.download_button(
+            f"📄 Best Poses ({len(poses)})",
+            data=sdf_data,
+            file_name=file_name,
+            mime="chemical/x-mdl-sdfile",
+            help="Top scoring poses for each method",
+            use_container_width=True
+        )
+    
+    with col2:
+        if hasattr(st.session_state, 'all_ranked_poses') and st.session_state.all_ranked_poses:
+            # Use REAL SDF creation function
+            all_sdf_data, all_file_name = create_all_conformers_sdf()
+            st.download_button(
+                f"📊 All Conformers ({len(st.session_state.all_ranked_poses)})",
+                data=all_sdf_data,
+                file_name=all_file_name,
+                mime="chemical/x-mdl-sdfile",
+                help="All generated conformers ranked by score",
+                use_container_width=True
+            )
         else:
-            # Show input area
-            if not session.has_valid_input():
-                st.info("Provide your molecule and protein target for pose prediction")
-            
-            layout.input_section.render()
-            
-            # Show action button if inputs are valid
-            if session.has_valid_input():
-                col1, col2, col3 = st.columns([1, 2, 1])
-                with col2:
-                    if st.button("PREDICT POSES", type="primary", use_container_width=True):
-                        layout._handle_prediction()
-        
-        # Render status bar
-        from templ_pipeline.ui.ui.components.status_bar import render_status_bar
-        render_status_bar(session)
-        
-        logger.info("Main function completed successfully")
-        
-    except Exception as e:
-        logger.error(f"Application error: {e}", exc_info=True)
-        
-        # Store error in session for debugging
-        if 'session' in locals():
-            session.set("last_error", {
-                "error": str(e),
-                "traceback": traceback.format_exc(),
-                "type": type(e).__name__
-            })
-        
-        # Show error page with more details
-        st.error("An unexpected error occurred")
-        
-        # Show the actual error message
-        st.error(f"Error: {str(e)}")
-        
-        with st.expander("Full Error Details", expanded=True):
-            st.code(traceback.format_exc())
-            
-            # Show session state for debugging
-            st.subheader("Session State Debug Info")
-            try:
-                if 'st.session_state' in globals():
-                    debug_state = {}
-                    for key in st.session_state:
-                        try:
-                            value = st.session_state[key]
-                            # Skip large objects
-                            if key in ['query_mol', 'poses', 'custom_templates', 'all_ranked_poses']:
-                                debug_state[key] = f"<{type(value).__name__} object>"
-                            else:
-                                debug_state[key] = str(value)[:100]  # Truncate long values
-                        except:
-                            debug_state[key] = "<error accessing>"
-                    st.json(debug_state)
-            except Exception as debug_error:
-                st.write(f"Could not display session state: {debug_error}")
-            
-            # Recovery options
-            st.subheader("Recovery Options")
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                if st.button("🔄 Restart Application"):
-                    st.cache_data.clear()
-                    st.cache_resource.clear()
-                    for key in list(st.session_state.keys()):
-                        del st.session_state[key]
-                    st.rerun()
-            
-            with col2:
-                if st.button("Clear Session Only"):
-                    for key in list(st.session_state.keys()):
-                        if key != '_debug_marker':
-                            del st.session_state[key]
-                    st.rerun()
-            
-            with col3:
-                if st.button("📋 Copy Error Info"):
-                    error_info = f"Error: {str(e)}\n\n{traceback.format_exc()}"
-                    st.code(error_info)
-                    st.info("Copy the error information above")
+            st.button(
+                "📊 All Conformers (N/A)",
+                disabled=True,
+                help="All ranked poses not available",
+                use_container_width=True
+            )
 
+# Wide test element (exactly like working version)
+st.divider()
+st.markdown("### Width Test Elements")
 
-if __name__ == "__main__":
-    # Wrap in another try-catch for absolute safety
-    try:
-        main()
-    except Exception as critical_error:
-        # Last resort error display
-        st.error(f"CRITICAL ERROR: {critical_error}")
-        st.code(traceback.format_exc())
-        if st.button("Emergency Restart"):
-            st.rerun()
+st.code("""
+This code block should span the full browser width from the moment the page loads.
+If you see a narrow layout that then expands to full width, the fix needs adjustment.
+The layout should be consistent on first load and after refresh.
+""")
+
+st.success("✅ If this layout looks the same on first load and after refresh, the fix is working!")

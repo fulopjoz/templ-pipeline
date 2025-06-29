@@ -28,6 +28,9 @@ import json
 from datetime import datetime
 
 # Configure logging for better pipeline visibility
+
+# Import layout fixes for immediate application
+from templ_pipeline.ui.ui.styles.early_layout import apply_layout_fixes
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
@@ -2095,8 +2098,13 @@ def main():
             layout="wide"
         )
     except st.StreamlitAPIException:
+
         # Already configured
         pass
+
+    # Apply immediate layout fixes to prevent narrow->wide transition on first load
+    apply_layout_fixes()
+    
     
     # Handle health check endpoint
     if st.query_params.get("health") == "check":
