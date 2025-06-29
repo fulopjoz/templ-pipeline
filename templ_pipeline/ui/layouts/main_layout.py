@@ -8,16 +8,16 @@ import streamlit as st
 import logging
 from typing import Optional, Dict, Any
 
-from ...config.settings import AppConfig
-from ...config.constants import MESSAGES, VERSION, SESSION_KEYS
-from ...core.session_manager import SessionManager
-from ...core.hardware_manager import get_hardware_manager
-from ...core.cache_manager import get_cache_manager
+from ..config.settings import AppConfig
+from ..config.constants import MESSAGES, VERSION, SESSION_KEYS
+from ..core.session_manager import SessionManager
+from ..core.hardware_manager import get_hardware_manager
+from ..core.cache_manager import get_cache_manager
 from ..components.header import render_header
 from ..components.input_section import InputSection
 from ..components.results_section import ResultsSection
 from ..components.status_bar import render_status_bar
-from ...utils.performance_monitor import PerformanceMonitor
+from ..utils.performance_monitor import PerformanceMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -260,7 +260,7 @@ class MainLayout:
                 
                 # Import pipeline service
                 try:
-                    from ...services.pipeline_service import PipelineService
+                    from ..services.pipeline_service import PipelineService
                     pipeline_service = PipelineService(self.config, self.session)
                 except Exception as e:
                     logger.error(f"Failed to import PipelineService: {e}", exc_info=True)
