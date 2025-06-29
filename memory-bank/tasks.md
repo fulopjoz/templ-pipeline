@@ -538,3 +538,216 @@ Application failed to start with cryptic error: `RuntimeError: Tried to instanti
 - **Process Maturity**: QA validation approach available for complex technical challenges
 - **Knowledge Base**: Detailed archive provides reference for dependency compatibility issues
 
+## Task: UI Folder Structure Flattening ⚡ ACTIVE TASK
+- **ID**: TASK-UI-STRUCTURE-FLATTENING-2024
+- **Level**: 2 (Simple Enhancement)
+- **Status**: 🔄 IN PROGRESS - IMPLEMENTATION PHASE
+- **Priority**: Medium (Code Organization)
+- **Start Date**: 2024-12-29
+- **Planning Date**: 2024-12-29
+- **Implementation Date**: 2024-12-29
+- **User Request**: "now we will continue with removing redundancy in the folder structure of the @/ui you can see that in ui folder is another ui folder and we do not want this so create a plan how to reduce this redundancy please"
+
+### Description
+Eliminate redundant nested `ui/ui/` folder structure in the TEMPL Pipeline UI module. The current structure has an unnecessary extra `ui` folder level that creates confusing paths and violates clean architecture principles.
+
+### Complexity Assessment
+**Level**: 2 (Simple Enhancement)
+**Type**: File Structure Reorganization with Import Updates
+**Justification**: Straightforward file moves with import statement updates across limited scope
+
+### Current Structure Analysis ✅ COMPLETE
+```
+templ_pipeline/ui/
+├── ui/                    # ← REDUNDANT NESTED UI FOLDER
+│   ├── components/        # UI components (header, input_section, results_section, status_bar)
+│   ├── layouts/          # Layout modules (main_layout)  
+│   └── __init__.py       # Package initialization
+├── core/                 # Already properly organized
+├── utils/                # Already properly organized  
+├── services/             # Already properly organized
+├── config/               # Already properly organized
+└── app.py               # Main entry point
+```
+
+### Target Structure ✅ DEFINED
+```
+templ_pipeline/ui/
+├── components/           # ← MOVED UP TO ELIMINATE REDUNDANCY
+├── layouts/              # ← MOVED UP TO ELIMINATE REDUNDANCY
+├── core/
+├── utils/
+├── services/
+├── config/
+└── app.py
+```
+
+### Technology Stack ✅ VALIDATED
+- **File Operations**: Unix/Linux file system operations
+- **Path Updates**: Python import statement modifications
+- **Testing**: Streamlit application startup validation
+- **Version Control**: Git for change tracking
+
+### Technology Validation Checkpoints ✅ ALL VERIFIED
+- [x] File system supports move operations
+- [x] Python import system compatible with path changes
+- [x] All files under `ui/ui/` identified and documented
+- [x] Import dependencies mapped and ready for updates
+- [x] Backup strategy confirmed (git provides versioning)
+
+### Implementation Plan ✅ COMPREHENSIVE
+
+#### Phase 1: Preparation & Safety (5 min) ✅ READY
+1. **File Structure Analysis**
+   - [x] Document current file structure completely
+   - [x] Identify all files to be moved: 7 files total
+   - [x] Map import dependencies requiring updates
+   - [x] Verify no external dependencies on nested structure
+
+2. **Safety Preparations**
+   - [x] Git repository is clean (no uncommitted changes)
+   - [x] All files are tracked in version control
+   - [x] Changes can be reverted if needed
+
+#### Phase 2: File Structure Reorganization (10 min) 📋 PLANNED
+3. **Move Directory Structure**
+   - [ ] Move `templ_pipeline/ui/ui/components/` → `templ_pipeline/ui/components/`
+   - [ ] Move `templ_pipeline/ui/ui/layouts/` → `templ_pipeline/ui/layouts/`
+   - [ ] Update/merge `__init__.py` files appropriately
+   - [ ] Remove empty `templ_pipeline/ui/ui/` directory
+
+4. **Verify File Moves**
+   - [ ] Confirm all files moved to correct locations
+   - [ ] Verify directory structure matches target design
+   - [ ] Check no files were lost or duplicated
+
+#### Phase 3: Import Statement Updates (15 min) 📋 PLANNED
+5. **Update Import Statements**
+   - [ ] Update `app.py`: Change `from templ_pipeline.ui.ui.layouts` to `from templ_pipeline.ui.layouts`
+   - [ ] Update `app.py`: Change `from templ_pipeline.ui.ui.components` to `from templ_pipeline.ui.components`
+   - [ ] Update `main_layout.py`: Fix component import paths
+   - [ ] Update component `__init__.py` files for new structure
+
+6. **Import Verification**
+   - [ ] Test all import statements work correctly
+   - [ ] Verify no circular imports introduced
+   - [ ] Check Python can resolve all module paths
+
+#### Phase 4: Validation & Testing (10 min) 📋 PLANNED
+7. **Application Testing**
+   - [ ] Start Streamlit application successfully
+   - [ ] Verify all UI components load correctly
+   - [ ] Test basic functionality preservation
+   - [ ] Confirm no runtime import errors
+
+8. **Final Documentation**
+   - [ ] Update tasks.md with implementation results
+   - [ ] Document any issues encountered and resolved
+   - [ ] Record new structure for future reference
+
+### Risk Assessment & Mitigation Strategies ✅ COMPREHENSIVE
+
+#### Low Risk: Import Path Updates
+- **Risk**: Import statements may fail after path changes
+- **Mitigation**: Systematic update of all affected files
+- **Rollback**: Git revert if imports fail
+- **Testing**: Immediate application startup test
+
+#### Low Risk: File Move Errors
+- **Risk**: Files might not move correctly or be lost
+- **Mitigation**: Use file system operations that preserve file integrity
+- **Verification**: Check file existence after each move
+- **Recovery**: Git provides complete backup of original structure
+
+#### Very Low Risk: Circular Imports
+- **Risk**: New import structure might create cycles
+- **Mitigation**: Current structure is simple with clear hierarchy
+- **Detection**: Python import system will detect cycles immediately
+- **Resolution**: Adjust import statements if needed
+
+### Dependencies ✅ IDENTIFIED
+- **Internal**: No blocking dependencies (all files under our control)
+- **External**: No external packages depend on internal file structure
+- **Tools**: File system operations, Python import system, Git
+- **Prerequisites**: Clean working directory (already satisfied)
+
+### Success Criteria ✅ DEFINED
+1. **Structure Flattened**: No more `ui/ui/` nested folders
+2. **Files Preserved**: All 7 files moved to correct locations
+3. **Imports Working**: All Python imports resolve correctly
+4. **Application Functional**: Streamlit app starts and runs
+5. **Clean Repository**: Changes committed with clear message
+
+### Challenges & Mitigations ✅ DOCUMENTED
+
+#### Challenge 1: Relative Import Adjustments
+- **Issue**: Component imports might need path adjustments
+- **Mitigation**: Systematic review of all import statements
+- **Testing**: Import validation before application testing
+
+#### Challenge 2: __init__.py Integration
+- **Issue**: Existing __init__.py files may need merging
+- **Mitigation**: Review current __init__.py content before moving
+- **Strategy**: Preserve all necessary exports in consolidated files
+
+### Quality Assurance Checklist ✅ PREPARED
+```
+✓ PREPARATION VERIFICATION
+- File structure documented? [DONE]
+- Import dependencies mapped? [DONE]
+- Git repository clean? [WILL VERIFY]
+- Safety preparations complete? [WILL VERIFY]
+
+✓ MOVE VERIFICATION  
+- components/ directory moved correctly? [PENDING]
+- layouts/ directory moved correctly? [PENDING]
+- __init__.py files handled properly? [PENDING]
+- No files lost or duplicated? [PENDING]
+
+✓ IMPORT VERIFICATION
+- app.py imports updated? [PENDING]
+- main_layout.py imports updated? [PENDING]
+- All Python imports resolve? [PENDING]
+- No circular imports created? [PENDING]
+
+✓ FUNCTIONALITY VERIFICATION
+- Streamlit application starts? [PENDING]
+- UI components load correctly? [PENDING]
+- Basic functionality preserved? [PENDING]
+- No runtime errors? [PENDING]
+```
+
+### Memory Bank Integration ✅ PREPARED
+- **Active Context**: UI structure flattening as current focus
+- **Progress Tracking**: Implementation steps tracked in tasks.md
+- **Task Status**: Will update to COMPLETED upon successful validation
+- **Documentation**: Change details will be recorded for future reference
+
+### Status Tracking
+- [x] **Planning**: Complete with comprehensive analysis
+- [x] **Technology Validation**: All tools and capabilities verified
+- [x] **Risk Assessment**: Comprehensive mitigation strategies documented
+- [ ] **Implementation**: Ready to begin - all 4 phases planned
+- [ ] **Verification**: Post-implementation validation prepared
+- [ ] **Documentation**: Implementation documentation prepared
+
+## Files to Move (7 total)
+- `templ_pipeline/ui/ui/components/__init__.py`
+- `templ_pipeline/ui/ui/components/header.py`
+- `templ_pipeline/ui/ui/components/input_section.py`
+- `templ_pipeline/ui/ui/components/results_section.py`
+- `templ_pipeline/ui/ui/components/status_bar.py`
+- `templ_pipeline/ui/ui/layouts/__init__.py`
+- `templ_pipeline/ui/ui/layouts/main_layout.py`
+
+## Import Updates Required
+- `app.py`: 2 import statement updates
+- `main_layout.py`: component import paths
+- `__init__.py` files: export consolidation
+
+**Total Estimated Time**: 40 minutes
+**Complexity**: Low (straightforward file operations)
+**Risk Level**: Very Low (reversible with git)
+
+→ **READY FOR IMPLEMENTATION PHASE**
+
