@@ -19,7 +19,7 @@ sys.path.insert(0, str(project_root))
 from templ_pipeline.ui.config.settings import get_config
 from templ_pipeline.ui.core.session_manager import get_session_manager
 from templ_pipeline.ui.core.hardware_manager import get_hardware_manager
-from templ_pipeline.ui.ui.layouts.main_layout import MainLayout
+from templ_pipeline.ui.layouts.main_layout import MainLayout
 
 # Configure logging
 logging.basicConfig(
@@ -96,7 +96,7 @@ def main():
         layout = MainLayout(config, session)
         
         # Import header component
-        from templ_pipeline.ui.ui.components.header import render_header
+        from templ_pipeline.ui.components.header import render_header
         
         # Render header
         render_header(config, session)
@@ -163,7 +163,7 @@ def main():
                         layout._handle_prediction()
         
         # Render status bar
-        from templ_pipeline.ui.ui.components.status_bar import render_status_bar
+        from templ_pipeline.ui.components.status_bar import render_status_bar
         render_status_bar(session)
         
         logger.info("Main function completed successfully")

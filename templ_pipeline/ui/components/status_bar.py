@@ -8,7 +8,7 @@ import streamlit as st
 import logging
 from datetime import datetime, timedelta
 
-from ...core.session_manager import SessionManager
+from ..core.session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
 
