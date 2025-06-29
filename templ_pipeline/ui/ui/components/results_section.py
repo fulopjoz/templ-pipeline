@@ -11,15 +11,8 @@ from typing import Optional, Dict, Any
 from ...config.settings import AppConfig
 from ...config.constants import SESSION_KEYS, MESSAGES, SCORE_EXCELLENT, SCORE_GOOD, SCORE_FAIR
 from ...core.session_manager import SessionManager
-
-# Import functions from app.py for direct reuse
-from templ_pipeline.ui.app import (
-    create_best_poses_sdf,
-    create_all_conformers_sdf,
-    display_molecule,
-    safe_get_mcs_mol,
-    extract_pdb_id_from_template
-)
+from ...utils.export_utils import create_best_poses_sdf, create_all_conformers_sdf, extract_pdb_id_from_template
+from ...utils.visualization_utils import display_molecule, safe_get_mcs_mol
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +206,7 @@ class ResultsSection:
         with col1:
             if poses:
                 try:
-                    # Use the actual function from app.py
+                    # Use the function from utils.export_utils
                     sdf_data, filename = create_best_poses_sdf(poses)
                     st.download_button(
                         f"Best Poses ({len(poses)})",
@@ -238,8 +231,8 @@ class ResultsSection:
         with col2:
             if all_ranked:
                 try:
-                    # Use the actual function from app.py
-                    sdf_data, filename = create_all_conformers_sdf(all_ranked)
+                    # Use the function from utils.export_utils
+                    sdf_data, filename = create_all_conformers_sdf()
                     st.download_button(
                         f"All Conformers ({len(all_ranked)})",
                         data=sdf_data,
