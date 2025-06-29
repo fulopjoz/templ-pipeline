@@ -15,124 +15,185 @@ TEMPL leverages **ligand similarity** and **template superposition** instead of 
 
 ---
 
-## Installation
+## Quick Installation
 
-### One-Click Setup
-After cloning this repository, just run:
+**Just run one command and you're ready to go:**
 
 ```bash
 git clone https://github.com/fulopjoz/templ-pipeline
 cd templ-pipeline
-bash setup_env_uv.sh    # One command - that's it!
+source setup_templ_env.sh
 ```
 
-This single script will:
-1. Install `uv` if not already on your system
-2. Create `.venv/` virtual environment 
-3. Activate environment and install all dependencies
-4. Drop you into a ready-to-use shell with TEMPL available
+**That's it!** The script will:
+- Detect your hardware (CPU cores, RAM, GPU)
+- Install optimal dependencies for your system
+- Create and activate the `.templ` environment  
+- Verify everything works
+- **Leave you ready to use `templ` immediately**
 
-**Returning to the project later:**
+### Installation Options
+
 ```bash
-source .venv/bin/activate   # whenever you return to the project
+# Default: Auto-detect and install optimally (recommended)
+source setup_templ_env.sh
+
+# Force lightweight CPU-only installation (~50MB)
+source setup_templ_env.sh --cpu-only
+
+# Force GPU installation (if auto-detection fails)
+source setup_templ_env.sh --gpu-force
+
+# Minimal server installation (no web interface)
+source setup_templ_env.sh --minimal
 ```
 
-### Manual installation (if needed)
+### Using TEMPL Later
 
-#### 1. One-click environment with **uv**
+The installation creates a `.templ` environment. For future sessions:
+
 ```bash
-# Install uv once (10 s)
-curl -Ls https://astral.sh/uv/install.sh | bash
-
-# Create & activate virtual environment (adds .venv/)
-uv venv .venv
-source .venv/bin/activate
-
-# Install in editable mode with all extras (streamlit, tests, docs)
-uv pip install -e "./templ_pipeline[all]"
+# Activate the environment
+source .templ/bin/activate
 ```
 
-#### 2. Classic `pip`
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e "./templ_pipeline[all]"
-```
-If RDKit wheels are unavailable for your Python version, install via Conda:
-```bash
-conda create -n templ python=3.10 rdkit -c conda-forge
-conda activate templ
-pip install -e "./templ_pipeline[all]"
-```
-
----
-
-## Dataset Setup
-TEMPL itself ships **no PDB structures or ligands**. Register and download datasets manually, then place them exactly as shown.
-
-### PDBbind v2020
-1. In this directory `templ_pipeline/data/PDBBind/` (case exact).
-2. Unpack the following archives inside it so the layout becomes:
-```
-PDBBind/
-├─ PDBbind_v2020_refined/refined-set/<PDB>/
-└─ PDBbind_v2020_other_PL/v2020-other-PL/<PDB>/
-```
-TEMPL assumes this layout; if you prefer a different location pass `--data-root` to CLI commands.
-
-### Polaris benchmark
-Pre-processed SDFs plus metadata are already included under
-`templ_pipeline/benchmark/data/polaris/`.
+Once activated, just use `templ` commands directly!
 
 ---
 
 ## Quick Start
+
+**After installation, you're immediately ready to use TEMPL:**
+
 ```bash
-# 1 line pose prediction
+# Make sure you're in the TEMPL environment (should show (.templ) in prompt)
+# If not, activate it: source .templ/bin/activate
+
+# 1-line pose prediction
 templ run \
   --protein-file examples/1a1c_protein.pdb \
   --ligand-smiles "CN(C)C(=O)Nc1cccc(c1)C2CCN(CC2)C" \
   --output poses.sdf
+
+# Show all available commands  
+templ --help
+
+# Web interface
+python run_streamlit_app.py
 ```
 
 ### Common CLI Commands
 | Command | Purpose |
 |---------|---------|
-| `embed` | Generate or cache protein embeddings (ESM-2) |
-| `find-templates` | K-NN template search in PDBbind |
-| `generate-poses` | Constrained conformer generation & ranking |
-| `run` | One-shot pipeline (`embed → search → pose`) |
-| `benchmark` | Reproduce paper benchmarks (Polaris, time-split) |
+| `templ run` | One-shot pose prediction |
+| `templ embed` | Generate protein embeddings (ESM-2) |
+| `templ find-templates` | K-NN template search in PDBbind |
+| `templ generate-poses` | Constrained conformer generation & ranking |
+| `templ benchmark` | Reproduce paper benchmarks |
 
-Use `templ --help` or `templ <command> --help` for all options.
+Use `templ <command> --help` for detailed options.
 
 ---
 
-## Streamlit Web App
+## Dataset Setup
+
+TEMPL ships **no PDB structures or ligands**. Download datasets manually:
+
+### PDBbind v2020
+1. Register and download from PDBbind website
+2. Place in `templ_pipeline/data/PDBBind/` with this structure:
+```
+PDBBind/
+├─ PDBbind_v2020_refined/refined-set/<PDB>/
+└─ PDBbind_v2020_other_PL/v2020-other-PL/<PDB>/
+```
+
+### Polaris benchmark
+Pre-processed data is already included under `templ_pipeline/benchmark/data/polaris/`.
+
+---
+
+## Web Interface
+
+Start the Streamlit app:
 ```python
 python run_streamlit_app.py
 ```
-* drag-and-drop PDB + SMILES or SDF
-* download best poses as SDF
+* Drag-and-drop PDB + SMILES or SDF
+* Download best poses as SDF
 
 ---
 
 ## Benchmarking Examples
+
 ```bash
 # Polaris challenge (CPU-only, 8 workers)
 templ benchmark polaris --n-workers 8 --n-conformers 200
 
 # PDBbind time-split (ensure PDBBind/ downloaded first)
-# To avoid nested parallelism, keep internal workers = 1 when using many benchmark workers.
 templ benchmark time-split --n-workers 8 --pipeline-workers 1
 ```
+
 ---
 
-## Development & Tests
+## Troubleshooting
+
+### "Command not found" Error
+If you get `templ: command not found`, make sure you're in the TEMPL environment:
+
 ```bash
-pip install -e ".[dev]"
-pytest -q
+# Check if environment is active (should show (.templ) in prompt)
+# If not active, run:
+source .templ/bin/activate
+
+# If no environment exists, run setup:
+source setup_templ_env.sh
 ```
+
+### Environment Not Activating
+Make sure to use `source` (not `./`) when running the setup:
+
+```bash
+# ✅ Correct - creates and activates environment
+source setup_templ_env.sh
+
+# ❌ Wrong - creates environment but doesn't activate it
+./setup_templ_env.sh
+```
+
+### Get Help
+```bash
+templ --help getting-started    # Setup and basic usage
+templ --help troubleshooting    # Common issues and solutions
+templ --help examples           # Copy-paste examples
+```
+
+---
+
+## Development & Testing
+
+```bash
+# Development installation
+source setup_templ_env.sh --gpu-force  # or --cpu-only
+pip install -e ".[dev]"                # Add dev dependencies
+pytest -q                              # Run tests
+```
+
+---
+
+## Hardware Requirements
+
+**Minimum:**
+- Python 3.9+
+- 4GB RAM
+- 1GB disk space
+
+**Recommended:**
+- 8+ CPU cores
+- 16GB+ RAM  
+- GPU with 4GB+ VRAM (optional, for faster embeddings)
+
+The installer automatically detects your hardware and installs the optimal configuration!
 
 ---
 

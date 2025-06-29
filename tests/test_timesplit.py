@@ -18,13 +18,15 @@ import sys
 try:
     from templ_pipeline.core.embedding import EmbeddingManager
     from templ_pipeline.core.datasets import DatasetSplits
-    from templ_pipeline.tests import get_test_data_path
 except ImportError:
     # Fall back to local imports for development
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
     from core.embedding import EmbeddingManager
     from core.datasets import DatasetSplits
-    from templ_pipeline.tests import get_test_data_path
+
+# Import test helper functions from local tests package
+sys.path.insert(0, os.path.dirname(__file__))
+from . import get_test_data_path
 
 # Configure logging
 logging.basicConfig(
