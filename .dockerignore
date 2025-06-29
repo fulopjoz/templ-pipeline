@@ -1,0 +1,73 @@
+# Exclude large data directory completely
+data
+
+# Include only minimal essential data
+!data-minimal
+
+# Development and testing
+tests
+htmlcov
+.coverage
+.pytest_cache
+*.egg-info
+
+# Git and version control
+.git
+.gitignore
+
+# Documentation and examples
+examples
+templ_benchmark_results_polaris
+memory-bank
+project_brief.txt
+*.md
+!README.md
+
+# Build artifacts and Python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+build
+develop-eggs
+dist
+downloads
+eggs
+.eggs
+lib
+lib64
+parts
+sdist
+var
+wheels
+
+# Environment and IDE files
+.env
+.venv
+env
+venv
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS and temporary files
+.DS_Store
+*.tmp
+*.temp
+temp
+tmp
+*.log
+logs
+*.bak
+*.backup
+
+# Deployment artifacts
+requirements-original.txt.bak
+Dockerfile.original.bak
+deploy-optimized.sh
+test-docker-local.sh
+templ-app-optimized.yaml
+Dockerfile.optimized

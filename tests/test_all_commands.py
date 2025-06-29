@@ -344,10 +344,10 @@ class DependencyChecker:
                 self.results[f'optional_{dep}'] = f"✓ {dep}"
             except ImportError:
                 results[dep] = False
-                self.results[f'optional_{dep}'] = f"⚠ {dep}: Not found (optional)"
+                self.results[f'optional_{dep}'] = f"WARNING: {dep}: Not found (optional)"
             except Exception as e:
                 results[dep] = False
-                self.results[f'optional_{dep}'] = f"⚠ {dep}: Error: {e}"
+                self.results[f'optional_{dep}'] = f"WARNING: {dep}: Error: {e}"
         
         return results
     
@@ -467,7 +467,7 @@ class CLITestRunner:
         elif status == "FAIL":
             print(self.colorize(f"✗ {message}", Colors.RED))
         elif status == "WARN":
-            print(self.colorize(f"⚠ {message}", Colors.YELLOW))
+            print(self.colorize(f"WARNING: {message}", Colors.YELLOW))
         elif status == "INFO":
             print(self.colorize(f"• {message}", Colors.BLUE))
         else:
@@ -477,7 +477,7 @@ class CLITestRunner:
         """Get all command lists to test, including auto-discovered commands."""
         # Perform discovery if not already done and discovery is enabled
         if self.enable_discovery and self.discovered_data is None:
-            print(self.colorize("🔍 Discovering available commands...", Colors.CYAN))
+            print(self.colorize("SEARCH: Discovering available commands...", Colors.CYAN))
             self.discovered_data = self.help_parser.discover_all_commands()
         
         # Static command lists (original functionality)
@@ -580,8 +580,8 @@ class CLITestRunner:
                 self.print_status(result.replace("✓ ", ""), "PASS")
             elif result.startswith("✗"):
                 self.print_status(result.replace("✗ ", ""), "FAIL")
-            elif result.startswith("⚠"):
-                self.print_status(result.replace("⚠ ", ""), "WARN")
+            elif result.startswith("WARNING:"):
+                self.print_status(result.replace("WARNING: ", ""), "WARN")
         
         return python_ok and core_ok and fs_ok
     
@@ -590,7 +590,7 @@ class CLITestRunner:
         if not self.discovered_data:
             return
             
-        print(self.colorize(f"\n📋 Discovery Summary", Colors.BOLD))
+        print(self.colorize(f"\nDISCOVERY SUMMARY", Colors.BOLD))
         print("=" * 30)
         
         main_commands = self.discovered_data.get('main_commands', [])
@@ -626,11 +626,11 @@ class CLITestRunner:
             output_text = result.output.lower()
             if "saving" in output_text or "saved" in output_text:
                 if "output_" in output_text and any(c.isdigit() for c in output_text):
-                    print(f"   📁 Creates timestamp folder")
+                    print(f"   FOLDER: Creates timestamp folder")
                 elif "output/" in output_text:
-                    print(f"   📁 Uses fixed 'output/' folder")
+                    print(f"   FOLDER: Uses fixed 'output/' folder")
                 else:
-                    print(f"   📁 Custom output location")
+                    print(f"   FOLDER: Custom output location")
 
     def run_command_tests(self):
         """Run all command tests."""
@@ -653,7 +653,7 @@ class CLITestRunner:
                 self.results.append(result)
                 
                 # Print result
-                status_symbol = "✓" if result.status == "PASS" else "✗" if result.status == "FAIL" else "⏱" if result.status == "TIMEOUT" else "⚠"
+                status_symbol = "✓" if result.status == "PASS" else "✗" if result.status == "FAIL" else "TIME" if result.status == "TIMEOUT" else "WARN"
                 command_name = command.split()[-2:] if "--help" in command else command.split()[-1:]
                 command_display = " ".join(command_name)
                 
@@ -738,7 +738,7 @@ class CLITestRunner:
         prereq_ok = self.run_prerequisites_check()
         
         if not prereq_ok:
-            print(self.colorize("\n⚠ Prerequisites check failed. Some tests may not work correctly.", Colors.YELLOW))
+            print(self.colorize("\nWARNING: Prerequisites check failed. Some tests may not work correctly.", Colors.YELLOW))
         
         # Run command tests
         self.run_command_tests()
