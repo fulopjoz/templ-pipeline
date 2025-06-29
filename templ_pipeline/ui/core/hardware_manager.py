@@ -54,7 +54,13 @@ def _cached_hardware_detection() -> HardwareInfo:
     device_type = 'cpu'
     
     try:
-        import torch
+        # Use safer PyTorch import to avoid Streamlit file watcher conflicts
+        import sys
+        if 'torch' not in sys.modules:
+            import torch
+        else:
+            torch = sys.modules['torch']
+            
         if torch.cuda.is_available():
             gpu_available = True
             device_type = 'cuda'
