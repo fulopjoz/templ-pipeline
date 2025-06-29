@@ -1,34 +1,47 @@
-# Active Context
+# Active Context - TEMPL Pipeline
 
-## Recently Completed
-- Layout and Pipeline Integration Fix is now complete. Archive: [link](../memory-bank/archive/archive-layout-pipeline-fix.md)
-- Successfully combined layout fixes with full pipeline functionality
-- Established hybrid pattern for immediate fixes with complex features
+## Current Focus: Git Repository Management Implementation
 
-## Current Focus
-- Monitoring layout behavior in production
-- Gathering feedback on pipeline performance
-- Planning next enhancements
+**Primary Task**: Git Repository Management & Authoritative State Push
+**Task ID**: TASK-GIT-MANAGEMENT-2024
+**Status**: READY FOR IMPLEMENTATION
+**Mode**: PLAN → IMPLEMENT (Ready for transition)
 
-## Key Insights
-1. Layout fixes must be applied immediately at module level
-2. Pipeline functionality can be imported after layout fixes
-3. Hybrid approach allows combining UI fixes with complex features
-4. CSS specificity is critical for consistent layout behavior
+## Immediate Objective
+Execute the comprehensive 4-phase Git management plan to establish current local state as authoritative version on GitHub repository.
 
-## Technical Context
-- Layout fixes are working through immediate execution pattern
-- Pipeline functionality is preserved through proper import timing
-- Session state and progress tracking are maintained
-- File uploads and molecular processing are fully functional
+## Context Summary
+- **Current State**: UI reorganization completed locally with professional modular architecture
+- **Repository Status**: Local changes need to be pushed as authoritative version (overriding 4 remote commits)
+- **Strategy**: Safe force push with comprehensive commit message and backup safety measures
+- **User Priority**: Current local state is definitive and must be preserved on GitHub
 
-## Next Actions
-1. Monitor layout behavior in different scenarios
-2. Collect user feedback on pipeline performance
-3. Document any edge cases or issues found
-4. Plan future UI/UX improvements
+## Implementation Readiness ✅
+- [x] Repository analysis complete
+- [x] Comprehensive 4-phase plan documented
+- [x] Risk mitigation strategies defined
+- [x] Technology validation complete
+- [x] Quality assurance checklist prepared
+- [x] DevOps best practices integrated
 
-## References
-- [Layout and Pipeline Fix Archive](../memory-bank/archive/archive-layout-pipeline-fix.md)
-- [Tasks](tasks.md)
-- [Progress](progress.md)
+## Phase Overview
+1. **Phase 1**: Pre-Push Verification (5 min)
+2. **Phase 2**: Stage All Changes (10 min)
+3. **Phase 3**: Create Meaningful Commit (10 min)
+4. **Phase 4**: Authoritative Push (5 min)
+
+## Key Safety Measures
+- Backup branch creation before any changes
+- Use of `--force-with-lease` for safe force push
+- Comprehensive commit message following conventional commits
+- Post-push verification procedures
+
+## Next Action
+Transition to IMPLEMENT MODE to execute the Git repository management plan.
+
+## Memory Bank Status
+- **tasks.md**: Updated with comprehensive Level 2 plan
+- **progress.md**: Ready for implementation tracking
+- **Backups**: Created before planning updates
+
+**Last Updated**: 2024-12-29 (Planning Phase Complete)

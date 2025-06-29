@@ -13,6 +13,8 @@ import tempfile
 from ...config.settings import AppConfig
 from ...config.constants import SESSION_KEYS, MESSAGES
 from ...core.session_manager import SessionManager
+from ...utils.molecular_utils import validate_smiles_input, validate_sdf_input, get_rdkit_modules
+from ...utils.file_utils import save_uploaded_file, extract_pdb_id_from_file, load_templates_from_uploaded_sdf
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +66,6 @@ class InputSection:
             if smiles:
                 # Import validation functions
                 try:
-                    from ...app import validate_smiles_input, get_rdkit_modules
                     valid, msg, mol_data = validate_smiles_input(smiles)
                     if valid:
                         # Convert from cached binary format if needed
@@ -92,7 +93,6 @@ class InputSection:
             
             if uploaded_file:
                 try:
-                    from ...app import validate_sdf_input, get_rdkit_modules
                     valid, msg, mol = validate_sdf_input(uploaded_file)
                     if valid:
                         self.session.set(SESSION_KEYS["QUERY_MOL"], mol)
@@ -143,7 +143,6 @@ class InputSection:
             if uploaded_file:
                 try:
                     # Save uploaded file
-                    from ...app import save_uploaded_file
                     file_path = save_uploaded_file(uploaded_file)
                     
                     # Store file path in session
@@ -156,7 +155,6 @@ class InputSection:
                     
                     # Optional: Try to extract PDB ID from file for display purposes only
                     try:
-                        from ...app import extract_pdb_id_from_file
                         extracted_pdb_id = extract_pdb_id_from_file(file_path)
                         if extracted_pdb_id:
                             st.info(f"Detected PDB ID from file: {extracted_pdb_id.upper()}")
@@ -177,7 +175,6 @@ class InputSection:
             
             if template_file:
                 try:
-                    from ...app import load_templates_from_uploaded_sdf
                     templates = load_templates_from_uploaded_sdf(template_file)
                     if templates:
                         self.session.set(SESSION_KEYS["CUSTOM_TEMPLATES"], templates)
