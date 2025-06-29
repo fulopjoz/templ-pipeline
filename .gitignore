@@ -1,12 +1,14 @@
-data/PDBBind/PDBbind_v2020_other_PL
-data/PDBBind/PDBbind_v2020_refined
+# ==============================================
+# PYTHON & DEVELOPMENT
+# ==============================================
 
-# Python cache files
+# Python cache and bytecode
 __pycache__/
 *.py[cod]
-*.class
 *.so
 .Python
+
+# Distribution and packaging
 build/
 develop-eggs/
 dist/
@@ -25,7 +27,7 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# Testing
+# Testing and coverage
 .coverage
 .pytest_cache/
 .tox/
@@ -35,7 +37,7 @@ coverage.xml
 *.py,cover
 .hypothesis/
 
-# Environments
+# Virtual environments
 .env
 .venv
 env/
@@ -45,22 +47,46 @@ env.bak/
 venv.bak/
 .templ/
 
-# IDE
+# IDE and editor files
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+.project
+.pydevproject
+.settings/
+*.sublime-workspace
+*.sublime-project
 
-# OS
-.DS_Store
-Thumbs.db
+# ==============================================
+# PROJECT-SPECIFIC DATA & OUTPUTS
+# ==============================================
 
-# Log files
-*.log
+# Large data directories
+data/PDBBind/PDBbind_v2020_other_PL
+data/PDBBind/PDBbind_v2020_refined
+data/
+!data/README.md
 
-# Output directories (timestamped results)
+# Output and results
+output/
 output_*/
+templ_benchmark_results_polaris/
+
+# Model files and checkpoints
+*.pth
+*.pkl
+*.h5
+*.hdf5
+*.ckpt
+*.pt
+*.model
+*.bin
+
+# ==============================================
+# TEMPORARY & BACKUP FILES
+# ==============================================
 
 # Backup files
 *.backup
@@ -69,57 +95,84 @@ output_*/
 *_fast.py
 *_original.py
 *_working_base.py
+*.bak
+*.tmp
+*.temp
+*~
+*.old
 
-# Test and diagnostic files
+# Debug and diagnostic files
 debug_*.py
 diagnostic_*.py
 ultra_minimal.py
 test_minimal_*.py
+temp_*.py
+analysis_*.py
 
 # Memory bank backups
 memory-bank/*.backup
+cursor-memory-bank/
 
-*.pyc
-# ============================================
-# LARGE DATA FILES (keep locally for benchmarking)
-# ============================================
+# ==============================================
+# SYSTEM & OS FILES
+# ==============================================
 
-# Complete data directory (except README)
-data/
-!data/README.md
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
 
-# Large output files
-output/
-templ_benchmark_results_polaris/
+# Log files
+*.log
+logs/
+log/
+*.log.*
 
-# ============================================
-# REDUNDANT DEPLOYMENT FILES
-# ============================================
+# ==============================================
+# CHEMICAL & SCIENTIFIC DATA
+# ==============================================
 
-# Outdated Docker configurations
+# Chemical data files
+*.mol2
+*.sdf.backup
+*.npz.backup
+*.cv.tsv
+*.ind.tsv
+*.smi
+tmp_*.sdf
+temp_*.sdf
+
+# Temporary calculation files
+*.tmp.csv
+*.tmp.tsv
+*.tmp.sdf
+*.tmp.mol2
+
+# ==============================================
+# DEPLOYMENT & CONFIGURATION
+# ==============================================
+
+# Docker and deployment
 Dockerfile.optimized
 templ-app-optimized.yaml
 deploy-optimized.sh
-
-# Temporary test files
 test-docker-local.sh
 
-# ============================================
-# ADDITIONAL CLEANUP PATTERNS
-# ============================================
+# Package files
+*.pkg
+*.tgz
+*.tar.gz
+*.zip
+*.rar
+*.7z
 
-# Large model files
-*.pth
-*.pkl
-*.h5
-*.hdf5
-
-# Data processing outputs
-*.npz.backup
-*.sdf.backup
-
-# Temporary analysis files
-analysis_*.py
-temp_*.py
-
-cursor-memory-bank/
+# Temporary directories
+/tmp/
+tmp*/
+temp/
+.temp/
