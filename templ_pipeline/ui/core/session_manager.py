@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ..config.constants import SESSION_KEYS
-from ..memory_manager import get_memory_manager
+from .memory_manager import get_memory_manager
 
 logger = logging.getLogger(__name__)
 
