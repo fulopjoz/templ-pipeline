@@ -141,10 +141,10 @@ class AppConfig:
     def _check_optimization_modules(self) -> bool:
         """Check if optimization modules are available"""
         try:
-            from templ_pipeline.ui.secure_upload import SecureFileUploadHandler
-            from templ_pipeline.ui.error_handling import ContextualErrorManager
-            from templ_pipeline.ui.memory_manager import MolecularSessionManager
-            from templ_pipeline.ui.molecular_processor import CachedMolecularProcessor
+            from templ_pipeline.ui.utils.secure_upload import SecureFileUploadHandler
+            from templ_pipeline.ui.core.error_handling import ContextualErrorManager
+            from templ_pipeline.ui.core.memory_manager import MolecularSessionManager
+            from templ_pipeline.ui.core.molecular_processor import CachedMolecularProcessor
             return True
         except ImportError:
             return False

@@ -14,9 +14,10 @@ def inject_immediate_viewport_fix():
     
     This MUST be called first to set proper viewport behavior.
     """
-    st.markdown("""
+    # Inject CSS in a way that prevents text display
+    css_content = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <style>
+    <style type="text/css">
     /* ===== IMMEDIATE LAYOUT FIXES - NO DELAYS ===== */
     /* Maximum specificity CSS to override Streamlit defaults IMMEDIATELY */
     
@@ -113,8 +114,19 @@ def inject_immediate_viewport_fix():
         max-width: 100% !important;
     }
     
+    /* Hide any CSS text that might be accidentally displayed */
+    .css-text-display {
+        display: none !important;
+    }
+    
+    /* Ensure style tags are not visible */
+    style {
+        display: none !important;
+    }
     </style>
-    """, unsafe_allow_html=True)
+    """
+    
+    st.markdown(css_content, unsafe_allow_html=True)
 
 
 def inject_immediate_javascript_fix():
