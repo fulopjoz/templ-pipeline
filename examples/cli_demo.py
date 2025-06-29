@@ -202,7 +202,7 @@ def main():
         logger.info("\n🎉 All demos completed successfully!")
         return 0
     else:
-        logger.error("\n❌ Some demos failed. Check the logs above.")
+        logger.error("\nERROR: Some demos failed. Check the logs above.")
         return 1
 
 if __name__ == "__main__":
