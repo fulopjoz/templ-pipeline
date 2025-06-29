@@ -10,11 +10,11 @@ from typing import Optional, Dict, Any
 from pathlib import Path
 import tempfile
 
-from ...config.settings import AppConfig
-from ...config.constants import SESSION_KEYS, MESSAGES
-from ...core.session_manager import SessionManager
-from ...utils.molecular_utils import validate_smiles_input, validate_sdf_input, get_rdkit_modules
-from ...utils.file_utils import save_uploaded_file, extract_pdb_id_from_file, load_templates_from_uploaded_sdf
+from ..config.settings import AppConfig
+from ..config.constants import SESSION_KEYS, MESSAGES
+from ..core.session_manager import SessionManager
+from ..utils.molecular_utils import validate_smiles_input, validate_sdf_input, get_rdkit_modules
+from ..utils.file_utils import save_uploaded_file, extract_pdb_id_from_file, load_templates_from_uploaded_sdf
 
 logger = logging.getLogger(__name__)
 

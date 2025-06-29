@@ -8,11 +8,11 @@ import streamlit as st
 import logging
 from typing import Optional, Dict, Any
 
-from ...config.settings import AppConfig
-from ...config.constants import SESSION_KEYS, MESSAGES, SCORE_EXCELLENT, SCORE_GOOD, SCORE_FAIR
-from ...core.session_manager import SessionManager
-from ...utils.export_utils import create_best_poses_sdf, create_all_conformers_sdf, extract_pdb_id_from_template
-from ...utils.visualization_utils import display_molecule, safe_get_mcs_mol
+from ..config.settings import AppConfig
+from ..config.constants import SESSION_KEYS, MESSAGES, SCORE_EXCELLENT, SCORE_GOOD, SCORE_FAIR
+from ..core.session_manager import SessionManager
+from ..utils.export_utils import create_best_poses_sdf, create_all_conformers_sdf, extract_pdb_id_from_template
+from ..utils.visualization_utils import display_molecule, safe_get_mcs_mol
 
 logger = logging.getLogger(__name__)
 
