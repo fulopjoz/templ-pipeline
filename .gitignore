@@ -5,6 +5,7 @@
 # Python cache and bytecode
 __pycache__/
 *.py[cod]
+*.pyc
 *.so
 .Python
 
@@ -66,7 +67,6 @@ venv.bak/
 # Large data directories
 data/PDBBind/PDBbind_v2020_other_PL
 data/PDBBind/PDBbind_v2020_refined
-data/
 !data/README.md
 
 # Output and results
