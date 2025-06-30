@@ -1,58 +1,124 @@
 #!/usr/bin/env python
 """
-Helper script to run the TEMPL Pipeline Web Application.
-Runs the redesigned, modern interface with one-click workflow.
-Updated with working configuration that resolves WebSocket connection issues.
+TEMPL Pipeline - Streamlit Web Application Launcher
+Simple, user-friendly startup with automatic URL display and comprehensive dependency checking.
 """
 
 import os
 import sys
+import socket
 from pathlib import Path
 
-# Add the project root to the Python path
-project_root = Path(__file__).resolve().parent
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
+def get_network_urls(port=8501):
+    """Get all available URLs for the Streamlit app"""
+    urls = {
+        'local': f'http://localhost:{port}',
+        'network': None,
+        'external': None
+    }
+    
+    try:
+        # Get local network IP
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        urls['network'] = f'http://{local_ip}:{port}'
+        urls['external'] = f'http://{local_ip}:{port}'
+    except:
+        pass
+    
+    return urls
 
-try:
-    import streamlit.web.cli as stcli
-except ImportError:
-    print("Error: Streamlit is not installed. Please install it with:")
-    print("pip install streamlit")
-    sys.exit(1)
+def check_dependencies():
+    """Check if required dependencies are installed"""
+    # Core dependencies that must be present (import_name: description)
+    core_deps = {
+        'streamlit': 'Web interface',
+        'rdkit': 'Molecular processing', 
+        'numpy': 'Numerical computing',
+        'pandas': 'Data handling',
+        'Bio': 'Protein processing (biopython)',
+        'biotite': 'Structural biology',
+        'templ_pipeline': 'Pipeline core'
+    }
+    
+    missing = []
+    for dep, description in core_deps.items():
+        try:
+            __import__(dep)
+        except ImportError:
+            missing.append(f'{dep} ({description})')
+    
+    if missing:
+        print("Missing core dependencies:")
+        for dep in missing:
+            print(f"  - {dep}")
+        print()
+        print("Install with:")
+        print("  pip install -e \".[web]\"     # Standard installation")
+        print("  pip install -e \".[full]\"    # Full installation with AI features")
+        print()
+        print("Or install individual dependencies:")
+        if any('rdkit' in dep for dep in missing):
+            print("  conda install -c conda-forge rdkit")
+        if any('Bio' in dep for dep in missing):
+            print("  pip install biopython")
+        return False
+    
+    return True
 
 def main():
-    """Run the Streamlit app with the working configuration."""
-    streamlit_app_path = project_root / "templ_pipeline" / "ui" / "app_v2.py"
+    """Launch TEMPL Pipeline with smart configuration"""
     
-    if not streamlit_app_path.exists():
-        print(f"Error: Streamlit app not found at: {streamlit_app_path}")
+    # Check dependencies first
+    if not check_dependencies():
         sys.exit(1)
     
-    # Configure sys.argv for Streamlit with WORKING settings
-    # These settings resolve the WebSocket connection issues
-    sys.argv = [
-        "streamlit", 
-        "run", 
-        str(streamlit_app_path),
-        "--server.port", "8503",                    # Use working port
-        "--server.address", "127.0.0.1",           # Use localhost binding (fixes WebSocket)
-        "--server.headless", "false",               # Enable browser integration
-        "--server.enableCORS", "true",              # Enable CORS for remote access
-        "--server.enableXsrfProtection", "false",   # Disable XSRF for development
-        "--browser.gatherUsageStats", "false"       # Disable usage stats
-    ]
+    # Check for app file
+    app_path = Path("templ_pipeline/ui/app.py")
+    if not app_path.exists():
+        print(f"App file not found: {app_path}")
+        sys.exit(1)
     
-    # Check if PYTHONPATH is set, if not, set it
-    if "PYTHONPATH" not in os.environ:
-        os.environ["PYTHONPATH"] = str(project_root)
+    # Smart port selection
+    port = 8501
+    if os.getenv('PORT'):
+        port = int(os.getenv('PORT'))
+    elif os.getenv('STREAMLIT_SERVER_PORT'):
+        port = int(os.getenv('STREAMLIT_SERVER_PORT'))
     
-    print("🚀 Starting TEMPL Pipeline with working configuration...")
-    print("📍 URL: http://127.0.0.1:8503")
-    print("⚙️  Configuration: localhost binding, CORS enabled, headless=false")
+    # Get URLs
+    urls = get_network_urls(port)
     
-    # Run the Streamlit app
-    sys.exit(stcli.main())
+    # Display startup info
+    print("Starting TEMPL Pipeline")
+    print(f"Local:    {urls['local']}")
+    if urls['network']:
+        print(f"Network:  {urls['network']}")
+    if urls['external'] and urls['external'] != urls['network']:
+        print(f"External: {urls['external']}")
+    print()
+    
+    # Configure environment
+    os.environ.update({
+        'STREAMLIT_SERVER_PORT': str(port),
+        'STREAMLIT_SERVER_ADDRESS': '0.0.0.0',
+        'STREAMLIT_SERVER_HEADLESS': 'true',
+        'STREAMLIT_SERVER_ENABLE_CORS': 'true',
+        'STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION': 'false',
+        'STREAMLIT_BROWSER_GATHER_USAGE_STATS': 'false'
+    })
+    
+    # Add project to Python path
+    project_root = Path(__file__).resolve().parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+    
+    # Launch app
+    import streamlit.web.cli as stcli
+    sys.argv = ['streamlit', 'run', str(app_path), '--server.port', str(port)]
+    stcli.main()
 
 if __name__ == "__main__":
-    main() 
+    main()
