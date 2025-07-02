@@ -8,6 +8,12 @@ All application settings, defaults, and configuration options are defined here.
 import os
 from pathlib import Path
 from typing import Dict, Any, Optional
+
+# Import centralized version
+try:
+    from templ_pipeline import __version__
+except ImportError:
+    __version__ = "1.0.0"  # Fallback
 import logging
 
 logger = logging.getLogger(__name__)
@@ -20,13 +26,13 @@ class AppConfig:
         """Initialize application configuration"""
         # Application metadata
         self.app_name = "TEMPL Pipeline"
-        self.app_version = "2.0.0"
+        self.app_version = __version__
         self.app_description = "TEMplate-based Protein-Ligand Pose Prediction"
         
         # Page configuration for Streamlit
         self.page_config = {
             "page_title": "TEMPL Pipeline",
-            "page_icon": "🧪",
+            "page_icon": "◈",
             "layout": "wide",
             "initial_sidebar_state": "auto"
         }
@@ -63,15 +69,29 @@ class AppConfig:
             "show_technical_details": False
         }
         
-        # Scientific settings
+        # Scientific settings - TEMPL Normalized TanimotoCombo (PMC9059856 implementation)
+        # 
+        # TEMPL implements the standard ROCS TanimotoCombo methodology but with normalization:
+        # combo_score = 0.5 * (ShapeTanimoto + ColorTanimoto) = TanimotoCombo / 2
+        # 
+        # Benefits of normalization:
+        # 1. 0-1 scale for easier user interpretation 
+        # 2. More conservative quality thresholds than PMC article (better pose discrimination)
+        # 3. Maintains scientific rigor while improving usability
         self.scientific = {
             "confidence_level": 0.95,
-            "min_combo_score": 0.3,
+            "min_combo_score": 0.15,  # Conservative threshold (PMC equivalent: 0.3 on 0-2 scale)
             "quality_thresholds": {
-                "excellent": 0.8,
-                "good": 0.6,
-                "moderate": 0.4,
+                "excellent": 0.35,  # PMC equivalent: 0.7 (more stringent than article's 0.6)
+                "good": 0.25,       # PMC equivalent: 0.5 (reliable pose prediction)
+                "moderate": 0.15,   # PMC equivalent: 0.3 (acceptable for optimization)
                 "poor": 0.0
+            },
+            "normalization_info": {
+                "method": "TanimotoCombo normalization",
+                "scale": "0-1 (normalized from 0-2 standard ROCS scale)",
+                "formula": "combo_score = 0.5 * (ShapeTanimoto + ColorTanimoto)",
+                "literature_basis": "PMC9059856 methodology with conservative thresholds"
             },
             "enable_uncertainty_estimates": True,
             "enable_statistical_analysis": True
@@ -141,10 +161,10 @@ class AppConfig:
     def _check_optimization_modules(self) -> bool:
         """Check if optimization modules are available"""
         try:
-            from templ_pipeline.ui.secure_upload import SecureFileUploadHandler
-            from templ_pipeline.ui.error_handling import ContextualErrorManager
-            from templ_pipeline.ui.memory_manager import MolecularSessionManager
-            from templ_pipeline.ui.molecular_processor import CachedMolecularProcessor
+            from templ_pipeline.ui.core.secure_upload import SecureFileUploadHandler
+            from templ_pipeline.ui.core.error_handling import ContextualErrorManager
+            from templ_pipeline.ui.core.memory_manager import MolecularSessionManager
+            from templ_pipeline.ui.core.molecular_processor import CachedMolecularProcessor
             return True
         except ImportError:
             return False
