@@ -1,74 +1,72 @@
 # Active Context - TEMPL Pipeline
 
-## Current Focus: Ready for Next Task
+## Recently Completed: TanimotoCombo Score Explanation Corrections ✅
 
-**Previous Task**: UI Folder Structure Flattening
-**Task ID**: TASK-UI-STRUCTURE-FLATTENING-2024
+**Completed Task**: Update TanimotoCombo Score Explanations to Reflect TEMPL's Normalized Implementation
+**Task ID**: TASK-NORMALIZED-TANIMOTO-EXPLANATIONS-2024
 **Status**: ✅ COMPLETED & ARCHIVED
-**Completion Date**: 2024-12-29
+**Completion Date**: 2024-12-30
+**Archive**: [archive-tanimoto-score-corrections-20241230.md](archive/archive-tanimoto-score-corrections-20241230.md)
 
-## UI Structure Flattening Successfully Completed ✅
+## Task Completion Summary ✅
 
-### Achievement Summary
-Successfully eliminated redundant nested `ui/ui/` folder structure in the TEMPL Pipeline UI module through systematic 4-phase refactoring approach. Moved 7 Python files to proper directory level, updated 20 import statements across 6 files, and preserved 100% application functionality while enhancing code organization and maintainability.
+### Critical Discovery
+Investigation revealed that **TEMPL's implementation is already scientifically correct**. The task focused on correcting explanations and documentation rather than code changes:
+- **PMC Article**: `TanimotoCombo = ShapeTanimoto + ColorTanimoto` (range 0-2)
+- **TEMPL Code**: `combo_score = 0.5 * (ShapeTanimoto + ColorTanimoto)` (range 0-1)
+- **Result**: Normalized TanimotoCombo providing better user experience with conservative quality thresholds
 
-### Technical Resolution
-- **Structure Flattened**: Eliminated confusing nested `ui/ui/` paths completely
-- **File Organization**: Components, layouts, and styles moved to logical flat structure
-- **Import Updates**: All relative imports systematically adjusted from `...` to `..`
-- **Validation Complete**: Python imports and Streamlit application startup verified working
-- **Quality Enhanced**: Improved developer experience through cleaner code organization
+### Implementation Success
+- **Scientific Accuracy**: All explanations now match PMC9059856 methodology with proper terminology
+- **User Education**: Enhanced tooltips with comprehensive scientific background
+- **Literature Compliance**: Accurate representation with normalization benefits documented
+- **Code Quality**: Improved documentation without functional changes
 
-## System Status ✅
+### Files Successfully Updated
+1. `templ_pipeline/ui/config/constants.py` - Scientific documentation with normalized TanimotoCombo explanation
+2. `templ_pipeline/ui/components/results_section.py` - User-facing explanations and metric labels corrected
+3. `templ_pipeline/ui/config/settings.py` - Configuration consistency and documentation enhanced
 
-### Technical Foundation Enhanced
-- **Code Organization**: Professional flat structure eliminates developer confusion
-- **Import Clarity**: Simplified import paths throughout UI codebase
-- **Maintainability**: Enhanced through logical directory organization
-- **Development Support**: Faster navigation and understanding of UI components
-- **Process Excellence**: Proven 4-phase methodology for file structure reorganization
-
-### Memory Bank Updated
-- **Archive Created**: `memory-bank/archive/archive-ui-structure-flattening.md`
-- **Reflection Documented**: `memory-bank/reflection/reflection-ui-structure-flattening.md`
-- **Progress Updated**: Structure flattening completion recorded with comprehensive details
-- **Tasks Tracked**: Complete Level 2 task lifecycle documentation preserved
-
-## Ready for Next Development ✅
+## System Status: Ready for Next Task ✅
 
 ### Current State
-- **Repository**: Clean working tree with enhanced UI organization structure
-- **UI System**: Streamlined with logical flat directory organization
-- **Documentation**: Complete knowledge preservation including reusable methodology
-- **Process**: 4-phase reorganization approach available for future structural tasks
+- **Memory Bank**: Reset and prepared for next task initialization
+- **Technical Foundation**: Enhanced with accurate scientific explanations and user education
+- **Knowledge Base**: Enriched with PMC9059856 implementation insights and normalization benefits
+- **Code Quality**: Improved documentation standards without functional changes
 
-### Immediate Readiness
-- **Memory Bank**: Reset and prepared for new task initialization
-- **Technical Foundation**: Enhanced with cleaner code organization and improved maintainability
-- **Development Environment**: Optimized structure supporting faster UI development
-- **Knowledge Base**: Expanded with file structure reorganization patterns and best practices
+### Development Foundation Enhanced
+- **Scientific Rigor**: Established pattern for accurate literature representation
+- **User Communication**: Enhanced educational approach through comprehensive tooltips
+- **Documentation Standards**: Improved consistency across configuration and component files
+- **Quality Process**: Demonstrated effective approach to explanation accuracy without code changes
 
-### Foundation Enhancements
-- **Developer Experience**: Improved navigation through elimination of confusing nested structures
-- **Code Quality**: Enhanced maintainability with logical organization principles
-- **Future Readiness**: Clean foundation supports efficient continued development
-- **Methodology**: Established systematic approach for structural refactoring tasks
+## Next Task Recommendations
 
-### Recommendations for Next Task
-- **Mode Selection**: VAN mode recommended for next task analysis and prioritization
-- **Focus Areas**: Continue UI improvements, explore new features, or address technical enhancements
-- **Process Application**: Apply proven 4-phase approach for any structural reorganization needs
-- **Knowledge Utilization**: Reference archive for systematic file structure reorganization patterns
+### Immediate Opportunities
+1. **Continue GPU Configuration Implementation**: Complete the planned GPU utilization fix and advanced user settings panel
+2. **Scientific Documentation Review**: Apply similar accuracy improvements to other algorithm explanations
+3. **User Experience Enhancement**: Expand educational tooltips to other complex scientific concepts
+4. **Quality Assurance**: Systematic review of other scientific explanations for accuracy
 
-## Context Reset Complete ✅
+### System Readiness
+- **VAN Mode**: Ready for next task initialization and priority assessment
+- **Technical State**: Clean foundation with enhanced scientific accuracy
+- **Memory Bank**: Updated with comprehensive completion documentation
+- **User Experience**: Improved through accurate scientific communication
 
-**Memory Bank Status**: Ready for new task initialization  
-**System Readiness**: Enhanced with improved code organization and proven reorganization methodology  
-**Documentation**: Complete with valuable structural refactoring knowledge preserved  
-**Next Action**: Await user direction for next development priority  
+## Context Reset for Next Development Cycle ✅
+
+**Previous Task**: TanimotoCombo Score Explanation Corrections (Level 2 Enhancement)
+**Completion Status**: ✅ Successfully completed with comprehensive archive documentation
+**System Impact**: Enhanced scientific accuracy and user education without functional changes
+**Memory Bank State**: Reset and ready for next task initialization
+
+**Next Action**: VAN MODE for next task analysis and prioritization
+**Development Foundation**: Enhanced with improved scientific communication standards
 
 ---
 
-*Last Updated: 2024-12-29 by Archive Mode*  
-*Previous Context: UI Structure Flattening Implementation*  
-*Current Context: Ready for Next Task*
+*Last Updated: 2024-12-30 by Archive Mode*
+*Previous Context: TanimotoCombo Score Explanation Corrections (Completed)*
+*Current Context: Ready for Next Task Initialization*
