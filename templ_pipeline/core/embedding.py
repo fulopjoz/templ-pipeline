@@ -44,6 +44,21 @@ def _detect_gpu() -> bool:
 
 def _get_device() -> str:
     """Get optimal device (cuda/cpu) for embedding generation."""
+    import os
+    
+    # Check for user device preference override
+    forced_device = os.environ.get("TEMPL_FORCE_DEVICE")
+    if forced_device:
+        if forced_device == "cuda" and _detect_gpu():
+            return "cuda"
+        elif forced_device == "cpu":
+            return "cpu"
+        elif forced_device == "cuda" and not _detect_gpu():
+            # User forced GPU but no GPU available
+            logger.warning("User forced GPU usage but no GPU detected, falling back to CPU")
+            return "cpu"
+    
+    # Default auto-detection behavior
     return "cuda" if _detect_gpu() else "cpu"
 
 def _get_gpu_info() -> Dict[str, Any]:
