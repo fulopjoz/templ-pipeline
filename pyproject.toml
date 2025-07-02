@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "templ-pipeline"
-version = "0.1.0"
+version = "1.0.0"
 description = "TEMPL (Template-based Protein Ligand) pose prediction pipeline"
 authors = [
     {name = "TEMPL Team", email = "author@example.com"},
@@ -44,14 +44,14 @@ dependencies = [
 # Standard installation (recommended for most users)
 web = [
     "streamlit>=1.45.0",
-    "py3Dmol>=2.0.0",
+    
     "stmol>=0.0.9",
 ]
 
-# Full installation (power users with AI features)
+# Full installation (power users with embedding acceleration)
 full = [
     "streamlit>=1.45.0",
-    "py3Dmol>=2.0.0", 
+     
     "stmol>=0.0.9",
     "transformers>=4.10.0",
     "torch>=2.0.0",  # Auto-detects CUDA
