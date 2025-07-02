@@ -9,9 +9,11 @@ import time
 from typing import Dict, Any, Optional, Callable, Tuple
 from pathlib import Path
 import sys
+import os
 
 from ..config.settings import AppConfig
 from ..core.session_manager import SessionManager
+from ..config.constants import SESSION_KEYS
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +31,39 @@ class PipelineService:
         self.config = config
         self.session = session
         self.pipeline = None
+    
+    def _configure_device_preference(self, device_pref: str):
+        """Configure device preference for embedding generation
+        
+        Args:
+            device_pref: User device preference ("auto", "gpu", "cpu")
+        """
+        # Set environment variable that embedding functions can check
+        if device_pref == "gpu":
+            os.environ["TEMPL_FORCE_DEVICE"] = "cuda"
+            logger.info("User forced GPU usage - setting TEMPL_FORCE_DEVICE=cuda")
+        elif device_pref == "cpu":
+            os.environ["TEMPL_FORCE_DEVICE"] = "cpu"
+            logger.info("User forced CPU usage - setting TEMPL_FORCE_DEVICE=cpu")
+        else:
+            # Auto mode - let embedding functions decide
+            if "TEMPL_FORCE_DEVICE" in os.environ:
+                del os.environ["TEMPL_FORCE_DEVICE"]
+            logger.info("Auto device mode - letting embedding functions choose optimal device")
+    
+    def _resolve_chain_selection(self, user_chain_selection: str):
+        """Resolve chain selection for PDB processing
+        
+        Args:
+            user_chain_selection: User chain preference ("auto" or specific chain like "A")
+            
+        Returns:
+            Chain ID to use or None for auto-detection
+        """
+        if user_chain_selection == "auto":
+            return None
+        else:
+            return user_chain_selection
     
     def run_pipeline(self, 
                     molecule_data: Dict[str, Any],
@@ -49,6 +84,17 @@ class PipelineService:
             logger.info("Starting pipeline execution")
             logger.info(f"Molecule data: {molecule_data.get('input_smiles', 'N/A')}")
             logger.info(f"Protein data: {protein_data}")
+            
+            # Get user settings from session
+            user_device_pref = self.session.get(SESSION_KEYS["USER_DEVICE_PREFERENCE"], "auto")
+            user_knn_threshold = self.session.get(SESSION_KEYS["USER_KNN_THRESHOLD"], 100)
+            user_chain_selection = self.session.get(SESSION_KEYS["USER_CHAIN_SELECTION"], "auto")
+            user_similarity_threshold = self.session.get(SESSION_KEYS["USER_SIMILARITY_THRESHOLD"], 0.5)
+            
+            logger.info(f"User settings - Device: {user_device_pref}, KNN: {user_knn_threshold}, Chain: {user_chain_selection}, Similarity: {user_similarity_threshold}")
+            
+            # Configure device preference for embedding generation
+            self._configure_device_preference(user_device_pref)
             
             # Progress updates
             if progress_callback:
@@ -116,21 +162,36 @@ class PipelineService:
                 else:
                     progress_callback("Loading protein embedding from database...", 30)
             
-            # Handle different input scenarios
+            # Handle different input scenarios with user settings
             if custom_templates:
                 # MCS-only workflow with custom templates
                 results = self._run_custom_template_pipeline(
-                    smiles, custom_templates, progress_callback
+                    smiles, custom_templates, progress_callback, user_settings={
+                        'device_pref': user_device_pref,
+                        'knn_threshold': user_knn_threshold,
+                        'chain_selection': user_chain_selection,
+                        'similarity_threshold': user_similarity_threshold
+                    }
                 )
             elif pdb_file:
                 # Full pipeline with uploaded PDB file - generate embedding and search
                 results = self._run_uploaded_pdb_pipeline(
-                    smiles, pdb_file, progress_callback
+                    smiles, pdb_file, progress_callback, user_settings={
+                        'device_pref': user_device_pref,
+                        'knn_threshold': user_knn_threshold,
+                        'chain_selection': user_chain_selection,
+                        'similarity_threshold': user_similarity_threshold
+                    }
                 )
             elif pdb_id:
                 # Full pipeline with PDB ID from database
                 results = self._run_pdb_id_pipeline(
-                    smiles, pdb_id, progress_callback
+                    smiles, pdb_id, progress_callback, user_settings={
+                        'device_pref': user_device_pref,
+                        'knn_threshold': user_knn_threshold,
+                        'chain_selection': user_chain_selection,
+                        'similarity_threshold': user_similarity_threshold
+                    }
                 )
             else:
                 # Safe streamlit call
@@ -175,7 +236,7 @@ class PipelineService:
             return None
     
     def _run_custom_template_pipeline(self, smiles: str, custom_templates: list, 
-                                    progress_callback: Optional[Callable]) -> Dict[str, Any]:
+                                    progress_callback: Optional[Callable], user_settings: Dict[str, Any]) -> Dict[str, Any]:
         """Run pipeline with custom template molecules"""
         if progress_callback:
             progress_callback("Processing custom templates...", 40)
@@ -202,10 +263,10 @@ class PipelineService:
         else:
             results = {'poses': pose_results}
         
-        return self._format_pipeline_results(results, query_mol)
+        return self._format_pipeline_results(results, query_mol, user_settings)
     
     def _run_uploaded_pdb_pipeline(self, smiles: str, pdb_file: str, 
-                                  progress_callback: Optional[Callable]) -> Dict[str, Any]:
+                                  progress_callback: Optional[Callable], user_settings: Dict[str, Any]) -> Dict[str, Any]:
         """Run pipeline with uploaded PDB file - generate embedding and search"""
         logger.info(f"Running pipeline with uploaded PDB file: {pdb_file}")
         
@@ -214,7 +275,9 @@ class PipelineService:
         
         # Generate embedding for the uploaded protein
         try:
-            embedding, chain_id = self.pipeline.generate_embedding(pdb_file)
+            # Resolve chain selection from user settings
+            target_chain = self._resolve_chain_selection(user_settings['chain_selection'])
+            embedding, chain_id = self.pipeline.generate_embedding(pdb_file, chain=target_chain)
             logger.info(f"Generated embedding for chain {chain_id}")
             
             if progress_callback:
@@ -223,8 +286,8 @@ class PipelineService:
             # Find similar templates using KNN
             templates = self.pipeline.find_templates(
                 protein_embedding=embedding,
-                num_templates=100,
-                similarity_threshold=None,
+                num_templates=user_settings['knn_threshold'],
+                similarity_threshold=user_settings['similarity_threshold'],
                 allow_self_as_template=False
             )
             
@@ -260,7 +323,7 @@ class PipelineService:
             
             # Continue with full pipeline
             return self._run_full_pipeline_with_templates(
-                smiles, templates, embedding, chain_id, progress_callback
+                smiles, templates, embedding, chain_id, progress_callback, user_settings
             )
             
         except Exception as e:
@@ -278,7 +341,7 @@ class PipelineService:
             raise
     
     def _run_pdb_id_pipeline(self, smiles: str, pdb_id: str, 
-                            progress_callback: Optional[Callable]) -> Dict[str, Any]:
+                            progress_callback: Optional[Callable], user_settings: Dict[str, Any]) -> Dict[str, Any]:
         """Run pipeline with PDB ID from database"""
         logger.info(f"Running pipeline with PDB ID: {pdb_id}")
         
@@ -286,17 +349,17 @@ class PipelineService:
         results = self.pipeline.run_full_pipeline(
             protein_pdb_id=pdb_id,
             ligand_smiles=smiles,
-            num_templates=100,
+            num_templates=user_settings['knn_threshold'],
             num_conformers=200,
             n_workers=4,
             use_aligned_poses=True
         )
         
-        return self._format_pipeline_results(results)
+        return self._format_pipeline_results(results, user_settings)
     
     def _run_full_pipeline_with_templates(self, smiles: str, templates: list, 
                                          embedding: Any, chain_id: str,
-                                         progress_callback: Optional[Callable]) -> Dict[str, Any]:
+                                         progress_callback: Optional[Callable], user_settings: Dict[str, Any]) -> Dict[str, Any]:
         """Continue full pipeline after finding templates"""
         
         # Load template molecules
@@ -342,9 +405,9 @@ class PipelineService:
         else:
             results = {'poses': pose_results}
         
-        return self._format_pipeline_results(results, query_mol)
+        return self._format_pipeline_results(results, query_mol, user_settings)
     
-    def _format_pipeline_results(self, results: Dict[str, Any], query_mol: Any = None) -> Dict[str, Any]:
+    def _format_pipeline_results(self, results: Dict[str, Any], query_mol: Any = None, user_settings: Dict[str, Any] = None) -> Dict[str, Any]:
         """Format pipeline results for UI consumption"""
         if 'error' in results:
             logger.error(f"Pipeline Error: {results['error']}")

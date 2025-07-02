@@ -96,14 +96,14 @@ class MainLayout:
                 
                 # Show feature availability with icons
                 features = [
-                    ("PyTorch", caps['torch_available'], "🔥"),
-                    ("Transformers", caps['transformers_available'], "🤗"),
-                    ("Embeddings", caps['embedding_available'], "🧬"),
-                    ("FAIR Metadata", self.config.features['fair_metadata'], "📊")
+                    ("PyTorch", caps['torch_available']),
+                    ("Transformers", caps['transformers_available']),
+                    ("Embeddings", caps['embedding_available']),
+                    ("FAIR Metadata", self.config.features['fair_metadata'])
                 ]
                 
-                for name, available, icon in features:
-                    status = f"{icon} ✅" if available else "❌"
+                for name, available in features:
+                    status = "Available" if available else "Not Available"
                     st.markdown(f"{name}: {status}")
             
             with col3:
@@ -124,13 +124,13 @@ class MainLayout:
             # Handle automatic tab switching after prediction completion
             if st.session_state.get('prediction_just_completed', False):
                 # Set the active tab to Results and clear the flag
-                st.session_state.active_tab = "📊 Results"
+                st.session_state.active_tab = "Results"
                 st.session_state.prediction_just_completed = False
                 logger.info("Automatically switched to Results tab after prediction completion")
             
             # Initialize active tab if not set
             if 'active_tab' not in st.session_state:
-                st.session_state.active_tab = "🔬 New Prediction"
+                st.session_state.active_tab = "New Prediction"
             
             # Create tabs for input and results with controlled selection
             # Add custom CSS for tab-like radio buttons
@@ -187,7 +187,7 @@ class MainLayout:
             </style>
             """, unsafe_allow_html=True)
             
-            tab_names = ["🔬 New Prediction", "📊 Results"]
+            tab_names = ["New Prediction", "Results"]
             selected_tab = st.radio(
                 "Select View:",
                 tab_names,
@@ -203,7 +203,7 @@ class MainLayout:
                 logger.debug(f"User manually switched to tab: {selected_tab}")
             
             # Render content based on selected tab
-            if st.session_state.active_tab == "🔬 New Prediction":
+            if st.session_state.active_tab == "New Prediction":
                 self._render_input_area()
             else:  # Results tab
                 self.results_section.render()
@@ -221,9 +221,125 @@ class MainLayout:
         # Render input section
         self.input_section.render()
         
+        # Advanced settings panel
+        self._render_advanced_settings()
+        
         # Show action button if inputs are valid
         if self.session.has_valid_input():
             self._render_action_button()
+    
+    def _render_advanced_settings(self):
+        """Render advanced pipeline settings panel"""
+        with st.expander("Advanced Settings", expanded=False):
+            st.markdown("Configure advanced pipeline parameters for optimal performance")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**Hardware & Performance**")
+                
+                # Device Selection
+                hardware_info = self.session.get(SESSION_KEYS["HARDWARE_INFO"])
+                device_options = ["Auto"]
+                device_help = "Auto: Use GPU if available, fallback to CPU"
+                
+                if hardware_info and hardware_info.gpu_available:
+                    device_options.extend(["Force GPU", "Force CPU"])
+                    device_help = "Auto: Use GPU if available | Force GPU: Always use GPU | Force CPU: Always use CPU"
+                else:
+                    device_options.append("Force CPU")
+                    device_help = "Auto/Force CPU: Use CPU (no GPU detected)"
+                
+                current_device = self.session.get(SESSION_KEYS["USER_DEVICE_PREFERENCE"], "Auto")
+                if current_device not in device_options:
+                    current_device = "Auto"
+                
+                device_pref = st.selectbox(
+                    "Compute Device:",
+                    options=device_options,
+                    index=device_options.index(current_device),
+                    help=device_help,
+                    key="device_preference_selectbox"
+                )
+                
+                # Store device preference in session
+                device_mapping = {
+                    "Auto": "auto",
+                    "Force GPU": "gpu", 
+                    "Force CPU": "cpu"
+                }
+                self.session.set(SESSION_KEYS["USER_DEVICE_PREFERENCE"], device_mapping[device_pref])
+                
+                # KNN Threshold
+                current_knn = self.session.get(SESSION_KEYS["USER_KNN_THRESHOLD"], 100)
+                knn_threshold = st.slider(
+                    "Template Search Count:", 
+                    min_value=10, 
+                    max_value=500, 
+                    value=current_knn,
+                    step=10,
+                    help="Number of similar proteins to find (more = slower but potentially better results)",
+                    key="knn_threshold_slider"
+                )
+                self.session.set(SESSION_KEYS["USER_KNN_THRESHOLD"], knn_threshold)
+            
+            with col2:
+                st.markdown("**Protein Configuration**")
+                
+                # Chain Selection for PDB uploads
+                chain_options = ["Auto-detect"] + [chr(65+i) for i in range(26)]  # A-Z
+                current_chain = self.session.get(SESSION_KEYS["USER_CHAIN_SELECTION"], "Auto-detect")
+                if current_chain not in chain_options:
+                    current_chain = "Auto-detect"
+                
+                chain_selection = st.selectbox(
+                    "PDB Chain Selection:", 
+                    options=chain_options, 
+                    index=chain_options.index(current_chain),
+                    help="Select specific protein chain from PDB file (only applies to uploaded PDB files)",
+                    key="chain_selection_selectbox"
+                )
+                
+                # Store chain selection in session
+                chain_mapping = {"Auto-detect": "auto"}
+                chain_mapping.update({chr(65+i): chr(65+i) for i in range(26)})
+                self.session.set(SESSION_KEYS["USER_CHAIN_SELECTION"], chain_mapping[chain_selection])
+                
+                # Similarity Threshold
+                current_similarity = self.session.get(SESSION_KEYS["USER_SIMILARITY_THRESHOLD"], 0.5)
+                similarity_threshold = st.slider(
+                    "Similarity Threshold:", 
+                    min_value=0.0, 
+                    max_value=1.0, 
+                    value=current_similarity,
+                    step=0.05,
+                    help="Minimum similarity score for template selection (higher = more stringent)",
+                    key="similarity_threshold_slider"
+                )
+                self.session.set(SESSION_KEYS["USER_SIMILARITY_THRESHOLD"], similarity_threshold)
+            
+            # Show current settings status
+            st.markdown("---")
+            status_col1, status_col2, status_col3 = st.columns(3)
+            
+            with status_col1:
+                device_status = self.session.get(SESSION_KEYS["USER_DEVICE_PREFERENCE"], "auto")
+                if device_status == "auto":
+                    device_text = "Auto"
+                elif device_status == "gpu":
+                    device_text = "GPU"
+                else:
+                    device_text = "CPU"
+                st.markdown(f"**Device:** {device_text}")
+            
+            with status_col2:
+                knn_count = self.session.get(SESSION_KEYS["USER_KNN_THRESHOLD"], 100)
+                st.markdown(f"**Templates:** {knn_count}")
+            
+            with status_col3:
+                chain_choice = self.session.get(SESSION_KEYS["USER_CHAIN_SELECTION"], "auto")
+                chain_display = "Auto" if chain_choice == "auto" else f"Chain {chain_choice}"
+                st.markdown(f"**Chain:** {chain_display}")
     
     def _render_action_button(self):
         """Render the main action button"""
@@ -231,7 +347,7 @@ class MainLayout:
         
         with col2:
             if st.button(
-                "🚀 PREDICT POSES",
+                "PREDICT POSES",
                 type="primary",
                 use_container_width=True,
                 key="predict_button"
@@ -413,10 +529,10 @@ class MainLayout:
             col1, col2 = st.columns(2)
             
             with col1:
-                if st.button("🔄 Refresh Page"):
+                if st.button("Refresh Page"):
                     st.rerun()
             
             with col2:
-                if st.button("🧹 Clear Session"):
+                if st.button("Clear Session"):
                     self.session.clear()
                     st.rerun()
