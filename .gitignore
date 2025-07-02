@@ -72,7 +72,6 @@ data/PDBBind/PDBbind_v2020_refined
 # Output and results
 output/
 output_*/
-templ_benchmark_results_polaris/
 
 # Model files and checkpoints
 *.pth
