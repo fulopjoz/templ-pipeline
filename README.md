@@ -27,10 +27,13 @@ source setup_templ_env.sh
 
 **That's it!** The script will:
 - Detect your hardware (CPU cores, RAM, GPU)
-- Install optimal dependencies for your system
-- Create and activate the `.templ` environment  
+- Install `uv` for fast package management
+- Create and activate the `.templ` virtual environment
+- Install optimal dependencies for your system using `uv`
 - Verify everything works
 - **Leave you ready to use `templ` immediately**
+
+> **Important:** Always use `source setup_templ_env.sh` (not manual `pip` commands) for the best experience.
 
 ### Installation Options
 
@@ -66,8 +69,8 @@ Once activated, just use `templ` commands directly!
 **After installation, you're immediately ready to use TEMPL:**
 
 ```bash
-# Make sure you're in the TEMPL environment (should show (.templ) in prompt)
-# If not, activate it: source .templ/bin/activate
+# The setup script automatically activates the environment
+# You should see (.templ) in your prompt
 
 # 1-line pose prediction
 templ run \
@@ -80,6 +83,16 @@ templ --help
 
 # Web interface
 python run_streamlit_app.py
+```
+
+**For future sessions:**
+
+```bash
+# Activate the TEMPL environment
+source .templ/bin/activate
+
+# Then use templ commands as normal
+templ --help
 ```
 
 ### Common CLI Commands
@@ -150,14 +163,29 @@ source .templ/bin/activate
 source setup_templ_env.sh
 ```
 
+### Wrong Installation Method
+If you manually ran `pip install` instead of using the setup script:
+
+```bash
+# Wrong - using pip directly
+pip install -e ".[dev]"
+
+# Correct - use setup script  
+source setup_templ_env.sh --dev
+
+# OR manually with proper environment and uv
+source .templ/bin/activate
+uv pip install -e ".[dev]"
+```
+
 ### Environment Not Activating
 Make sure to use `source` (not `./`) when running the setup:
 
 ```bash
-# ✅ Correct - creates and activates environment
+# Correct - creates and activates environment
 source setup_templ_env.sh
 
-# ❌ Wrong - creates environment but doesn't activate it
+# Wrong - creates environment but doesn't activate it
 ./setup_templ_env.sh
 ```
 
@@ -172,10 +200,22 @@ templ --help examples           # Copy-paste examples
 
 ## Development & Testing
 
+**Recommended approach - use the setup script:**
+
 ```bash
-# Development installation
-source setup_templ_env.sh --gpu-force  # or --cpu-only
-pip install -e ".[dev]"                # Add dev dependencies
+# Development installation (creates environment + installs dev dependencies)
+source setup_templ_env.sh --dev
+
+# Run tests
+pytest -q
+```
+
+**Manual approach (only if needed):**
+
+```bash
+# Only if you need to manually add dev dependencies to existing environment
+source .templ/bin/activate              # Activate TEMPL environment first
+uv pip install -e ".[dev]"             # Add dev dependencies
 pytest -q                              # Run tests
 ```
 
