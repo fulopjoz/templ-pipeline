@@ -51,6 +51,12 @@ from .ux_config import (
 from .help_system import create_enhanced_parser, handle_help_request
 from .progress_indicators import progress_context, OperationType
 
+# Import version information
+try:
+    from templ_pipeline import __version__
+except ImportError:
+    __version__ = "unknown"
+
 # Configure logging with UX-aware settings
 ux_config = get_ux_config()
 verbosity = ux_config.get_verbosity_level()
@@ -122,6 +128,14 @@ def setup_parser():
     """Set up the command-line argument parser with UX enhancements."""
     # Create enhanced parser with smart help system
     parser, help_system = create_enhanced_parser()
+
+    # Add version argument
+    parser.add_argument(
+        '--version',
+        action='version',
+        version=f'TEMPL Pipeline {__version__}',
+        help='Show version number and exit'
+    )
     
     # Get user experience level for adaptive interface
     experience_level = ux_config.get_effective_experience_level()
