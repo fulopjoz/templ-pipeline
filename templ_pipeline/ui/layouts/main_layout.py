@@ -18,6 +18,8 @@ from ..components.input_section import InputSection
 from ..components.results_section import ResultsSection
 from ..components.status_bar import render_status_bar
 from ..utils.performance_monitor import PerformanceMonitor
+from ..services.pipeline_service import PipelineService
+from ..utils.workspace_integration import get_workspace_integration
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +39,18 @@ class MainLayout:
         self.hardware_manager = get_hardware_manager()
         self.cache_manager = get_cache_manager()
         self.performance_monitor = PerformanceMonitor()
+
+        # Initialize pipeline service and workspace integration
+        self.pipeline_service = PipelineService(config, session)
+        self.workspace_integration = get_workspace_integration(session, self.pipeline_service)
+        
+        # Store workspace manager in session state for file utilities
+        try:
+            workspace_manager = self.workspace_integration.workspace_manager
+            if workspace_manager:
+                st.session_state._workspace_manager = workspace_manager
+        except Exception as e:
+            logger.debug(f"Could not store workspace manager in session state: {e}")
 
         # Component instances
         self.input_section = InputSection(config, session)
@@ -115,6 +129,9 @@ class MainLayout:
             # Main content area
             self._render_main_content()
 
+            # Workspace status in sidebar (with collapsible state)
+            self._render_workspace_status()
+
             # Status bar at bottom
             if self.config.ui_settings.get("show_status_bar", True):
                 render_status_bar(self.session)
@@ -169,6 +186,57 @@ class MainLayout:
                 # Cache statistics button
                 if st.button("View Cache Stats", key="cache_stats_btn"):
                     self._show_cache_statistics()
+
+    def _render_workspace_status(self):
+        """Render workspace status with collapsible sidebar functionality"""
+        try:
+            # Initialize sidebar state if not exists
+            if 'show_workspace_sidebar' not in st.session_state:
+                st.session_state.show_workspace_sidebar = False
+            
+            # Add custom CSS for workspace toggle button
+            st.markdown("""
+            <style>
+            /* Workspace toggle button styling */
+            div[data-testid="stButton"] > button[kind="secondary"] {
+                background: linear-gradient(90deg, #f8fafc 0%, #e2e8f0 100%);
+                border: 1px solid #cbd5e1;
+                border-radius: 8px;
+                font-weight: 500;
+                transition: all 0.2s ease;
+                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            }
+            
+            div[data-testid="stButton"] > button[kind="secondary"]:hover {
+                background: linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%);
+                color: white;
+                border-color: #2563eb;
+                transform: translateY(-1px);
+                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            # Always show toggle button in main area
+            with st.container():
+                col1, col2, col3 = st.columns([1, 6, 1])
+                with col1:
+                    if st.session_state.show_workspace_sidebar:
+                        if st.button("◀️ Hide Workspace", key="hide_workspace", help="Hide workspace panel", type="secondary"):
+                            st.session_state.show_workspace_sidebar = False
+                            st.rerun()
+                    else:
+                        if st.button("▶️ Show Workspace", key="show_workspace", help="Show workspace panel", type="secondary"):
+                            st.session_state.show_workspace_sidebar = True
+                            st.rerun()
+            
+            # Only render sidebar content when enabled
+            if st.session_state.show_workspace_sidebar:
+                self.workspace_integration.display_workspace_status()
+                
+        except Exception as e:
+            logger.warning(f"Failed to render workspace status: {e}")
+            # Silently fail to avoid breaking main UI
 
     def _render_main_content(self):
         """Render the main content area using native Streamlit tabs"""

@@ -33,29 +33,39 @@ dependencies = [
     "biopython>=1.79",
     "biotite>=0.34.0",
     "spyrmsd>=0.8.0",
-    "tqdm>=4.62.0",
-    "rich>=12.0.0",
-    "colorama>=0.4.4",
-    "pebble>=4.6.0",
-    "psutil>=5.8.0",
 ]
 
 [project.optional-dependencies]
-# Standard installation (recommended for most users)
-web = [
-    "streamlit>=1.45.0",
-    
-    "stmol>=0.0.9",
+# Basic CLI enhancements (progress bars, colored output)
+basic = [
+    "tqdm>=4.62.0",
+    "rich>=12.0.0",
+    "colorama>=0.4.4",
 ]
 
-# Full installation (power users with embedding acceleration)
-full = [
+# Web interface (includes basic enhancements)
+web = [
+    "templ-pipeline[basic]",
     "streamlit>=1.45.0",
-     
-    "stmol>=0.0.9",
+]
+
+# Performance optimizations (system monitoring, parallel processing)
+performance = [
+    "psutil>=5.8.0",
+    "pebble>=4.6.0",
+]
+
+# Embedding/AI features (protein language models)
+embeddings = [
     "transformers>=4.10.0",
     "torch>=2.0.0",  # Auto-detects CUDA
     "sentence-transformers>=2.0.0",
+]
+
+# Full installation (all optional features)
+full = [
+    "templ-pipeline[basic,performance,embeddings]",
+    "streamlit>=1.45.0",
 ]
 
 # Development (contributors only)
@@ -96,9 +106,12 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 markers = [
-    "fast: marks tests as fast running",
+    "fast: marks tests as fast running (< 10s)",
+    "medium: marks tests as medium running (< 30s)", 
+    "slow: marks tests as slow running (> 30s)",
+    "integration: marks tests as integration tests",
+    "ui: marks tests as UI/Streamlit tests",
     "performance: marks tests as performance-related",
-    "slow: marks tests as slow running"
 ]
 
 [tool.deptry]
