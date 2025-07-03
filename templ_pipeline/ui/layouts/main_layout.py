@@ -45,38 +45,38 @@ class MainLayout:
         # Progress tracking
         self.progress_bar = None
         self.progress_text = None
-        
+
     def _validate_chain_input(self, chain_input: str):
         """Validate and parse chain input string
-        
+
         Args:
             chain_input: User input for chain selection
-            
+
         Returns:
             Validated chain selection ("auto" or list of chain IDs)
         """
         if not chain_input or chain_input.strip() == "":
             return "auto"
-            
+
         # Clean input
         chain_input = chain_input.strip()
-        
+
         # Special case: if user types "auto", treat as auto-detect
         if chain_input.lower() == "auto":
             return "auto"
-        
+
         # Convert to uppercase for chain IDs
         chain_input = chain_input.upper()
-        
+
         # Handle various formats
         chains = []
-        
+
         # Split by common separators
-        if '+' in chain_input:
-            chains = [c.strip() for c in chain_input.split('+')]
-        elif ',' in chain_input:
-            chains = [c.strip() for c in chain_input.split(',')]
-        elif ' ' in chain_input:
+        if "+" in chain_input:
+            chains = [c.strip() for c in chain_input.split("+")]
+        elif "," in chain_input:
+            chains = [c.strip() for c in chain_input.split(",")]
+        elif " " in chain_input:
             chains = [c.strip() for c in chain_input.split()]
         else:
             # Single chain or concatenated (e.g., "AB" -> ["A", "B"])
@@ -85,13 +85,13 @@ class MainLayout:
             else:
                 # Split each character as separate chain
                 chains = list(chain_input)
-        
+
         # Validate each chain ID
         valid_chains = []
         for chain in chains:
             if chain and len(chain) == 1 and chain.isalpha():
                 valid_chains.append(chain)
-        
+
         if not valid_chains:
             return "auto"
         elif len(valid_chains) == 1:
@@ -175,17 +175,21 @@ class MainLayout:
         # Check if we have results to show
         if self.session.has_results():
             # Handle automatic tab switching after prediction completion
-            active_tab_index = 1 if st.session_state.get("prediction_just_completed", False) else 0
+            active_tab_index = (
+                1 if st.session_state.get("prediction_just_completed", False) else 0
+            )
             if st.session_state.get("prediction_just_completed", False):
                 st.session_state.prediction_just_completed = False
-                logger.info("Automatically switched to Results tab after prediction completion")
+                logger.info(
+                    "Automatically switched to Results tab after prediction completion"
+                )
 
             # Use native Streamlit tabs - eliminates button visibility issues
             tab1, tab2 = st.tabs(["New Prediction", "Results"])
-            
+
             with tab1:
                 self._render_input_area()
-            
+
             with tab2:
                 self.results_section.render()
         else:
@@ -423,7 +427,10 @@ class MainLayout:
                     step=10,
                     help="Recommended: 100-200 for balanced speed/quality. More templates = slower but potentially better results.",
                     key="knn_threshold_slider",
-                    on_change=lambda: self.session.set(SESSION_KEYS["USER_KNN_THRESHOLD"], st.session_state.knn_threshold_slider)
+                    on_change=lambda: self.session.set(
+                        SESSION_KEYS["USER_KNN_THRESHOLD"],
+                        st.session_state.knn_threshold_slider,
+                    ),
                 )
                 # Update session when value changes
                 self.session.set(SESSION_KEYS["USER_KNN_THRESHOLD"], knn_threshold)
@@ -435,7 +442,7 @@ class MainLayout:
                 current_chains = self.session.get(
                     SESSION_KEYS["USER_CHAIN_SELECTION"], "auto"
                 )
-                
+
                 # Display current chain selection in user-friendly format
                 if current_chains == "auto":
                     display_value = ""
@@ -443,26 +450,33 @@ class MainLayout:
                     display_value = "+".join(current_chains)
                 else:
                     display_value = str(current_chains)
-                
+
                 def update_chain_selection():
                     """Callback to validate and update chain selection"""
                     chain_input = st.session_state.chain_input_field.strip()
                     validated_chains = self._validate_chain_input(chain_input)
-                    self.session.set(SESSION_KEYS["USER_CHAIN_SELECTION"], validated_chains)
-                
+                    self.session.set(
+                        SESSION_KEYS["USER_CHAIN_SELECTION"], validated_chains
+                    )
+
                 chain_input = st.text_input(
                     "PDB Chain Selection:",
                     value=display_value,
                     help="Enter chain ID(s): A, B, A+B, A,B, AB, or leave empty for auto-detect. Supports multiple chains for concatenated embeddings.",
                     key="chain_input_field",
                     on_change=update_chain_selection,
-                    placeholder="e.g., A or A+B or A,B (empty = auto-detect)"
+                    placeholder="e.g., A or A+B or A,B (empty = auto-detect)",
                 )
-                
+
                 # Update session state immediately
                 validated_chains = self._validate_chain_input(chain_input)
-                if self.session.get(SESSION_KEYS["USER_CHAIN_SELECTION"]) != validated_chains:
-                    self.session.set(SESSION_KEYS["USER_CHAIN_SELECTION"], validated_chains)
+                if (
+                    self.session.get(SESSION_KEYS["USER_CHAIN_SELECTION"])
+                    != validated_chains
+                ):
+                    self.session.set(
+                        SESSION_KEYS["USER_CHAIN_SELECTION"], validated_chains
+                    )
 
                 # Similarity Threshold - simplified session state management
                 st.markdown("**Similarity Threshold**")
@@ -470,14 +484,21 @@ class MainLayout:
                     "Minimum similarity for templates:",
                     min_value=0.0,
                     max_value=1.0,
-                    value=self.session.get(SESSION_KEYS["USER_SIMILARITY_THRESHOLD"], 0.5),
+                    value=self.session.get(
+                        SESSION_KEYS["USER_SIMILARITY_THRESHOLD"], 0.5
+                    ),
                     step=0.05,
                     help="Recommended: 0.3-0.7 for good results. Higher = more stringent template selection.",
                     key="similarity_threshold_slider",
-                    on_change=lambda: self.session.set(SESSION_KEYS["USER_SIMILARITY_THRESHOLD"], st.session_state.similarity_threshold_slider)
+                    on_change=lambda: self.session.set(
+                        SESSION_KEYS["USER_SIMILARITY_THRESHOLD"],
+                        st.session_state.similarity_threshold_slider,
+                    ),
                 )
                 # Update session when value changes
-                self.session.set(SESSION_KEYS["USER_SIMILARITY_THRESHOLD"], similarity_threshold)
+                self.session.set(
+                    SESSION_KEYS["USER_SIMILARITY_THRESHOLD"], similarity_threshold
+                )
 
             # Show current settings status with better formatting
             st.markdown("---")
@@ -512,7 +533,6 @@ class MainLayout:
                 else:
                     chain_display = f"Chain {chain_choice if isinstance(chain_choice, str) else chain_choice[0]}"
                 st.markdown(f"**Chain:** {chain_display}")
-
 
     def _render_action_button(self):
         """Render the main action button with loading states"""
