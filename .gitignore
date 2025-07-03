@@ -68,7 +68,7 @@ venv.bak/
 data/PDBBind/PDBbind_v2020_other_PL
 data/PDBBind/PDBbind_v2020_refined
 !data/README.md
-
+temp_*
 # Output and results
 output/
 output_*/
