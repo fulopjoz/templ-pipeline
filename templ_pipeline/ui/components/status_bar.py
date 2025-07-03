@@ -33,32 +33,32 @@ def render_status_bar(session: SessionManager):
         if session_info.get("start_time"):
             duration = session_info.get("duration_seconds", 0)
             duration_str = str(timedelta(seconds=int(duration)))
-            st.caption(f"⏱️ Session: {duration_str}")
+            st.caption(f"Session: {duration_str}")
         else:
-            st.caption("⏱️ Session: Just started")
+            st.caption("Session: Just started")
     
     with col2:
         # Pipeline runs
         runs = session_info.get("pipeline_runs", 0)
-        st.caption(f"🔄 Runs: {runs}")
+        st.caption(f"Runs: {runs}")
     
     with col3:
         # Memory usage
         memory_stats = session_info.get("memory_stats", {})
         if memory_stats:
             cache_mb = memory_stats.get("cache_size_mb", 0)
-            st.caption(f"💾 Cache: {cache_mb:.1f}MB")
+            st.caption(f"Cache: {cache_mb:.1f}MB")
         else:
-            st.caption("💾 Cache: 0MB")
+            st.caption("Cache: 0MB")
     
     with col4:
         # Status indicator
         if session_info.get("has_results"):
-            st.caption("✅ Results ready")
+            st.caption("Results ready")
         elif session_info.get("has_input"):
-            st.caption("🔵 Ready to run")
+            st.caption("Ready to run")
         else:
-            st.caption("⚪ Awaiting input")
+            st.caption("Awaiting input")
     
     # Add a subtle footer
     st.caption(

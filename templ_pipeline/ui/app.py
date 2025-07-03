@@ -95,76 +95,8 @@ def main():
         logger.info("Creating main layout...")
         layout = MainLayout(config, session)
         
-        # Import header component
-        from templ_pipeline.ui.components.header import render_header
-        
-        # Render header
-        render_header(config, session)
-        
-        # Add pipeline explanation
-        col1, col2 = st.columns(2, gap="large")
-        
-        with col1:
-            st.markdown("""
-            <div style="background: rgba(128, 128, 128, 0.1); padding: 1.5rem; border-radius: 0.8rem; border: 1px solid rgba(128, 128, 128, 0.2);">
-                <h4 style="margin-top: 0;">What it does</h4>
-                <ul>
-                    <li>Predicts 3D binding poses for small molecules</li> 
-                    <li>Uses template-guided conformer generation with MCS</li>
-                    <li>Provides shape, pharmacophore, and combined scoring</li>
-                </ul>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col2:
-            st.markdown("""
-            <div style="background: rgba(128, 128, 128, 0.1); padding: 1.5rem; border-radius: 0.8rem; border: 1px solid rgba(128, 128, 128, 0.2);">
-                <h4 style="margin-top: 0;">How it works</h4>
-                <ol>
-                    <li>Enter your molecule (SMILES or file)</li>
-                    <li>Provide protein target or SDF templates</li>
-                    <li>Get ranked poses with confidence scores</li>
-                </ol>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        st.divider()
-        
-        # Render main content without system status
-        logger.info("Rendering main content...")
-        
-        # Check if we have results to show
-        if session.has_results():
-            # Create tabs for input and results
-            tab1, tab2 = st.tabs(["New Prediction", "Results"])
-            
-            with tab1:
-                layout.input_section.render()
-                if session.has_valid_input():
-                    col1, col2, col3 = st.columns([1, 2, 1])
-                    with col2:
-                        if st.button("PREDICT POSES", type="primary", use_container_width=True):
-                            layout._handle_prediction()
-            
-            with tab2:
-                layout.results_section.render()
-        else:
-            # Show input area
-            if not session.has_valid_input():
-                st.info("Provide your molecule and protein target for pose prediction")
-            
-            layout.input_section.render()
-            
-            # Show action button if inputs are valid
-            if session.has_valid_input():
-                col1, col2, col3 = st.columns([1, 2, 1])
-                with col2:
-                    if st.button("PREDICT POSES", type="primary", use_container_width=True):
-                        layout._handle_prediction()
-        
-        # Render status bar
-        from templ_pipeline.ui.components.status_bar import render_status_bar
-        render_status_bar(session)
+        # ✅ Use the proper layout render method instead of manual rendering
+        layout.render()
         
         logger.info("Main function completed successfully")
         

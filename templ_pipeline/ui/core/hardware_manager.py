@@ -99,20 +99,40 @@ def _cached_hardware_detection() -> HardwareInfo:
     # Calculate optimal workers
     if gpu_available:
         # GPU can handle more concurrent operations
-        base_workers = min(cpu_count, 8)
+        base_workers = min(cpu_count, 16)  # Increased from 8 to 16
     else:
-        # CPU-only needs to be more conservative
-        base_workers = min(cpu_count - 1, 4)
+        # CPU-only: Use more cores but leave some for system
+        if cpu_count >= 16:
+            base_workers = min(cpu_count - 2, 16)  # Use up to 16 workers, reserve 2 cores
+        elif cpu_count >= 8:
+            base_workers = min(cpu_count - 1, 12)  # Use most cores for 8-16 core systems
+        else:
+            base_workers = min(cpu_count - 1, 4)   # Original conservative approach for <8 cores
     
     # Adjust based on RAM
     if total_ram_gb < 8:
         max_workers = min(base_workers, 2)
     elif total_ram_gb < 16:
-        max_workers = min(base_workers, 4)
+        max_workers = min(base_workers, 6)  # Increased from 4
+    elif total_ram_gb < 32:
+        max_workers = min(base_workers, 12) # New tier for 16-32GB
     else:
-        max_workers = base_workers
+        max_workers = base_workers  # Use full base_workers for 32GB+
     
     max_workers = max(1, max_workers)  # At least 1 worker
+    
+    # Log GPU detection issue if GPUs available but not detected
+    if not gpu_available:
+        try:
+            import subprocess
+            result = subprocess.run(['nvidia-smi'], capture_output=True, text=True)
+            if result.returncode == 0:
+                logger.warning(
+                    "NVIDIA GPUs detected by nvidia-smi but not by PyTorch. "
+                    "Install PyTorch with CUDA support: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124"
+                )
+        except:
+            pass
     
     # Create hardware info
     hardware_info = HardwareInfo(
