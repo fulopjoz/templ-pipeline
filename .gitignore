@@ -175,3 +175,8 @@ test-docker-local.sh
 tmp*/
 temp/
 .temp/
+
+
+# CLAUDE
+CLAUDE.md
+.mypy_cache/
