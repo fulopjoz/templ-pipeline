@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class PipelineService:
-    """Service for managing pipeline execution with enhanced error handling"""
+    """Service for managing pipeline execution with enhanced error handling and unified workspace management"""
 
     def __init__(self, config: AppConfig, session: SessionManager):
         """Initialize pipeline service
@@ -33,6 +33,56 @@ class PipelineService:
         self.config = config
         self.session = session
         self.pipeline = None
+        self.workspace_manager = None
+        
+        # Initialize workspace manager
+        self._initialize_workspace_manager()
+
+    def _initialize_workspace_manager(self):
+        """Initialize unified workspace manager for the session"""
+        try:
+            # Import workspace manager
+            from templ_pipeline.core.unified_workspace_manager import (
+                UnifiedWorkspaceManager, 
+                WorkspaceConfig
+            )
+            
+            # Create workspace configuration
+            workspace_config = WorkspaceConfig(
+                base_dir=self.config.paths.get("workspace_dir", "workspace"),
+                auto_cleanup=True,
+                temp_retention_hours=24
+            )
+            
+            # Generate unique run ID for this session
+            session_id = self.session.get("session_id", None)
+            if not session_id:
+                import uuid
+                session_id = str(uuid.uuid4())[:8]
+                self.session.set("session_id", session_id)
+            
+            # Create workspace manager
+            self.workspace_manager = UnifiedWorkspaceManager(
+                run_id=f"ui_{session_id}",
+                config=workspace_config
+            )
+            
+            # Store workspace info in session
+            self.session.set("workspace_run_id", self.workspace_manager.run_id)
+            self.session.set("workspace_dir", str(self.workspace_manager.run_dir))
+            
+            logger.info(f"Initialized workspace manager: {self.workspace_manager.run_dir}")
+            
+        except ImportError:
+            logger.warning("UnifiedWorkspaceManager not available, using legacy file handling")
+            self.workspace_manager = None
+        except Exception as e:
+            logger.warning(f"Failed to initialize workspace manager: {e}")
+            self.workspace_manager = None
+
+    def get_workspace_manager(self):
+        """Get the workspace manager instance"""
+        return self.workspace_manager
 
     def _configure_device_preference(self, device_pref: str):
         """Configure device preference for embedding generation
@@ -131,11 +181,25 @@ class PipelineService:
 
             # Initialize pipeline if not already done
             if self.pipeline is None:
-                self.pipeline = TEMPLPipeline(
-                    embedding_path=None,  # Auto-detect
-                    output_dir=self.config.paths.get("output_dir", "temp"),
-                    run_id=None,
-                )
+                if self.workspace_manager:
+                    # Use unified workspace manager
+                    self.pipeline = TEMPLPipeline(
+                        embedding_path=None,  # Auto-detect
+                        output_dir=self.workspace_manager.workspace_root,
+                        run_id=self.workspace_manager.run_id,
+                        use_unified_workspace=True,
+                        workspace_config=self.workspace_manager.config
+                    )
+                    logger.info("Pipeline initialized with unified workspace manager")
+                else:
+                    # Fallback to legacy mode
+                    self.pipeline = TEMPLPipeline(
+                        embedding_path=None,  # Auto-detect
+                        output_dir=self.config.paths.get("output_dir", "temp"),
+                        run_id=None,
+                        use_unified_workspace=False
+                    )
+                    logger.info("Pipeline initialized in legacy mode")
 
             # Prepare inputs
             smiles = molecule_data.get("input_smiles")

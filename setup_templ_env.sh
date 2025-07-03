@@ -21,6 +21,8 @@ VENV_NAME=".templ"
 PYTHON_MIN_VERSION="3.9"
 USE_REQUIREMENTS_TXT=false
 VERBOSE=false
+INTERACTIVE=true
+CONFIG_FILE=".templ.config"
 
 # Print colored output
 print_status() {
@@ -46,7 +48,7 @@ print_section() {
 # Show usage
 show_usage() {
     cat << 'USAGE'
-TEMPL Pipeline Environment Setup
+TEMPL Pipeline Environment Setup v2.1
 
 Usage: source setup_templ_env.sh [OPTIONS]
 
@@ -60,6 +62,9 @@ OPTIONS:
   --dev               Development environment for contributors
   --use-requirements  Use requirements.txt instead of pyproject.toml
   --verbose           Verbose output for debugging
+  --quiet             Minimal output for automation
+  --non-interactive   Skip all prompts (use defaults)
+  --config FILE       Use custom configuration file
   --help              Show this help message
 
 EXAMPLES:
@@ -67,13 +72,57 @@ EXAMPLES:
   source setup_templ_env.sh --cpu-only         # Lightweight installation
   source setup_templ_env.sh --gpu-force --dev # Force GPU + development tools
   source setup_templ_env.sh --web              # Standard web interface
+  source setup_templ_env.sh --quiet --non-interactive  # Automation friendly
 
 NOTES:
   - Must use 'source' command to activate environment
   - Requires Python 3.9+ and pip
   - Auto-detects: CPU cores, RAM, GPU availability
   - Creates .templ virtual environment in project directory
+  - Configuration saved to .templ.config file
+  - Use './manage_environment.sh status' to check environment after setup
+
+CONFIGURATION:
+  Edit .templ.config to customize behavior, or use --config FILE
+  
+TROUBLESHOOTING:
+  - Permission issues: Check file ownership and permissions
+  - Network issues: Try --use-requirements for offline installation
+  - GPU issues: Use --cpu-only to bypass GPU detection
+  - For more help: './manage_environment.sh doctor'
 USAGE
+}
+
+# Load configuration from file
+load_config() {
+    local config_file="${1:-$CONFIG_FILE}"
+    
+    if [[ -f "$config_file" ]]; then
+        print_status "Loading configuration from $config_file"
+        
+        # Parse simple key=value format (ignore sections for now)
+        while IFS='=' read -r key value; do
+            # Skip comments and empty lines
+            [[ $key =~ ^[[:space:]]*# ]] && continue
+            [[ -z $key ]] && continue
+            [[ $key =~ ^\[ ]] && continue
+            
+            # Remove whitespace
+            key=$(echo "$key" | tr -d ' ')
+            value=$(echo "$value" | tr -d ' ')
+            
+            case $key in
+                install_mode) INSTALL_MODE="$value" ;;
+                verbose) [[ $value =~ ^(true|yes|1)$ ]] && VERBOSE=true ;;
+                interactive) [[ $value =~ ^(false|no|0)$ ]] && INTERACTIVE=false ;;
+                use_requirements_txt) [[ $value =~ ^(true|yes|1)$ ]] && USE_REQUIREMENTS_TXT=true ;;
+                name) VENV_NAME="$value" ;;
+            esac
+        done < "$config_file"
+    elif [[ ! -f "$CONFIG_FILE" ]] && [[ -f ".templ.config.template" ]]; then
+        print_status "Creating default configuration file"
+        cp ".templ.config.template" "$CONFIG_FILE"
+    fi
 }
 
 # Parse command line arguments
@@ -116,17 +165,32 @@ parse_args() {
                 VERBOSE=true
                 shift
                 ;;
+            --quiet)
+                VERBOSE=false
+                shift
+                ;;
+            --non-interactive)
+                INTERACTIVE=false
+                shift
+                ;;
+            --config)
+                CONFIG_FILE="$2"
+                shift 2
+                ;;
             --help|-h)
                 show_usage
                 return 0
                 ;;
             *)
                 print_error "Unknown option: $1"
-                show_usage
+                echo "Use --help for available options"
                 return 1
                 ;;
         esac
     done
+    
+    # Load configuration after parsing args
+    load_config
 }
 
 # Check if we're being sourced (not executed)
@@ -237,21 +301,38 @@ create_venv() {
     
     # Install uv if not available
     if ! command -v uv >/dev/null 2>&1; then
-        print_status "Installing uv..."
-        curl -LsSf https://astral.sh/uv/install.sh | sh
+        print_status "Installing uv package manager..."
+        if ! curl -LsSf https://astral.sh/uv/install.sh | sh; then
+            print_error "Failed to install uv. Please install manually:"
+            echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"
+            echo "  Or visit: https://github.com/astral-sh/uv"
+            return 1
+        fi
         # Source the shell configuration to make uv available
         source ~/.bashrc 2>/dev/null || source ~/.zshrc 2>/dev/null || true
+        
+        # Verify uv is available
+        if ! command -v uv >/dev/null 2>&1; then
+            print_error "uv installation failed. Please restart your shell and try again."
+            return 1
+        fi
     fi
     
     if [[ -d "$VENV_NAME" ]]; then
         print_warning "Virtual environment $VENV_NAME already exists"
-        read -p "Remove and recreate? [y/N]: " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            rm -rf "$VENV_NAME"
-            print_status "Removed existing environment"
+        
+        if [[ "$INTERACTIVE" == "true" ]]; then
+            read -p "Remove and recreate? [y/N]: " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                rm -rf "$VENV_NAME"
+                print_status "Removed existing environment"
+            else
+                print_status "Using existing environment"
+                return 0
+            fi
         else
-            print_status "Using existing environment"
+            print_status "Non-interactive mode: Using existing environment"
             return 0
         fi
     fi
@@ -420,6 +501,13 @@ show_final_instructions() {
     
     echo -e "${CYAN}For future sessions:${NC}"
     echo "  source $VENV_NAME/bin/activate"
+    echo "  "
+    echo -e "${CYAN}Quick status check:${NC}"
+    echo "  ./manage_environment.sh status"
+    echo "  "
+    echo -e "${CYAN}Get help:${NC}"
+    echo "  ./manage_environment.sh help"
+    echo "  templ --help"
     echo
     
     if [[ "$INSTALL_MODE" == "dev" ]]; then
@@ -437,10 +525,11 @@ main() {
     # Check if we're being sourced
     check_sourced
     
-    # Parse arguments
+    # Parse arguments (this will also load config)
     parse_args "$@"
     
-    # Show header
+    # Show header (suppress if quiet mode)
+    if [[ "$VERBOSE" != "false" ]]; then
     cat << 'HEADER'
 
  ████████╗███████╗███╗   ███╗██████╗ ██╗     
@@ -455,7 +544,8 @@ Environment Setup Script v2.0
 
 HEADER
     
-    echo -e "${CYAN}Setting up TEMPL Pipeline environment...${NC}"
+        echo -e "${CYAN}Setting up TEMPL Pipeline environment...${NC}"
+    fi
     
     # Main setup steps
     detect_hardware
@@ -463,7 +553,14 @@ HEADER
     create_venv
     install_dependencies
     verify_installation
-    show_final_instructions
+    
+    # Show final instructions (suppress if quiet mode)
+    if [[ "$VERBOSE" != "false" ]]; then
+        show_final_instructions
+    else
+        print_success "TEMPL environment setup complete!"
+        echo "Run 'source $VENV_NAME/bin/activate' to activate"
+    fi
     
     # Return success
     return 0

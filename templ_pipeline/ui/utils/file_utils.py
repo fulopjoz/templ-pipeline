@@ -14,12 +14,22 @@ logger = logging.getLogger(__name__)
 
 
 def save_uploaded_file(uploaded_file, suffix=".pdb"):
-    """Save uploaded file to temp location with security enhancements"""
+    """Save uploaded file to temp location with security enhancements and workspace integration"""
     try:
-        # Try to use secure upload if available
+        # Try to use secure upload with workspace integration if available
         from ..core.secure_upload import SecureFileUploadHandler
-
-        handler = SecureFileUploadHandler()
+        
+        # Try to get workspace manager from active pipeline service
+        workspace_manager = None
+        try:
+            import streamlit as st
+            # Check if we have workspace integration in session state
+            if hasattr(st, 'session_state') and hasattr(st.session_state, '_workspace_manager'):
+                workspace_manager = st.session_state._workspace_manager
+        except:
+            pass
+        
+        handler = SecureFileUploadHandler(workspace_manager=workspace_manager)
         file_type = suffix.lstrip(".")
         success, message, secure_path = handler.validate_and_save(
             uploaded_file, file_type
