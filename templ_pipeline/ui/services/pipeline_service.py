@@ -6,6 +6,8 @@ Handles pipeline execution with proper error reporting and embedding generation.
 
 import logging
 import time
+import asyncio
+import concurrent.futures
 from typing import Dict, Any, Optional, Callable, Tuple
 from pathlib import Path
 import sys
@@ -575,3 +577,128 @@ class PipelineService:
                 return results["templates"][0].upper()
 
         return "UNKN"
+
+    async def run_pipeline_async(
+        self,
+        smiles: str,
+        protein_input: str,
+        custom_templates: Optional[list] = None,
+        use_aligned_poses: bool = True,
+        max_templates: Optional[int] = None,
+        similarity_threshold: Optional[float] = None,
+        progress_callback: Optional[Callable] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Run the TEMPL pipeline asynchronously for non-blocking UI execution
+
+        Args:
+            smiles: SMILES string for the query molecule
+            protein_input: PDB ID or file path for protein input
+            custom_templates: Optional custom template molecules
+            use_aligned_poses: Whether to use aligned poses
+            max_templates: Maximum number of templates to use
+            similarity_threshold: Similarity threshold for template search
+            progress_callback: Optional callback for progress updates
+
+        Returns:
+            Results dictionary or None on failure
+        """
+        logger.info(f"Starting async pipeline execution for SMILES: {smiles}")
+
+        try:
+            # Prepare molecule and protein data dictionaries
+            molecule_data = {
+                "input_smiles": smiles,
+                "custom_templates": custom_templates,
+            }
+
+            # Determine if protein_input is a file path or PDB ID
+            if isinstance(protein_input, str):
+                if protein_input.lower().endswith((".pdb", ".ent")):
+                    # It's a file path
+                    protein_data = {"file_path": protein_input}
+                else:
+                    # It's a PDB ID
+                    protein_data = {"pdb_id": protein_input}
+            else:
+                protein_data = {"pdb_id": str(protein_input)}
+
+            # Update session with user preferences if provided
+            if max_templates is not None:
+                self.session.set(SESSION_KEYS["USER_KNN_THRESHOLD"], max_templates)
+            if similarity_threshold is not None:
+                self.session.set(
+                    SESSION_KEYS["USER_SIMILARITY_THRESHOLD"], similarity_threshold
+                )
+
+            # Use ThreadPoolExecutor to run the synchronous pipeline in a separate thread
+            loop = asyncio.get_event_loop()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                # Submit the synchronous run_pipeline method to the thread pool
+                future = loop.run_in_executor(
+                    executor,
+                    self.run_pipeline,
+                    molecule_data,
+                    protein_data,
+                    progress_callback,
+                )
+
+                # Await the result
+                result = await future
+
+            logger.info("Async pipeline execution completed")
+            return result
+
+        except Exception as e:
+            logger.error(f"Async pipeline execution failed: {e}", exc_info=True)
+            # Re-raise the exception to maintain proper async error handling
+            raise
+
+
+# Convenience function for backward compatibility and easy testing
+async def run_pipeline_async(
+    smiles: str,
+    protein_input: str,
+    custom_templates: Optional[list] = None,
+    use_aligned_poses: bool = True,
+    max_templates: Optional[int] = None,
+    similarity_threshold: Optional[float] = None,
+    progress_callback: Optional[Callable] = None,
+) -> Optional[Dict[str, Any]]:
+    """Standalone async function for running the TEMPL pipeline
+
+    This is a convenience function that creates a temporary pipeline service
+    and runs the pipeline asynchronously. For production use, prefer using
+    the PipelineService class directly.
+
+    Args:
+        smiles: SMILES string for the query molecule
+        protein_input: PDB ID or file path for protein input
+        custom_templates: Optional custom template molecules
+        use_aligned_poses: Whether to use aligned poses
+        max_templates: Maximum number of templates to use
+        similarity_threshold: Similarity threshold for template search
+        progress_callback: Optional callback for progress updates
+
+    Returns:
+        Results dictionary or None on failure
+    """
+    # Import here to avoid circular imports
+    from ..config.settings import get_config
+    from ..core.session_manager import SessionManager
+
+    # Create temporary configuration and session for standalone use
+    config = get_config()
+    session = SessionManager(config)
+    session.initialize()
+
+    # Create pipeline service and run async
+    service = PipelineService(config, session)
+    return await service.run_pipeline_async(
+        smiles=smiles,
+        protein_input=protein_input,
+        custom_templates=custom_templates,
+        use_aligned_poses=use_aligned_poses,
+        max_templates=max_templates,
+        similarity_threshold=similarity_threshold,
+        progress_callback=progress_callback,
+    )
