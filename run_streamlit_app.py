@@ -56,14 +56,14 @@ def check_dependencies():
             print(f"  - {dep}")
         print()
         print("Install with:")
-        print("  pip install -e \".[web]\"     # Standard installation")
-        print("  pip install -e \".[full]\"    # Full installation with AI features")
+        print("  uv pip install -e \".[web]\"     # Standard installation")
+        print("  uv pip install -e \".[full]\"    # Full installation with Embedding features")
         print()
         print("Or install individual dependencies:")
         if any('rdkit' in dep for dep in missing):
             print("  conda install -c conda-forge rdkit")
         if any('Bio' in dep for dep in missing):
-            print("  pip install biopython")
+            print(" uv pip install biopython")
         return False
     
     return True
