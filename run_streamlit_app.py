@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 
-def get_network_urls(port=8501):
+def get_network_urls(port=8555):
     """Get all available URLs for the Streamlit app"""
     urls = {"local": f"http://localhost:{port}", "network": None, "external": None}
 
@@ -83,7 +83,7 @@ def main():
         sys.exit(1)
 
     # Smart port selection
-    port = 8501
+    port = 8555
     if os.getenv("PORT"):
         port = int(os.getenv("PORT"))
     elif os.getenv("STREAMLIT_SERVER_PORT"):
