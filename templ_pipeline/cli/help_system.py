@@ -21,14 +21,18 @@ from dataclasses import dataclass
 
 from .ux_config import ExperienceLevel, get_ux_config
 
+
 class HelpLevel(Enum):
     """Help detail levels for progressive disclosure."""
-    BASIC = "basic"           # Essential info only, beginner-friendly
+
+    BASIC = "basic"  # Essential info only, beginner-friendly
     INTERMEDIATE = "intermediate"  # Common options and workflows
-    EXPERT = "expert"         # Complete reference with all options
+    EXPERT = "expert"  # Complete reference with all options
+
 
 class HelpTopic(Enum):
     """Help topics organized around user workflows."""
+
     GETTING_STARTED = "getting-started"
     BASIC_WORKFLOW = "basic-workflow"
     BATCH_PROCESSING = "batch-processing"
@@ -37,14 +41,16 @@ class HelpTopic(Enum):
     EXAMPLES = "examples"
     REFERENCE = "reference"
 
+
 @dataclass
 class HelpContent:
     """Container for help content at different levels."""
+
     basic: str
     intermediate: str
     expert: str
     examples: List[str]
-    
+
     def get_for_level(self, level: HelpLevel) -> str:
         """Get content appropriate for the specified help level."""
         if level == HelpLevel.BASIC:
@@ -54,16 +60,17 @@ class HelpContent:
         else:
             return self.expert
 
+
 class TEMPLHelpSystem:
     """Enhanced help system for TEMPL CLI."""
-    
+
     def __init__(self):
         self.ux_config = get_ux_config()
         self._setup_help_content()
-    
+
     def _setup_help_content(self):
         """Initialize help content organized by topics and complexity levels."""
-        
+
         # Main help content
         self.main_help = HelpContent(
             basic="""
@@ -180,9 +187,9 @@ ENVIRONMENT VARIABLES:
   TEMPL_CACHE_DIR          Cache directory (default: ~/.templ/cache)
   TEMPL_LOG_LEVEL          Global log level
 """,
-            examples=[]
+            examples=[],
         )
-        
+
         # Topic-specific help content
         self.topic_help = {
             HelpTopic.GETTING_STARTED: HelpContent(
@@ -288,11 +295,10 @@ Troubleshooting Setup:
   templ benchmark polaris --quick --verbose  # Diagnostic run
 """,
                 examples=[
-                    "templ run --protein-file examples/1iky_protein.pdb --ligand-smiles \"COc1ccc(C(C)=O)c(O)c1[C@H]1C[C@H]1NC(=S)Nc1ccc(C#N)cn1\"",
-                    "templ run --protein-pdb-id 1iky --ligand-file examples/ligand.sdf --workers 4"
-                ]
+                    'templ run --protein-file examples/1iky_protein.pdb --ligand-smiles "COc1ccc(C(C)=O)c(O)c1[C@H]1C[C@H]1NC(=S)Nc1ccc(C#N)cn1"',
+                    "templ run --protein-pdb-id 1iky --ligand-file examples/ligand.sdf --workers 4",
+                ],
             ),
-            
             HelpTopic.EXAMPLES: HelpContent(
                 basic="""
 BASIC EXAMPLES
@@ -394,9 +400,8 @@ Advanced Configuration:
   templ run --protein-file protein.pdb --ligand-smiles "CCO" \\
             --workers $(nproc) --num-conformers 1000
 """,
-                examples=[]
+                examples=[],
             ),
-            
             HelpTopic.TROUBLESHOOTING: HelpContent(
                 basic="""
 COMMON ISSUES
@@ -550,10 +555,10 @@ Log Analysis:
   # Error patterns
   grep -E "(ERROR|CRITICAL|Failed)" debug.log
 """,
-                examples=[]
-            )
+                examples=[],
+            ),
         }
-    
+
     def get_help_level(self, requested_level: Optional[str] = None) -> HelpLevel:
         """Determine appropriate help level based on user and request."""
         if requested_level:
@@ -561,7 +566,7 @@ Log Analysis:
                 return HelpLevel(requested_level.lower())
             except ValueError:
                 pass
-        
+
         # Auto-determine based on user experience
         experience = self.ux_config.get_effective_experience_level()
         if experience == ExperienceLevel.BEGINNER:
@@ -570,34 +575,34 @@ Log Analysis:
             return HelpLevel.INTERMEDIATE
         else:
             return HelpLevel.EXPERT
-    
+
     def show_main_help(self, level: Optional[str] = None):
         """Show main help content."""
         help_level = self.get_help_level(level)
         content = self.main_help.get_for_level(help_level)
         print(content)
-        
+
         # Add contextual hints
         if help_level == HelpLevel.BASIC:
             print("\nTIP: New to TEMPL? Try: templ --help getting-started")
             print("TIP: See examples: templ --help examples")
-    
+
     def show_topic_help(self, topic: str, level: Optional[str] = None):
         """Show help for a specific topic."""
         try:
-            topic_enum = HelpTopic(topic.lower().replace('_', '-'))
+            topic_enum = HelpTopic(topic.lower().replace("_", "-"))
         except ValueError:
             available_topics = [t.value for t in HelpTopic]
             print(f"ERROR: Unknown help topic: {topic}")
             print(f"Available topics: {', '.join(available_topics)}")
             return
-        
+
         help_level = self.get_help_level(level)
-        
+
         if topic_enum in self.topic_help:
             content = self.topic_help[topic_enum].get_for_level(help_level)
             print(content)
-            
+
             # Show examples if available
             examples = self.topic_help[topic_enum].examples
             if examples and help_level in [HelpLevel.INTERMEDIATE, HelpLevel.EXPERT]:
@@ -606,23 +611,23 @@ Log Analysis:
                     print(f"  {example}")
         else:
             print(f"ERROR: Help not available for topic: {topic}")
-    
+
     def show_contextual_help(self, command: str, partial_args: Dict[str, any]):
         """Show contextual help based on current command and arguments."""
         hints = self.ux_config.get_contextual_help_hints(command, partial_args)
-        
+
         if hints:
             print("\nCONTEXTUAL HELP:")
             for hint in hints:
                 print(f"   {hint}")
-    
+
     def get_command_help(self, command: str, level: Optional[str] = None) -> str:
         """Get help content for a specific command."""
         help_level = self.get_help_level(level)
-        
+
         command_help = {
             "run": {
-                HelpLevel.BASIC: "templ run --protein-file protein.pdb --ligand-smiles \"SMILES\"",
+                HelpLevel.BASIC: 'templ run --protein-file protein.pdb --ligand-smiles "SMILES"',
                 HelpLevel.INTERMEDIATE: """
 run - Execute complete TEMPL pipeline
 
@@ -638,7 +643,7 @@ Common options:
 Example:
   templ run --protein-file protein.pdb --ligand-smiles "CCO" --workers 4
 """,
-                HelpLevel.EXPERT: "Use: templ --help expert  # For complete reference"
+                HelpLevel.EXPERT: "Use: templ --help expert  # For complete reference",
             },
             "embed": {
                 HelpLevel.BASIC: "templ embed --protein-file protein.pdb",
@@ -655,34 +660,37 @@ Optional:
 Example:
   templ embed --protein-file protein.pdb --chain A
 """,
-                HelpLevel.EXPERT: "Use: templ --help expert  # For complete reference"
-            }
+                HelpLevel.EXPERT: "Use: templ --help expert  # For complete reference",
+            },
         }
-        
+
         if command in command_help and help_level in command_help[command]:
             return command_help[command][help_level]
-        
+
         return f"Help not available for command: {command}"
+
 
 def create_enhanced_parser():
     """Create argument parser with enhanced help system."""
     help_system = TEMPLHelpSystem()
-    
+
     parser = argparse.ArgumentParser(
         description="TEMPL Pipeline: Template-based Protein-Ligand Pose Prediction",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        add_help=False  # We handle help ourselves
+        add_help=False,  # We handle help ourselves
     )
-    
+
     # Custom help arguments
     parser.add_argument(
-        "-h", "--help",
+        "-h",
+        "--help",
         nargs="?",
         const="main",
-        help="Show help. Options: basic, intermediate, expert, examples, getting-started, troubleshooting, <command>"
+        help="Show help. Options: basic, intermediate, expert, examples, getting-started, troubleshooting, <command>",
     )
-    
+
     return parser, help_system
+
 
 def handle_help_request(help_arg: Optional[str], help_system: TEMPLHelpSystem):
     """Handle help requests with smart routing."""
@@ -690,18 +698,26 @@ def handle_help_request(help_arg: Optional[str], help_system: TEMPLHelpSystem):
         help_system.show_main_help()
     elif help_arg in ["basic", "intermediate", "expert"]:
         help_system.show_main_help(help_arg)
-    elif help_arg in ["examples", "getting-started", "troubleshooting", "basic-workflow", 
-                      "batch-processing", "performance-tuning", "reference"]:
+    elif help_arg in [
+        "examples",
+        "getting-started",
+        "troubleshooting",
+        "basic-workflow",
+        "batch-processing",
+        "performance-tuning",
+        "reference",
+    ]:
         help_system.show_topic_help(help_arg)
     else:
         # Assume it's a command name
         print(help_system.get_command_help(help_arg))
 
+
 # Export main classes and functions
 __all__ = [
-    'TEMPLHelpSystem',
-    'HelpLevel',
-    'HelpTopic',
-    'create_enhanced_parser',
-    'handle_help_request'
-] 
+    "TEMPLHelpSystem",
+    "HelpLevel",
+    "HelpTopic",
+    "create_enhanced_parser",
+    "handle_help_request",
+]

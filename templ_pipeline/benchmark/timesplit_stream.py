@@ -108,11 +108,12 @@ def _worker_task(args: tuple) -> Dict:
         import resource, math  # POSIX only
 
         per_worker_limit = cfg_dict.get("per_worker_ram_gb", 4.0)
-        bytes_limit = int(math.ceil(per_worker_limit * 1024 ** 3))
+        bytes_limit = int(math.ceil(per_worker_limit * 1024**3))
         resource.setrlimit(resource.RLIMIT_AS, (bytes_limit, bytes_limit))
 
         if per_worker_limit < 3.0:
             import warnings
+
             warnings.warn(
                 f"per_worker_ram_gb={per_worker_limit} GiB may be too low; large SDF/GZ loading can fail.",
                 RuntimeWarning,
@@ -246,7 +247,9 @@ def run_timesplit_streaming(
                 import pandas as pd  # type: ignore  # reimport safe under pool
 
                 df = pd.DataFrame([result])
-                df.to_csv(summary_csv, mode="a", header=not summary_csv.exists(), index=False)
+                df.to_csv(
+                    summary_csv, mode="a", header=not summary_csv.exists(), index=False
+                )
 
             _maybe_throttle(pool, cfg)
 
@@ -254,6 +257,7 @@ def run_timesplit_streaming(
 ###############################################################################
 # Helper utilities
 ###############################################################################
+
 
 def _maybe_throttle(pool: mp.pool.Pool, cfg: TimesplitConfig) -> None:
     """Pause pool submission while total system RAM usage exceeds limit.
@@ -285,6 +289,7 @@ def _maybe_throttle(pool: mp.pool.Pool, cfg: TimesplitConfig) -> None:
 
 # We expose this as public (via __all__) so that test suites can verify correct
 # behaviour without resorting to private attribute access.
+
 
 def load_timesplit_pdb_list(split_name: str) -> List[str]:
     """Return list of PDB IDs for the requested *split_name*.
@@ -322,12 +327,14 @@ def load_timesplit_pdb_list(split_name: str) -> List[str]:
 
     return pdbs
 
+
 # Expose helper for external use (e.g., tests)
 __all__.append("load_timesplit_pdb_list")
 
 ###############################################################################
 # Compatibility wrapper for old API
 ###############################################################################
+
 
 def run_timesplit_benchmark(
     n_workers: int = None,
@@ -342,15 +349,16 @@ def run_timesplit_benchmark(
     per_worker_ram_gb: float = 4.0,
 ) -> Dict:
     """Compatibility wrapper for the old timesplit API using streaming implementation."""
-    
+
     # Import the time splits data
     from pathlib import Path
     import json
-    
+
     # Default data directory - try to find actual data location
     import os
+
     data_dir = os.environ.get("PDBBIND_DATA_DIR", "/data/pdbbind")
-    
+
     # Try common locations if default doesn't exist
     if not os.path.exists(data_dir):
         possible_dirs = [
@@ -361,13 +369,13 @@ def run_timesplit_benchmark(
             "./templ_pipeline/data",
             "./templ_pipeline/data/PDBBind",
             "./data",
-            "../data"
+            "../data",
         ]
         for candidate in possible_dirs:
             if os.path.exists(candidate):
                 data_dir = candidate
                 break
-    
+
     # ------------------------------------------------------------------
     # Load selected splits from packaged lists
     # ------------------------------------------------------------------
@@ -400,7 +408,7 @@ def run_timesplit_benchmark(
         return {"success": False, "error": "No PDB IDs selected after filtering"}
 
     results_dir = streaming_output_dir or "timesplit_stream_results"
-    
+
     try:
         run_timesplit_streaming(
             target_pdbs=target_pdbs_unique,
@@ -412,16 +420,17 @@ def run_timesplit_benchmark(
             max_ram_gb=max_ram_gb,
             memory_per_worker_gb=memory_per_worker_gb,
             per_worker_ram_gb=per_worker_ram_gb,
-            internal_workers=1  # Force single internal worker to prevent nested parallelization
+            internal_workers=1,  # Force single internal worker to prevent nested parallelization
         )
-        
+
         # Return success indicator for compatibility
         return {"success": True, "results_dir": results_dir}
-        
+
     except Exception as e:
         if not quiet:
             print(f"Streaming benchmark failed: {e}")
         return {"success": False, "error": str(e)}
+
 
 ###############################################################################
 # CLI entry-point (optional)
@@ -434,9 +443,18 @@ if __name__ == "__main__":  # pragma: no cover
     ap.add_argument("targets_file", help="Path to file with one PDB ID per line")
     ap.add_argument("--data-dir", required=True, help="Directory with dataset files")
     ap.add_argument("--results-dir", default=None, help="Where to write outputs")
-    ap.add_argument("--workers", type=int, default=None, help="Max concurrent processes")
-    ap.add_argument("--max-ram", type=float, default=None, help="Max RAM in GiB before throttling")
-    ap.add_argument("--mem-per-worker", type=float, default=1.5, help="Estimated GiB used per worker (default 1.5)")
+    ap.add_argument(
+        "--workers", type=int, default=None, help="Max concurrent processes"
+    )
+    ap.add_argument(
+        "--max-ram", type=float, default=None, help="Max RAM in GiB before throttling"
+    )
+    ap.add_argument(
+        "--mem-per-worker",
+        type=float,
+        default=1.5,
+        help="Estimated GiB used per worker (default 1.5)",
+    )
     ap.add_argument("--timeout", type=int, default=1800)
     args = ap.parse_args()
 
@@ -451,4 +469,4 @@ if __name__ == "__main__":  # pragma: no cover
         max_ram_gb=args.max_ram,
         memory_per_worker_gb=args.mem_per_worker,
         timeout=args.timeout,
-    ) 
+    )

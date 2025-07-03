@@ -14,7 +14,4 @@ Submodules:
 
 from .core.metadata_engine import MetadataEngine, create_metadata_engine
 
-__all__ = [
-    'MetadataEngine',
-    'create_metadata_engine'
-] 
+__all__ = ["MetadataEngine", "create_metadata_engine"]

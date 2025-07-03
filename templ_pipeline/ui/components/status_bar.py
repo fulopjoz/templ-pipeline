@@ -15,19 +15,19 @@ logger = logging.getLogger(__name__)
 
 def render_status_bar(session: SessionManager):
     """Render the status bar at the bottom of the application
-    
+
     Args:
         session: Session manager instance
     """
     # Create a container for the status bar
     st.markdown("---")
-    
+
     # Get session info
     session_info = session.get_session_info()
-    
+
     # Create columns for status items
     col1, col2, col3, col4 = st.columns(4)
-    
+
     with col1:
         # Session duration
         if session_info.get("start_time"):
@@ -36,12 +36,12 @@ def render_status_bar(session: SessionManager):
             st.caption(f"Session: {duration_str}")
         else:
             st.caption("Session: Just started")
-    
+
     with col2:
         # Pipeline runs
         runs = session_info.get("pipeline_runs", 0)
         st.caption(f"Runs: {runs}")
-    
+
     with col3:
         # Memory usage
         memory_stats = session_info.get("memory_stats", {})
@@ -50,7 +50,7 @@ def render_status_bar(session: SessionManager):
             st.caption(f"Cache: {cache_mb:.1f}MB")
         else:
             st.caption("Cache: 0MB")
-    
+
     with col4:
         # Status indicator
         if session_info.get("has_results"):
@@ -59,9 +59,8 @@ def render_status_bar(session: SessionManager):
             st.caption("Ready to run")
         else:
             st.caption("Awaiting input")
-    
+
     # Add a subtle footer
     st.caption(
-        f"TEMPL Pipeline | "
-        f"Session ID: {session_info.get('session_id', 'N/A')}"
+        f"TEMPL Pipeline | " f"Session ID: {session_info.get('session_id', 'N/A')}"
     )
