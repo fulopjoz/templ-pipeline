@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 class SecureFileUploadHandler:
-    """Advanced file upload security with MIME type validation"""
+    """Advanced file upload security with MIME type validation and unified workspace integration"""
 
     # MIME types allowed for each file extension
     ALLOWED_MIMES = {
@@ -51,25 +51,35 @@ class SecureFileUploadHandler:
         ".xyz": 5,  # XYZ coordinate files
     }
 
-    def __init__(self, upload_dir: Optional[str] = None):
+    def __init__(self, upload_dir: Optional[str] = None, workspace_manager=None):
         """Initialize secure upload handler
 
         Args:
             upload_dir: Directory for temporary file storage. If None, uses system temp dir.
+            workspace_manager: UnifiedWorkspaceManager instance for integrated file management
         """
-        if upload_dir:
-            self.upload_dir = Path(upload_dir)
-            self.upload_dir.mkdir(exist_ok=True, parents=True)
+        self.workspace_manager = workspace_manager
+        self.use_unified_workspace = workspace_manager is not None
+        
+        if self.use_unified_workspace:
+            # Use workspace manager's uploaded directory
+            self.upload_dir = workspace_manager.uploaded_dir
+            logger.info(f"Using unified workspace for uploads: {self.upload_dir}")
         else:
-            self.upload_dir = Path(tempfile.mkdtemp(prefix="templ_secure_"))
+            # Fallback to legacy behavior
+            if upload_dir:
+                self.upload_dir = Path(upload_dir)
+                self.upload_dir.mkdir(exist_ok=True, parents=True)
+            else:
+                self.upload_dir = Path(tempfile.mkdtemp(prefix="templ_secure_"))
 
-        # Set restrictive permissions on upload directory
-        try:
-            os.chmod(self.upload_dir, 0o700)
-        except OSError:
-            logger.warning(
-                f"Could not set restrictive permissions on {self.upload_dir}"
-            )
+            # Set restrictive permissions on upload directory
+            try:
+                os.chmod(self.upload_dir, 0o700)
+            except OSError:
+                logger.warning(
+                    f"Could not set restrictive permissions on {self.upload_dir}"
+                )
 
     def validate_and_save(
         self, uploaded_file, file_type: str, custom_max_size: Optional[int] = None
@@ -147,29 +157,41 @@ class SecureFileUploadHandler:
         if not validation_result[0]:
             return validation_result
 
-        # Generate secure filename
-        secure_filename = self._generate_secure_filename(original_filename, content)
-
-        # Save to secure location
+        # Save to secure location using workspace manager if available
         try:
-            secure_path = self.upload_dir / secure_filename
-            secure_path.write_bytes(content)
+            if self.use_unified_workspace and self.workspace_manager:
+                # Use workspace manager for integrated file management
+                secure_path = self.workspace_manager.save_uploaded_file(
+                    content, 
+                    original_filename,
+                    secure_hash=hashlib.sha256(content).hexdigest()[:16]
+                )
+                logger.info(
+                    f"Securely saved file using workspace manager: {secure_path} ({len(content)} bytes)"
+                )
+            else:
+                # Fallback to direct file saving
+                secure_filename = self._generate_secure_filename(original_filename, content)
+                secure_path = self.upload_dir / secure_filename
+                secure_path.write_bytes(content)
 
-            # Set restrictive permissions
-            try:
-                os.chmod(secure_path, 0o600)
-            except OSError:
-                logger.warning(
-                    f"Could not set restrictive permissions on {secure_path}"
+                # Set restrictive permissions
+                try:
+                    os.chmod(secure_path, 0o600)
+                except OSError:
+                    logger.warning(
+                        f"Could not set restrictive permissions on {secure_path}"
+                    )
+
+                secure_path = str(secure_path)
+                logger.info(
+                    f"Securely saved file (legacy): {secure_filename} ({len(content)} bytes)"
                 )
 
-            logger.info(
-                f"Securely saved file: {secure_filename} ({len(content)} bytes)"
-            )
             return (
                 True,
                 f"File validated and saved ({len(content)} bytes)",
-                str(secure_path),
+                secure_path,
             )
 
         except Exception as e:

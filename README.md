@@ -30,16 +30,24 @@ source setup_templ_env.sh
 - Install `uv` for fast package management
 - Create and activate the `.templ` virtual environment
 - Install optimal dependencies for your system using `uv`
+- Create configuration file (`.templ.config`) for future use
 - Verify everything works
 - **Leave you ready to use `templ` immediately**
 
 > **Important:** Always use `source setup_templ_env.sh` (not manual `pip` commands) for the best experience.
+> **New:** The setup now supports automation modes and persistent configuration!
 
 ### Installation Options
 
 ```bash
 # Default: Auto-detect and install optimally (recommended)
 source setup_templ_env.sh
+
+# Development environment with all tools
+source setup_templ_env.sh --dev
+
+# Web interface installation
+source setup_templ_env.sh --web
 
 # Force lightweight CPU-only installation (~50MB)
 source setup_templ_env.sh --cpu-only
@@ -49,6 +57,15 @@ source setup_templ_env.sh --gpu-force
 
 # Minimal server installation (no web interface)
 source setup_templ_env.sh --minimal
+
+# Automation-friendly (no prompts, minimal output)
+source setup_templ_env.sh --quiet --non-interactive
+
+# Use custom configuration file
+source setup_templ_env.sh --config my-config.conf
+
+# Full list of options
+source setup_templ_env.sh --help
 ```
 
 ### Using TEMPL Later
@@ -58,6 +75,12 @@ The installation creates a `.templ` environment. For future sessions:
 ```bash
 # Activate the environment
 source .templ/bin/activate
+
+# Or get the activation command
+./manage_environment.sh activate
+
+# Check environment status
+./manage_environment.sh status
 ```
 
 Once activated, just use `templ` commands directly!
@@ -198,13 +221,81 @@ templ --help examples           # Copy-paste examples
 
 ---
 
+## Environment Management
+
+**NEW:** Use the environment management script for ongoing maintenance:
+
+```bash
+# Check environment status
+./manage_environment.sh status
+
+# Run diagnostics
+./manage_environment.sh doctor
+
+# Update dependencies
+./manage_environment.sh update
+
+# View configuration
+./manage_environment.sh config
+
+# Clean up environment
+./manage_environment.sh clean
+
+# Show detailed environment information
+./manage_environment.sh info
+
+# Get help with management commands
+./manage_environment.sh help
+```
+
+### Configuration System
+
+**NEW:** TEMPL now supports persistent configuration via `.templ.config`:
+
+```bash
+# View current configuration
+./manage_environment.sh config
+
+# Use custom configuration file
+source setup_templ_env.sh --config my-settings.conf
+
+# Configuration is automatically created on first setup
+# Edit .templ.config to customize:
+# - Installation mode (auto, web, dev, cpu-only, etc.)
+# - Verbosity settings
+# - Interactive behavior
+# - Hardware preferences
+```
+
+**Example `.templ.config`:**
+```ini
+[environment]
+name=.templ
+install_mode=dev
+
+[behavior]
+interactive=false
+verbose=true
+
+[hardware]
+force_gpu=false
+```
+
+---
+
 ## Development & Testing
 
-**Recommended approach - use the setup script:**
+**Recommended approach - use the enhanced setup script:**
 
 ```bash
 # Development installation (creates environment + installs dev dependencies)
 source setup_templ_env.sh --dev
+
+# For automation/CI environments
+source setup_templ_env.sh --dev --quiet --non-interactive
+
+# Check environment is working
+./manage_environment.sh doctor
 
 # Run tests
 pytest -q
@@ -217,6 +308,19 @@ pytest -q
 source .templ/bin/activate              # Activate TEMPL environment first
 uv pip install -e ".[dev]"             # Add dev dependencies
 pytest -q                              # Run tests
+```
+
+**Environment management during development:**
+
+```bash
+# Quick environment status
+./manage_environment.sh status
+
+# Update dependencies
+./manage_environment.sh update
+
+# Run comprehensive checks
+./manage_environment.sh verify
 ```
 
 ---
@@ -233,7 +337,13 @@ pytest -q                              # Run tests
 - 16GB+ RAM  
 - GPU with 4GB+ VRAM (optional, for faster embeddings)
 
-The installer automatically detects your hardware and installs the optimal configuration!
+**The installer automatically detects your hardware and installs the optimal configuration!**
+
+**NEW Features:**
+- ✅ **Automatic diagnostics** - Built-in hardware detection and issue diagnosis
+- ✅ **Configuration persistence** - Settings saved for future installations
+- ✅ **Automation support** - CI/CD friendly with `--non-interactive` mode
+- ✅ **Better error recovery** - Clear troubleshooting guidance and fallback options
 
 ---
 
