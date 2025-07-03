@@ -31,6 +31,7 @@ import time
 from pathlib import Path
 
 
+<<<<<<< HEAD
 def is_port_available(port, host='localhost'):
     """Check if a port is available for binding
     
