@@ -19,40 +19,41 @@ import importlib
 from typing import Any
 
 # Version information
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 __all__ = [
     # Package info
-    '__version__',
-    
+    "__version__",
     # Core functionality
-    'EmbeddingManager',
-    'select_templates',
-    'get_protein_embedding',
-    'find_mcs',
-    'constrained_embed',
-    'score_and_align',
-    'select_best',
-    'rmsd_raw',
-    'DatasetSplits'
+    "EmbeddingManager",
+    "select_templates",
+    "get_protein_embedding",
+    "find_mcs",
+    "constrained_embed",
+    "score_and_align",
+    "select_best",
+    "rmsd_raw",
+    "DatasetSplits",
 ]
 
 # Lazy loading for core functionality
 _CORE_IMPORTS = {
-    'EmbeddingManager',
-    'select_templates', 
-    'get_protein_embedding',
-    'find_mcs',
-    'constrained_embed',
-    'score_and_align',
-    'select_best',
-    'rmsd_raw',
-    'DatasetSplits'
+    "EmbeddingManager",
+    "select_templates",
+    "get_protein_embedding",
+    "find_mcs",
+    "constrained_embed",
+    "score_and_align",
+    "select_best",
+    "rmsd_raw",
+    "DatasetSplits",
 }
+
 
 def __getattr__(name: str) -> Any:
     """Lazy loading of core functionality."""
     if name in _CORE_IMPORTS:
         from . import core
+
         return getattr(core, name)
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")

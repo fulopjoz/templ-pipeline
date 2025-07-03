@@ -5,6 +5,7 @@
 # Python cache and bytecode
 __pycache__/
 *.py[cod]
+*.pyc
 *.so
 .Python
 
@@ -66,13 +67,11 @@ venv.bak/
 # Large data directories
 data/PDBBind/PDBbind_v2020_other_PL
 data/PDBBind/PDBbind_v2020_refined
-data/
 !data/README.md
-
+temp_*
 # Output and results
 output/
 output_*/
-templ_benchmark_results_polaris/
 
 # Model files and checkpoints
 *.pth
@@ -176,3 +175,8 @@ test-docker-local.sh
 tmp*/
 temp/
 .temp/
+
+
+# CLAUDE
+CLAUDE.md
+.mypy_cache/

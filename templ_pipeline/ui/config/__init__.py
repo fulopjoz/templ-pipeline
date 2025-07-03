@@ -3,4 +3,4 @@
 from .settings import AppConfig
 from .constants import *
 
-__all__ = ['AppConfig'] 
+__all__ = ["AppConfig"]
