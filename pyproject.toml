@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "templ-pipeline"
-version = "0.1.0"
+version = "1.0.0"
 description = "TEMPL (Template-based Protein Ligand) pose prediction pipeline"
 authors = [
     {name = "TEMPL Team", email = "author@example.com"},
@@ -18,83 +18,56 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
     "Topic :: Scientific/Engineering :: Chemistry",
 ]
-# Core dependencies - CPU-only, lightweight
+
+# Core dependencies - essential for all installations
 dependencies = [
     "numpy>=1.20.0",
-    "pandas>=1.3.0",
+    "pandas>=1.3.0", 
     "scikit-learn>=1.0.0",
     "rdkit>=2022.03.1",
     "biopython>=1.79",
-    "tqdm>=4.62.0",
     "biotite>=0.34.0",
+    "spyrmsd>=0.8.0",
+    "tqdm>=4.62.0",
     "rich>=12.0.0",
     "colorama>=0.4.4",
-    "spyrmsd>=0.8.0",
     "pebble>=4.6.0",
     "psutil>=5.8.0",
 ]
 
 [project.optional-dependencies]
-# Development dependencies
+# Standard installation (recommended for most users)
+web = [
+    "streamlit>=1.45.0",
+    
+    "stmol>=0.0.9",
+]
+
+# Full installation (power users with embedding acceleration)
+full = [
+    "streamlit>=1.45.0",
+     
+    "stmol>=0.0.9",
+    "transformers>=4.10.0",
+    "torch>=2.0.0",  # Auto-detects CUDA
+    "sentence-transformers>=2.0.0",
+]
+
+# Development (contributors only)
 dev = [
+    "templ-pipeline[full]",
     "pytest>=7.0.0",
     "pytest-cov>=3.0.0",
-    "black>=22.3.0",
-    "isort>=5.10.0",
+    "pytest-asyncio>=1.0.0",
+    "black>=22.0.0",
+    "isort>=5.0.0",
     "flake8>=4.0.0",
     "mypy>=0.950",
-]
-
-# Web interface dependencies
-web = [
-    "streamlit>=1.10.0",
-    "py3Dmol>=1.8.0",
-    "stmol>=0.0.9",
-]
-
-# CPU-only AI dependencies (lightweight models)
-ai-cpu = [
-    "transformers>=4.10.0",
-    "torch>=1.10.0,<2.0.0",  # CPU-only PyTorch
-    "sentence-transformers>=2.0.0",
-]
-
-# GPU dependencies (full AI stack)
-ai-gpu = [
-    "transformers>=4.10.0",
-    "torch>=1.10.0",  # Full PyTorch with CUDA support
-    "sentence-transformers>=2.0.0",
-]
-
-# Minimal examples
-examples = [
-    "matplotlib>=3.5.0",
-]
-
-# Scripts and utilities
-scripts = [
-    "umap-learn>=0.5.0",
-]
-
-# Full installation (web + AI CPU)
-full = [
-    "streamlit>=1.10.0",
-    "py3Dmol>=1.8.0", 
-    "stmol>=0.0.9",
-    "transformers>=4.10.0",
-    "torch>=1.10.0,<2.0.0",  # CPU-only by default
-    "sentence-transformers>=2.0.0",
-    "matplotlib>=3.5.0",
-]
-
-# Server deployment (no heavy dependencies)
-server = [
-    "streamlit>=1.10.0",
-    "py3Dmol>=1.8.0",
-    "stmol>=0.0.9",
 ]
 
 [project.scripts]
@@ -129,4 +102,4 @@ markers = [
 ]
 
 [tool.deptry]
-per_rule_ignores = { DEP003 = ["templ_pipeline"], DEP004 = ["matplotlib", "umap"] } 
+per_rule_ignores = { DEP003 = ["templ_pipeline"], DEP004 = ["matplotlib", "umap"] }

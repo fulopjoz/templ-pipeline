@@ -13,18 +13,18 @@ from .metadata_engine import (
     InputMetadata,
     OutputMetadata,
     ScientificMetadata,
-    ProvenanceRecord
+    ProvenanceRecord,
 )
 
 __all__ = [
-    'MetadataEngine',
-    'create_metadata_engine',
-    'generate_quick_metadata',
-    'ComputationalMetadata',
-    'InputMetadata',
-    'OutputMetadata',
-    'ScientificMetadata',
-    'ProvenanceRecord'
+    "MetadataEngine",
+    "create_metadata_engine",
+    "generate_quick_metadata",
+    "ComputationalMetadata",
+    "InputMetadata",
+    "OutputMetadata",
+    "ScientificMetadata",
+    "ProvenanceRecord",
 ]
 
-# This will be imported once metadata_engine.py is created 
+# This will be imported once metadata_engine.py is created

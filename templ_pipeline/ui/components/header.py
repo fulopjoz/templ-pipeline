@@ -5,20 +5,21 @@ Renders the application header with branding and status.
 """
 
 import streamlit as st
-from ...config.constants import VERSION, COLORS
-from ...core.session_manager import SessionManager
-from ...config.settings import AppConfig
+from ..config.constants import VERSION, COLORS
+from ..core.session_manager import SessionManager
+from ..config.settings import AppConfig
 
 
 def render_header(config: AppConfig, session: SessionManager):
     """Render application header
-    
+
     Args:
         config: Application configuration
         session: Session manager
     """
     # Custom CSS for header
-    st.markdown(f"""
+    st.markdown(
+        f"""
     <style>
     .header-container {{
         background: {COLORS['background']};
@@ -65,21 +66,24 @@ def render_header(config: AppConfig, session: SessionManager):
         to {{ opacity: 1; transform: translateY(0); }}
     }}
     </style>
-    """, unsafe_allow_html=True)
-    
+    """,
+        unsafe_allow_html=True,
+    )
+
     # Render header
-    st.markdown(f"""
+    st.markdown(
+        f"""
     <div class="header-container">
         <div class="header-title">{config.app_name}</div>
         <div class="header-subtitle">{config.app_description}</div>
         <div class="header-version">Version {VERSION}</div>
     </div>
-    """, unsafe_allow_html=True)
-    
+    """,
+        unsafe_allow_html=True,
+    )
 
-    
     # Show session info if in debug mode
-    if config.ui_settings.get('show_technical_details', False):
+    if config.ui_settings.get("show_technical_details", False):
         with st.expander("Session Information", expanded=False):
             session_info = session.get_session_info()
-            st.json(session_info) 
+            st.json(session_info)
