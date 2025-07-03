@@ -6,11 +6,11 @@ HELP_MAIN_KEYWORDS = [
     "Template-based Protein-Ligand Pose Prediction",
     "Quick Start:",
     "embed",
-    "find-templates", 
+    "find-templates",
     "generate-poses",
     "run",
     "Common Commands:",
-    "Get Help:"
+    "Get Help:",
 ]
 
 HELP_SIMPLE_KEYWORDS = [
@@ -33,8 +33,8 @@ EXAMPLE_COMMANDS = [
     "templ run --protein-file data/example/1iky_protein.pdb",
     "templ generate-poses --protein-file data/example/1iky_protein.pdb",
     "templ embed --protein-file data/example/1iky_protein.pdb",
-    "templ find-templates --protein-file data/example/1iky_protein.pdb"
+    "templ find-templates --protein-file data/example/1iky_protein.pdb",
 ]
 
 # ASCII banner pattern
-ASCII_BANNER_PATTERN = r"TEMPL.*Template-based.*Pipeline" 
+ASCII_BANNER_PATTERN = r"TEMPL.*Template-based.*Pipeline"

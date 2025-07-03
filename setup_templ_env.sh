@@ -1,424 +1,473 @@
-#!/usr/bin/env bash
-# TEMPL Pipeline - Complete Setup & Activation Script
-# 
-# USAGE (RECOMMENDED):
-#   source setup_templ_env.sh [OPTIONS]    # Creates env + installs + activates immediately
-#
-# ALTERNATIVE:
-#   ./setup_templ_env.sh [OPTIONS]         # Creates env + installs (manual activation needed)
+#!/bin/bash
 
-set -euo pipefail
-IFS=$'\n\t'
+# TEMPL Pipeline Environment Setup Script
+# Creates optimized virtual environment based on hardware detection
+# Supports multiple installation profiles and dependency approaches
 
-# Detect if script is being sourced (enables automatic activation)
-if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
-    SCRIPT_SOURCED=true
-else
-    SCRIPT_SOURCED=false
-fi
+set -e  # Exit on any error
 
-#------------- logging functions ----------------------------------------------
-info()  { echo "[INFO]  $*"; }
-ok()    { echo "[OK]    $*"; }
-warn()  { echo "[WARN]  $*"; }
-err()   { echo "[ERROR] $*" >&2; }
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
 
-abort() { 
-    err "$1"
-    [[ -d ".templ" && "${CREATED_VENV:-}" == "true" ]] && rm -rf .templ
-    if [[ "$SCRIPT_SOURCED" == "true" ]]; then
-        return 1
-    else
+# Default settings
+INSTALL_MODE="auto"
+VENV_NAME=".templ"
+PYTHON_MIN_VERSION="3.9"
+USE_REQUIREMENTS_TXT=false
+VERBOSE=false
+
+# Print colored output
+print_status() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+print_section() {
+    echo -e "\n${PURPLE}=== $1 ===${NC}"
+}
+
+# Show usage
+show_usage() {
+    cat << 'USAGE'
+TEMPL Pipeline Environment Setup
+
+Usage: source setup_templ_env.sh [OPTIONS]
+
+OPTIONS:
+  --auto              Auto-detect hardware and install optimally (default)
+  --cpu-only          Lightweight CPU-only installation (~50MB)
+  --gpu-force         Force GPU installation (if auto-detection fails)
+  --minimal           Minimal server installation (no web interface)
+  --web               Standard installation with web interface
+  --full              Full installation with embedding features
+  --dev               Development environment for contributors
+  --use-requirements  Use requirements.txt instead of pyproject.toml
+  --verbose           Verbose output for debugging
+  --help              Show this help message
+
+EXAMPLES:
+  source setup_templ_env.sh                    # Auto-detect and install optimally
+  source setup_templ_env.sh --cpu-only         # Lightweight installation
+  source setup_templ_env.sh --gpu-force --dev # Force GPU + development tools
+  source setup_templ_env.sh --web              # Standard web interface
+
+NOTES:
+  - Must use 'source' command to activate environment
+  - Requires Python 3.9+ and pip
+  - Auto-detects: CPU cores, RAM, GPU availability
+  - Creates .templ virtual environment in project directory
+USAGE
+}
+
+# Parse command line arguments
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --auto)
+                INSTALL_MODE="auto"
+                shift
+                ;;
+            --cpu-only)
+                INSTALL_MODE="cpu-only"
+                shift
+                ;;
+            --gpu-force)
+                INSTALL_MODE="gpu-force"
+                shift
+                ;;
+            --minimal)
+                INSTALL_MODE="minimal"
+                shift
+                ;;
+            --web)
+                INSTALL_MODE="web"
+                shift
+                ;;
+            --full)
+                INSTALL_MODE="full"
+                shift
+                ;;
+            --dev)
+                INSTALL_MODE="dev"
+                shift
+                ;;
+            --use-requirements)
+                USE_REQUIREMENTS_TXT=true
+                shift
+                ;;
+            --verbose)
+                VERBOSE=true
+                shift
+                ;;
+            --help|-h)
+                show_usage
+                return 0
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                show_usage
+                return 1
+                ;;
+        esac
+    done
+}
+
+# Check if we're being sourced (not executed)
+check_sourced() {
+    if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+        print_error "This script must be sourced, not executed!"
+        echo "Use: source setup_templ_env.sh [options]"
         exit 1
     fi
 }
 
-#------------- parse arguments ------------------------------------------------
-FORCE_CPU_ONLY=false
-FORCE_GPU=false
-MINIMAL_INSTALL=false
-RUN_BENCHMARK=false
-INTERACTIVE=false
-
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --cpu-only) FORCE_CPU_ONLY=true; shift ;;
-        --gpu-force) FORCE_GPU=true; shift ;;
-        --minimal) MINIMAL_INSTALL=true; shift ;;
-        --benchmark) RUN_BENCHMARK=true; shift ;;
-        --interactive) INTERACTIVE=true; shift ;;
-        --help|-h)
-            cat << EOF
-TEMPL Pipeline - Complete Setup & Activation Script
-
-RECOMMENDED USAGE:
-    source $0 [OPTIONS]         # Creates environment + installs dependencies + activates immediately
-                               # This puts you directly into the TEMPL environment ready to use!
-
-ALTERNATIVE USAGE:
-    ./$0 [OPTIONS]             # Creates environment + installs dependencies (requires manual activation)
-
-OPTIONS:
-    --cpu-only          Force CPU-only installation
-    --gpu-force         Force GPU installation  
-    --minimal           Install minimal dependencies only
-    --benchmark         Run performance benchmarks after installation
-    --interactive       Prompt for user confirmation
-    --help, -h          Show this help message
-
-EXAMPLES:
-    source $0               # Recommended: Complete setup with immediate activation
-    source $0 --cpu-only    # Force CPU-only installation with activation
-    source $0 --minimal     # Minimal installation with activation
-
-AFTER SETUP:
-    templ --help           # Check available commands
-    python run_streamlit_app.py  # Run the web interface
-
-EOF
-            if [[ "$SCRIPT_SOURCED" == "true" ]]; then
-                return 0
-            else
-                exit 0
-            fi
-            ;;
-        *) warn "Unknown option: $1. Use --help for usage information."; shift ;;
-    esac
-done
-
-#------------- header ---------------------------------------------------------
-if [[ "$SCRIPT_SOURCED" == "true" ]]; then
-    info "Setting up TEMPL Pipeline with automatic activation..."
-else
-    info "Setting up TEMPL Pipeline..."
-    warn "For automatic activation, use: source $0"
-fi
-
-#------------- python check ---------------------------------------------------
-PY_MIN=3.9
-if ! command -v python3 >/dev/null 2>&1; then
-    abort "Python 3 not found. Please install Python >=${PY_MIN}."
-fi
-
-PY_VER=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))' 2>/dev/null || echo "0.0")
-if [[ -z "$PY_VER" ]] || ! python3 -c "
-import sys
-major, minor = sys.version_info[:2]
-required = tuple(map(int, '${PY_MIN}'.split('.')))
-current = (major, minor)
-exit(0 if current >= required else 1)
-" 2>/dev/null; then
-    abort "Python ${PY_MIN}+ required (found ${PY_VER}). Please upgrade Python."
-fi
-
-#------------- uv installation ------------------------------------------------
-if ! command -v uv >/dev/null 2>&1; then
-    info "Installing uv package manager..."
-    if ! curl -fsSL https://astral.sh/uv/install.sh | bash >/dev/null 2>&1; then
-        abort "Failed to install uv package manager. Please check internet connection."
-    fi
+# Detect system hardware
+detect_hardware() {
+    print_section "Hardware Detection"
     
-    # Add uv to PATH for current session
-    UV_PATHS=("$HOME/.cargo/bin" "$HOME/.local/bin")
-    for uv_path in "${UV_PATHS[@]}"; do
-        if [[ -f "$uv_path/uv" ]]; then
-            export PATH="$uv_path:$PATH"
-            break
+    # CPU cores
+    CPU_CORES=$(nproc 2>/dev/null || echo "4")
+    print_status "CPU cores: $CPU_CORES"
+    
+    # RAM detection
+    if command -v free >/dev/null 2>&1; then
+        RAM_GB=$(free -g | awk '/^Mem:/{print $2}')
+        if [[ $RAM_GB -eq 0 ]]; then
+            RAM_GB=$(free -m | awk '/^Mem:/{print int($2/1024)}')
         fi
-    done
-    
-    # Verify uv is now available
-    if ! command -v uv >/dev/null 2>&1; then
-        abort "uv package manager installation failed - not found in PATH"
+    else
+        RAM_GB=8  # Default assumption
     fi
+    print_status "RAM: ${RAM_GB}GB"
     
-    ok "uv package manager installed successfully"
-fi
-
-# Verify uv version
-UV_VERSION=$(uv --version 2>/dev/null || echo "unknown")
-info "Using uv version: $UV_VERSION"
-
-#------------- environment creation -------------------------------------------
-ENV_DIR=".templ"
-if [[ ! -d "$ENV_DIR" ]]; then
-    info "Creating virtual environment with uv..."
-    if ! uv venv "$ENV_DIR" --python python3 2>/dev/null; then
-        abort "Failed to create .templ virtual environment with uv"
-    fi
-    CREATED_VENV=true
-    ok "Virtual environment created successfully"
-else
-    info "Using existing virtual environment"
-fi
-
-# Verify environment structure
-if [[ ! -f "$ENV_DIR/bin/activate" ]]; then
-    abort "Virtual environment activation script not found"
-fi
-
-#------------- environment activation -----------------------------------------
-info "Activating virtual environment..."
-source "$ENV_DIR/bin/activate" || abort "Failed to activate .templ virtual environment"
-
-# Verify we're in the right environment
-if [[ "${VIRTUAL_ENV:-}" != *".templ"* ]]; then
-    abort "Environment activation failed - not in .templ environment"
-fi
-
-ok "Virtual environment activated: $VIRTUAL_ENV"
-
-# Verify uv works in the activated environment
-if ! uv --version >/dev/null 2>&1; then
-    abort "uv not available in activated environment"
-fi
-
-#------------- install minimal dependencies for hardware detection ------------
-info "Installing system detection dependencies..."
-if ! uv pip install psutil --quiet 2>/dev/null; then
-    abort "Failed to install system detection dependencies"
-fi
-
-#------------- hardware detection ---------------------------------------------
-info "Detecting hardware configuration..."
-HARDWARE_DETECTION_OUTPUT=$(python3 -c "
-import json, sys, os
-sys.path.insert(0, os.getcwd())
-
-try:
-    from templ_pipeline.core.hardware_detection import get_hardware_recommendation
-    print(json.dumps(get_hardware_recommendation(), indent=2))
-except Exception:
-    import psutil, subprocess
+    # GPU detection
+    GPU_AVAILABLE=false
+    GPU_INFO="None"
     
-    gpu_available = False
-    try:
-        subprocess.run(['nvidia-smi'], capture_output=True, timeout=5, check=True)
-        gpu_available = True
-    except:
-        pass
-    
-    cpu_count = psutil.cpu_count()
-    ram_gb = psutil.virtual_memory().total / (1024**3)
-    
-    if gpu_available and ram_gb >= 16:
-        config = 'gpu-medium'
-    elif ram_gb >= 16 and cpu_count >= 8:
-        config = 'cpu-optimized'
-    else:
-        config = 'cpu-minimal'
-    
-    fallback = {
-        'hardware_info': {
-            'cpu_count': cpu_count,
-            'total_ram_gb': ram_gb,
-            'gpu_available': gpu_available,
-            'recommended_config': config
-        },
-        'recommended_installation': {
-            'extras': f'ai-cpu,web' if config != 'cpu-minimal' else '',
-            'description': f'{config} installation'
-        }
-    }
-    print(json.dumps(fallback, indent=2))
-")
-
-# Parse hardware detection results
-CPU_COUNT=$(echo "$HARDWARE_DETECTION_OUTPUT" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data['hardware_info']['cpu_count'])")
-RAM_GB=$(echo "$HARDWARE_DETECTION_OUTPUT" | python3 -c "import sys, json; data=json.load(sys.stdin); print(f\"{data['hardware_info']['total_ram_gb']:.1f}\")")
-GPU_AVAILABLE=$(echo "$HARDWARE_DETECTION_OUTPUT" | python3 -c "import sys, json; data=json.load(sys.stdin); print(str(data['hardware_info']['gpu_available']).lower())")
-RECOMMENDED_CONFIG=$(echo "$HARDWARE_DETECTION_OUTPUT" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data['hardware_info']['recommended_config'])")
-RECOMMENDED_EXTRAS=$(echo "$HARDWARE_DETECTION_OUTPUT" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data['recommended_installation'].get('extras', ''))")
-RECOMMENDED_DESC=$(echo "$HARDWARE_DETECTION_OUTPUT" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data['recommended_installation']['description'])")
-
-#------------- determine installation configuration ---------------------------
-if [[ "$FORCE_CPU_ONLY" == "true" ]]; then
-    INSTALL_CONFIG="cpu-minimal"
-    INSTALL_EXTRAS=""
-    INSTALL_DESC="CPU-only installation"
-elif [[ "$FORCE_GPU" == "true" ]]; then
-    INSTALL_CONFIG="gpu-medium"
-    INSTALL_EXTRAS="ai-gpu,web"
-    INSTALL_DESC="GPU-accelerated installation"
-elif [[ "$MINIMAL_INSTALL" == "true" ]]; then
-    INSTALL_CONFIG="cpu-minimal"
-    INSTALL_EXTRAS=""
-    INSTALL_DESC="Minimal installation"
-else
-    INSTALL_CONFIG="$RECOMMENDED_CONFIG"
-    INSTALL_EXTRAS="$RECOMMENDED_EXTRAS"
-    INSTALL_DESC="$RECOMMENDED_DESC"
-fi
-
-info "System: ${CPU_COUNT} CPUs, ${RAM_GB}GB RAM, GPU: ${GPU_AVAILABLE} → ${INSTALL_CONFIG}"
-
-# User confirmation for interactive mode
-if [[ "$INTERACTIVE" == "true" ]]; then
-    read -p "Proceed with $INSTALL_DESC? [Y/n] " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Nn]$ ]]; then
-        info "Installation cancelled by user"
-        if [[ "$SCRIPT_SOURCED" == "true" ]]; then
-            return 0
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        if nvidia-smi >/dev/null 2>&1; then
+            GPU_AVAILABLE=true
+            GPU_INFO=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits | head -1)
+            print_status "GPU: $GPU_INFO"
         else
-            exit 0
+            print_status "GPU: NVIDIA drivers installed but no GPU detected"
+        fi
+    else
+        print_status "GPU: No NVIDIA drivers detected"
+    fi
+    
+    # Python version check
+    if command -v python3 >/dev/null 2>&1; then
+        PYTHON_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+        print_status "Python: $PYTHON_VERSION"
+        
+        # Version comparison
+        if python3 -c "import sys; exit(0 if sys.version_info >= (3, 9) else 1)"; then
+            print_success "Python version check passed"
+        else
+            print_error "Python $PYTHON_MIN_VERSION+ required, found $PYTHON_VERSION"
+            return 1
+        fi
+    else
+        print_error "Python 3 not found"
+        return 1
+    fi
+}
+
+# Recommend installation type based on hardware
+recommend_installation() {
+    if [[ "$INSTALL_MODE" != "auto" ]]; then
+        return 0
+    fi
+    
+    print_section "Installation Recommendation"
+    
+    # Decision logic
+    if [[ "$GPU_AVAILABLE" == "true" ]] && [[ $RAM_GB -ge 8 ]]; then
+        INSTALL_MODE="full"
+        print_status "Recommended: Full installation (GPU + embedding features)"
+    elif [[ $RAM_GB -ge 8 ]] && [[ $CPU_CORES -ge 4 ]]; then
+        INSTALL_MODE="web"
+        print_status "Recommended: Web installation (CPU optimized)"
+    elif [[ $RAM_GB -ge 4 ]]; then
+        INSTALL_MODE="cpu-only"
+        print_status "Recommended: CPU-only installation (lightweight)"
+    else
+        INSTALL_MODE="minimal"
+        print_status "Recommended: Minimal installation (low resources)"
+    fi
+    
+    # Show what this includes
+    case $INSTALL_MODE in
+        full)
+            print_status "Includes: Core + Web interface + GPU acceleration + embedding features"
+            ;;
+        web)
+            print_status "Includes: Core + Web interface (Streamlit)"
+            ;;
+        cpu-only)
+            print_status "Includes: Core + Essential features only"
+            ;;
+        minimal)
+            print_status "Includes: Core libraries only"
+            ;;
+    esac
+}
+
+# Create virtual environment
+create_venv() {
+    print_section "Virtual Environment Setup"
+    
+    # Install uv if not available
+    if ! command -v uv >/dev/null 2>&1; then
+        print_status "Installing uv..."
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        # Source the shell configuration to make uv available
+        source ~/.bashrc 2>/dev/null || source ~/.zshrc 2>/dev/null || true
+    fi
+    
+    if [[ -d "$VENV_NAME" ]]; then
+        print_warning "Virtual environment $VENV_NAME already exists"
+        read -p "Remove and recreate? [y/N]: " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            rm -rf "$VENV_NAME"
+            print_status "Removed existing environment"
+        else
+            print_status "Using existing environment"
+            return 0
         fi
     fi
-fi
+    
+    print_status "Creating virtual environment: $VENV_NAME"
+    uv venv "$VENV_NAME"
+    
+    print_status "Activating virtual environment"
+    source "$VENV_NAME/bin/activate"
+    
+    # Upgrade pip
+    print_status "Upgrading pip"
+    uv pip install --upgrade pip
+    
+    print_success "Virtual environment created and activated"
+}
 
-#------------- dependency installation ----------------------------------------
-info "Installing dependencies using uv..."
-info "Configuration: $INSTALL_DESC"
-
-INSTALL_START_TIME=$(date +%s)
-
-# Build installation command
-if [[ -n "$INSTALL_EXTRAS" ]]; then
-    INSTALL_ARGS="-e .[${INSTALL_EXTRAS}]"
-else
-    INSTALL_ARGS="-e ."
-fi
-
-info "Running: uv pip install $INSTALL_ARGS"
-
-if ! uv pip install $INSTALL_ARGS --quiet 2>/dev/null; then
-    err "Dependency installation failed"
-    err "Trying without quiet mode for debugging..."
-    uv pip install $INSTALL_ARGS || abort "Dependency installation failed completely"
-fi
-
-# Also install from requirements.txt to ensure all dependencies are covered
-if [[ -f "requirements.txt" ]]; then
-    info "Installing additional dependencies from requirements.txt..."
-    if ! uv pip install -r requirements.txt --quiet 2>/dev/null; then
-        warn "Some dependencies from requirements.txt failed to install"
-    fi
-fi
-
-INSTALL_END_TIME=$(date +%s)
-INSTALL_DURATION=$((INSTALL_END_TIME - INSTALL_START_TIME))
-
-#------------- installation verification --------------------------------------
-info "Verifying installation..."
-python3 -c "
-import sys
-errors = []
-
-try:
-    import templ_pipeline
-    print('✓ templ_pipeline imported successfully')
-except ImportError as e:
-    errors.append(f'templ_pipeline: {e}')
-
-try:
-    import numpy, pandas, rdkit
-    print('✓ Scientific libraries (numpy, pandas, rdkit) imported successfully')
-except ImportError as e:
-    errors.append(f'Scientific libraries: {e}')
-
-if '$INSTALL_CONFIG' != 'cpu-minimal':
-    try:
-        import torch
-        print('✓ PyTorch imported successfully')
-        if torch.cuda.is_available():
-            print('✓ CUDA available')
-        else:
-            print('✓ PyTorch CPU-only mode')
-    except ImportError as e:
-        errors.append(f'PyTorch: {e}')
-
-try:
-    from templ_pipeline.cli.main import main
-    print('✓ CLI interface available')
-except ImportError as e:
-    errors.append(f'CLI interface: {e}')
-
-if errors:
-    print('\\nERRORS FOUND:')
-    for error in errors:
-        print(f'  {error}')
-    sys.exit(1)
-else:
-    print('\\n All core components verified successfully')
-" || abort "Installation verification failed"
-
-# Verify CLI functionality
-if command -v templ >/dev/null 2>&1; then
-    if templ --help >/dev/null 2>&1; then
-        ok "CLI command 'templ' is working"
+# Install dependencies
+install_dependencies() {
+    print_section "Installing Dependencies"
+    
+    if [[ "$USE_REQUIREMENTS_TXT" == "true" ]]; then
+        install_from_requirements
     else
-        warn "CLI command 'templ' exists but not working properly"
+        install_from_pyproject
     fi
-else
-    warn "CLI command 'templ' not available. Use: python -m templ_pipeline.cli.main"
-fi
+}
 
-#------------- optional benchmark ---------------------------------------------
-if [[ "$RUN_BENCHMARK" == "true" ]]; then
-    info "Running performance benchmark..."
+# Install from requirements.txt (pinned versions)
+install_from_requirements() {
+    print_status "Installing from requirements.txt (pinned versions)"
+    
+    if [[ ! -f "requirements.txt" ]]; then
+        print_error "requirements.txt not found"
+        return 1
+    fi
+    
+    # Install base requirements
+    uv pip install -r requirements.txt
+    
+    # Install current package in development mode
+    uv pip install -e .
+    
+    print_success "Installed from requirements.txt"
+}
+
+# Install from pyproject.toml (flexible versions)
+install_from_pyproject() {
+    print_status "Installing from pyproject.toml (flexible versions)"
+    
+    if [[ ! -f "pyproject.toml" ]]; then
+        print_error "pyproject.toml not found"
+        return 1
+    fi
+    
+    # Determine extras to install
+    local extras=""
+    case $INSTALL_MODE in
+        minimal)
+            extras=""
+            print_status "Installing: Core dependencies only"
+            ;;
+        cpu-only)
+            extras=""
+            print_status "Installing: Core dependencies (CPU-optimized)"
+            ;;
+        web)
+            extras="[web]"
+            print_status "Installing: Core + Web interface"
+            ;;
+        full|gpu-force)
+            extras="[full]"
+            print_status "Installing: Core + Web + embedding features"
+            ;;
+        dev)
+            extras="[dev]"
+            print_status "Installing: Development environment"
+            ;;
+    esac
+    
+    # Install package with appropriate extras
+    if [[ -n "$extras" ]]; then
+        uv pip install -e ".$extras"
+    else
+        uv pip install -e .
+    fi
+    
+    print_success "Installed from pyproject.toml"
+}
+
+# Verify installation
+verify_installation() {
+    print_section "Installation Verification"
+    
+    # Test core imports
+    print_status "Testing core imports..."
     python3 -c "
-try:
-    from templ_pipeline.core.hardware_detection import ProteinEmbeddingBenchmark
-    benchmark = ProteinEmbeddingBenchmark()
-    results = benchmark.benchmark_cpu_vs_gpu(['150M'])
-    for hardware, bench_results in results.items():
-        if bench_results:
-            result = bench_results[0]
-            print('Performance {}: {:.1f} sequences/second'.format(hardware.upper(), result.sequences_per_second))
-except Exception as e:
-    print('Benchmark execution failed: {}'.format(e))
-"
-fi
-
-#------------- environment customization --------------------------------------
-# Enhance activation script with custom prompt
-ACTIVATE_SCRIPT=".templ/bin/activate"
-if [[ -f "$ACTIVATE_SCRIPT" ]]; then
-    if ! grep -q "TEMPL Pipeline" "$ACTIVATE_SCRIPT"; then
-        cat >> "$ACTIVATE_SCRIPT" << 'EOF'
-
-# TEMPL Pipeline environment customization
-export TEMPL_ENV_ACTIVE=1
-if [[ -z "${TEMPL_PROMPT_BACKUP:-}" ]]; then
-    export TEMPL_PROMPT_BACKUP="$PS1"
-    export PS1="(.templ) $PS1"
-fi
-EOF
+import templ_pipeline
+import numpy
+import pandas
+import rdkit
+print('✓ Core modules imported successfully')
+" || {
+        print_error "Core module import failed"
+        return 1
+    }
+    
+    # Test web components if installed
+    if [[ "$INSTALL_MODE" == "web" ]] || [[ "$INSTALL_MODE" == "full" ]] || [[ "$INSTALL_MODE" == "dev" ]]; then
+        print_status "Testing web components..."
+        python3 -c "
+import streamlit
+print('✓ Web components imported successfully')
+" || {
+            print_warning "Web components import failed"
+        }
     fi
-fi
-
-#------------- completion summary ---------------------------------------------
-ok "TEMPL Pipeline installed successfully (${INSTALL_DURATION}s)"
-ok "Configuration: $INSTALL_CONFIG"
-ok "Using uv for package management"
-
-# Final verification
-if python3 -c "import rdkit; print(f'rdkit {rdkit.__version__} available')" 2>/dev/null; then
-    ok "rdkit is properly installed and accessible"
-else
-    warn "rdkit verification failed"
-fi
-
-# Check actual environment status in current shell
-if [[ "$SCRIPT_SOURCED" == "true" ]]; then
-    # When sourced, the environment should be active in the current shell
-    if [[ "${VIRTUAL_ENV:-}" == *".templ"* ]]; then
-        ok "Environment is ACTIVE and ready to use!"
-        echo ""
-        echo "   You're now in the TEMPL environment! Try these commands:"
-        echo "   templ --help                    # View available commands"
-        echo "   python run_streamlit_app.py    # Launch web interface"
-        echo "   python -c \"import rdkit; print('rdkit version:', rdkit.__version__)\"  # Test rdkit"
-        echo ""
+    
+    # Test Embedding components if installed
+    if [[ "$INSTALL_MODE" == "full" ]] || [[ "$INSTALL_MODE" == "dev" ]]; then
+        print_status "Testing Embedding components..."
+        python3 -c "
+import torch
+import transformers
+print('✓ Embedding components imported successfully')
+" || {
+            print_warning "Embedding components import failed"
+        }
+    fi
+    
+    # Test CLI command
+    print_status "Testing CLI command..."
+    if command -v templ >/dev/null 2>&1; then
+        templ --version >/dev/null 2>&1 && print_success "✓ CLI command works" || print_warning "CLI command found but version check failed"
     else
-        warn "Environment was created but activation failed."
-        echo "   Manual activation: source .templ/bin/activate"
+        print_warning "CLI command not found (may need to restart shell)"
     fi
-else
-    echo ""
-    echo "Installation completed successfully!"
-    echo ""
-    echo "To activate the TEMPL environment, run:"
-    echo "   source .templ/bin/activate"
-    echo ""
-fi 
+    
+    print_success "Installation verification completed"
+}
+
+# Show final instructions
+show_final_instructions() {
+    print_section "Setup Complete!"
+    
+    echo -e "${GREEN}✓ TEMPL Pipeline environment created successfully!${NC}"
+    echo
+    echo -e "${CYAN}Environment Details:${NC}"
+    echo "  Location: $(pwd)/$VENV_NAME"
+    echo "  Mode: $INSTALL_MODE"
+    echo "  Python: $(python3 --version)"
+    echo "  Hardware: $CPU_CORES cores, ${RAM_GB}GB RAM, GPU: $GPU_AVAILABLE"
+    echo
+    
+    echo -e "${CYAN}Usage:${NC}"
+    if [[ "$INSTALL_MODE" == "web" ]] || [[ "$INSTALL_MODE" == "full" ]] || [[ "$INSTALL_MODE" == "dev" ]]; then
+        echo "  # Start web interface"
+        echo "  python run_streamlit_app.py"
+        echo
+    fi
+    
+    echo "  # CLI usage"
+    echo "  templ --help"
+    echo "  templ run --protein-file examples/1a1c_protein.pdb --ligand-smiles 'CCO' --output poses.sdf"
+    echo
+    
+    echo -e "${CYAN}For future sessions:${NC}"
+    echo "  source $VENV_NAME/bin/activate"
+    echo
+    
+    if [[ "$INSTALL_MODE" == "dev" ]]; then
+        echo -e "${CYAN}Development commands:${NC}"
+        echo "  pytest                    # Run tests"
+        echo "  templ benchmark polaris   # Run benchmarks"
+        echo
+    fi
+    
+    echo -e "${YELLOW}Note: The environment is now active for this session.${NC}"
+}
+
+# Main execution function
+main() {
+    # Check if we're being sourced
+    check_sourced
+    
+    # Parse arguments
+    parse_args "$@"
+    
+    # Show header
+    cat << 'HEADER'
+
+ ████████╗███████╗███╗   ███╗██████╗ ██╗     
+ ╚══██╔══╝██╔════╝████╗ ████║██╔══██╗██║     
+    ██║   █████╗  ██╔████╔██║██████╔╝██║     
+    ██║   ██╔══╝  ██║╚██╔╝██║██╔═══╝ ██║     
+    ██║   ███████╗██║ ╚═╝ ██║██║     ███████╗
+    ╚═╝   ╚══════╝╚═╝     ╚═╝╚═╝     ╚══════╝
+                                            
+Template-based Protein-Ligand Pose Prediction
+Environment Setup Script v2.0
+
+HEADER
+    
+    echo -e "${CYAN}Setting up TEMPL Pipeline environment...${NC}"
+    
+    # Main setup steps
+    detect_hardware
+    recommend_installation
+    create_venv
+    install_dependencies
+    verify_installation
+    show_final_instructions
+    
+    # Return success
+    return 0
+}
+
+# Execute main function with all arguments
+main "$@"

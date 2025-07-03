@@ -35,5 +35,5 @@ MOCK_PDB_IDS = ["1abc", "2def", "3ghi", "4jkl", "5mno"]
 MOCK_TEMPLATE_INFO = {
     "embedding_similarity": "0.85",
     "ref_chains": "A",
-    "mob_chains": "B"
-} 
+    "mob_chains": "B",
+}
