@@ -17,7 +17,8 @@ sys.modules['stmol'] = MagicMock()
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Now we can import app components
-from templ_pipeline.ui.app import run_pipeline_async, run_pipeline
+# Note: run_pipeline_async and run_pipeline are in pipeline_service, not app
+from templ_pipeline.ui.services.pipeline_service import PipelineService
 
 
 class TestAsyncPipelineExecution:
