@@ -33,6 +33,12 @@ dependencies = [
     "biopython>=1.79",
     "biotite>=0.34.0",
     "spyrmsd>=0.8.0",
+    "tqdm>=4.62.0",
+    "rich>=12.0.0",
+    "colorama>=0.4.4",
+    "pebble>=4.6.0",
+    "psutil>=5.8.0",
+    "tabulate>=0.8.0",
 ]
 
 [project.optional-dependencies]
@@ -88,9 +94,9 @@ templ = "templ_pipeline.cli.main:main"
 templ-pipeline = "templ_pipeline.cli.main:main"
 
 [project.urls]
-"Homepage" = "https://github.com/username/templ_pipeline"
-"Bug Reports" = "https://github.com/username/templ_pipeline/issues"
-"Source" = "https://github.com/username/templ_pipeline"
+"Homepage" = "https://github.com/fulopjoz/templ-pipeline"
+"Bug Reports" = "https://github.com/fulopjoz/templ-pipeline/issues"
+"Source" = "https://github.com/fulopjoz/templ-pipeline"
 
 [tool.setuptools.packages.find]
 where = ["."]
