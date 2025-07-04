@@ -94,9 +94,9 @@ templ = "templ_pipeline.cli.main:main"
 templ-pipeline = "templ_pipeline.cli.main:main"
 
 [project.urls]
-"Homepage" = "https://github.com/username/templ_pipeline"
-"Bug Reports" = "https://github.com/username/templ_pipeline/issues"
-"Source" = "https://github.com/username/templ_pipeline"
+"Homepage" = "https://github.com/fulopjoz/templ-pipeline"
+"Bug Reports" = "https://github.com/fulopjoz/templ-pipeline/issues"
+"Source" = "https://github.com/fulopjoz/templ-pipeline"
 
 [tool.setuptools.packages.find]
 where = ["."]
