@@ -36,6 +36,7 @@ class TEMPLPipeline:
         output_dir: str = "output",
         run_id: Optional[str] = None,
         auto_cleanup: bool = False,
+        shared_embedding_cache: Optional[str] = None,
     ):
         """
         Initialize the TEMPL pipeline.
@@ -49,6 +50,7 @@ class TEMPLPipeline:
         self.embedding_path = embedding_path
         self.auto_cleanup = auto_cleanup
         self._cleanup_registered = False
+        self.shared_embedding_cache = shared_embedding_cache
 
         # Create timestamped output directory
         if run_id:
@@ -120,7 +122,10 @@ class TEMPLPipeline:
                         "No embedding database found. Please specify embedding_path."
                     )
 
-            self._embedding_manager = EmbeddingManager(self.embedding_path)
+            self._embedding_manager = EmbeddingManager(
+                self.embedding_path, 
+                shared_embedding_cache=self.shared_embedding_cache
+            )
 
         return self._embedding_manager
 
@@ -402,9 +407,31 @@ class TEMPLPipeline:
         """
         from .mcs import generate_conformers, find_mcs
         from .scoring import select_best
+        from .molecule_validation import validate_target_molecule, get_molecule_complexity_info
 
         if not template_mols:
             raise ValueError("No template molecules provided")
+
+        # Validate query molecule before processing with skip management
+        from .skip_manager import MoleculeSkipException, create_validation_skip_wrapper
+        
+        query_mol_clean = Chem.RemoveHs(query_mol) if query_mol else None
+        
+        # Create validation wrapper that converts failures to skip exceptions
+        validation_wrapper = create_validation_skip_wrapper(validate_target_molecule)
+        
+        try:
+            is_valid, validation_msg = validation_wrapper(query_mol_clean, "query", peptide_threshold=8)
+            
+            # Log complexity information for debugging
+            complexity_info = get_molecule_complexity_info(query_mol_clean)
+            logger.debug(f"Query molecule complexity: {complexity_info}")
+            
+        except MoleculeSkipException as skip_ex:
+            # Log the skip and re-raise to be handled by caller
+            complexity_info = get_molecule_complexity_info(query_mol_clean)
+            logger.info(f"Molecule complexity: {complexity_info}")
+            raise skip_ex
 
         logger.info(
             f"Generating poses with {len(template_mols)} templates, {num_conformers} conformers, {n_workers} workers"
@@ -421,10 +448,22 @@ class TEMPLPipeline:
             logger.info(f"MCS info captured for template selection")
 
         if conformers is None:
-            raise RuntimeError("Failed to generate conformers")
+            # Check if fallback info is available in mcs_info
+            if mcs_info and isinstance(mcs_info, dict) and mcs_info.get("fallback_used"):
+                fallback_type = mcs_info.get("fallback_used")
+                logger.error(f"Conformer generation failed even with {fallback_type} fallback strategy")
+                raise RuntimeError(f"All conformer generation strategies failed (including {fallback_type} fallback)")
+            else:
+                logger.error("Conformer generation failed without attempting fallback strategies")
+                raise RuntimeError("Failed to generate conformers - no fallback strategies were attempted")
 
         n_generated = conformers.GetNumConformers()
         logger.info(f"Generated {n_generated}/{num_conformers} conformers")
+        
+        # Log if fallback was used
+        if mcs_info and isinstance(mcs_info, dict) and mcs_info.get("fallback_used"):
+            fallback_type = mcs_info.get("fallback_used") 
+            logger.warning(f"Used {fallback_type} fallback strategy for conformer generation")
 
         if n_generated == 0:
             raise RuntimeError("No conformers generated")
@@ -492,6 +531,7 @@ class TEMPLPipeline:
         batch_id: Optional[str] = None,
         custom_prefix: Optional[str] = None,
         generate_fair_metadata: bool = True,
+        output_dir: Optional[str] = None,
     ) -> str:
         """
         Save poses to SDF file using adaptive file naming system.
@@ -506,6 +546,7 @@ class TEMPLPipeline:
             batch_id: Batch identifier for batch processing
             custom_prefix: Custom prefix for filename
             generate_fair_metadata: Whether to generate FAIR metadata (default: True)
+            output_dir: Custom output directory (overrides default timestamped directory)
 
         Returns:
             Path to the saved SDF file
@@ -518,7 +559,11 @@ class TEMPLPipeline:
             # Create output manager and prediction context
             from ..core.output_manager import OutputManager, PredictionContext
 
-            output_manager = OutputManager()
+            # Use custom output directory if provided, otherwise use default timestamped directory
+            if output_dir:
+                output_manager = OutputManager(output_dir=output_dir, run_id="")
+            else:
+                output_manager = OutputManager()
 
             # Create prediction context for adaptive naming
             context = PredictionContext(
@@ -715,6 +760,7 @@ class TEMPLPipeline:
         similarity_threshold: Optional[float] = None,
         use_aligned_poses: bool = True,
         exclude_pdb_ids: Optional[Set[str]] = None,
+        output_dir: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Run the complete TEMPL pipeline.
@@ -730,6 +776,7 @@ class TEMPLPipeline:
             similarity_threshold: Minimum similarity threshold for templates
             use_aligned_poses: If True, return aligned poses. If False, return original conformers.
             exclude_pdb_ids: Set of PDB IDs to exclude from template search
+            output_dir: Custom output directory for saving results
 
         Returns:
             Dictionary with pipeline results
@@ -855,6 +902,7 @@ class TEMPLPipeline:
                 template_source="database" if protein_pdb_id else None,
                 batch_id=None,
                 custom_prefix=None,
+                output_dir=output_dir,
             )
             results["output_file"] = output_file
 
