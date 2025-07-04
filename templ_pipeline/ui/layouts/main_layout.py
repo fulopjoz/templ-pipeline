@@ -183,9 +183,64 @@ class MainLayout:
                 st.markdown(f"Device: {perf['device'].upper()}")
                 st.markdown(f"Batch Size: {perf['batch_size']}")
 
-                # Cache statistics button
-                if st.button("View Cache Stats", key="cache_stats_btn"):
-                    self._show_cache_statistics()
+                # Simple, functional cleanup button
+                if st.button("Clean Up Application", key="cleanup_btn", help="Clear caches and free up memory"):
+                    self._cleanup_application()
+
+    def _cleanup_application(self):
+        """Perform comprehensive application cleanup with user feedback"""
+        cleanup_results = []
+        
+        try:
+            # Clear Streamlit caches
+            cache_result = self.cache_manager.clear_all_caches()
+            cleanup_results.append(f"Cleared Streamlit caches ({cache_result['clear_time']:.2f}s)")
+        except Exception as e:
+            cleanup_results.append(f"Cache clearing failed: {str(e)}")
+            logger.error(f"Cache clearing failed: {e}")
+
+        try:
+            # Memory optimization
+            memory_result = self.session.memory_manager.optimize_memory()
+            if memory_result.get('memory_saved_mb', 0) > 0:
+                cleanup_results.append(f"Freed {memory_result['memory_saved_mb']:.1f}MB memory")
+            else:
+                cleanup_results.append("Memory already optimized")
+        except Exception as e:
+            cleanup_results.append(f"Memory optimization failed: {str(e)}")
+            logger.error(f"Memory optimization failed: {e}")
+
+        try:
+            # Clear molecular cache
+            self.session.memory_manager.clear_cache()
+            cleanup_results.append("Cleared molecular data cache")
+        except Exception as e:
+            cleanup_results.append(f"Molecular cache clearing failed: {str(e)}")
+            logger.error(f"Molecular cache clearing failed: {e}")
+
+        try:
+            # Force garbage collection
+            import gc
+            collected = gc.collect()
+            if collected > 0:
+                cleanup_results.append(f"Garbage collected {collected} objects")
+            else:
+                cleanup_results.append("No garbage to collect")
+        except Exception as e:
+            cleanup_results.append(f"Garbage collection failed: {str(e)}")
+            logger.error(f"Garbage collection failed: {e}")
+
+        # Show results to user
+        if cleanup_results:
+            st.success("Application Cleanup Complete!")
+            for result in cleanup_results:
+                st.write(result)
+            
+            # Show memory stats after cleanup
+            memory_stats = self.session.memory_manager.get_memory_stats()
+            st.info(f"Current memory usage: {memory_stats['cache_size_mb']:.1f}MB")
+        else:
+            st.warning("No cleanup actions were performed")
 
     def _render_workspace_status(self):
         """Render workspace status with collapsible sidebar functionality"""
@@ -806,42 +861,6 @@ class MainLayout:
         # This method is no longer used - replaced by inline callback
         pass
 
-    def _show_cache_statistics(self):
-        """Display cache statistics in a modal"""
-        with st.expander("Cache Performance", expanded=True):
-            stats = self.cache_manager.get_cache_statistics()
-            report = self.cache_manager.get_performance_report()
-
-            # Show summary metrics
-            overall = stats["overall"]
-            col1, col2, col3 = st.columns(3)
-
-            with col1:
-                st.metric("Hit Rate", f"{overall['hit_rate']:.1f}%")
-            with col2:
-                st.metric("Time Saved", f"{overall['time_saved_seconds']:.1f}s")
-            with col3:
-                st.metric("Total Requests", overall["hits"] + overall["misses"])
-
-            # Show detailed report
-            st.text(report)
-
-            # Cache management buttons
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("Clear All Caches"):
-                    result = self.cache_manager.clear_all_caches()
-                    st.success(f"Caches cleared in {result['clear_time']:.3f}s")
-
-            with col2:
-                if st.button("Export Stats"):
-                    st.download_button(
-                        "Download Cache Stats",
-                        data=str(stats),
-                        file_name="cache_stats.json",
-                        mime="application/json",
-                    )
-
     def _render_error_state(self, error: Exception):
         """Render error state UI
 
@@ -861,6 +880,6 @@ class MainLayout:
                     st.rerun()
 
             with col2:
-                if st.button("Clear Session"):
-                    self.session.clear()
+                if st.button("Clean Up & Restart"):
+                    self._cleanup_application()
                     st.rerun()

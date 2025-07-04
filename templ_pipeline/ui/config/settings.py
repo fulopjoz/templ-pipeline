@@ -80,11 +80,11 @@ class AppConfig:
         # 3. Maintains scientific rigor while improving usability
         self.scientific = {
             "confidence_level": 0.95,
-            "min_combo_score": 0.15,  # Conservative threshold (PMC equivalent: 0.3 on 0-2 scale)
+            "min_combo_score": 0.45,  # Pose prediction threshold aligned with SCORE_FAIR
             "quality_thresholds": {
-                "excellent": 0.35,  # PMC equivalent: 0.7 (more stringent than article's 0.6)
-                "good": 0.25,  # PMC equivalent: 0.5 (reliable pose prediction)
-                "moderate": 0.15,  # PMC equivalent: 0.3 (acceptable for optimization)
+                "excellent": 0.80,  # Top-tier pose prediction performance (RMSD ≤ 1.0 Å)
+                "good": 0.65,  # High-quality poses meeting RMSD ≤ 2.0 Å success criterion
+                "moderate": 0.45,  # Fair quality poses (RMSD 2.0-3.0 Å range)
                 "poor": 0.0,
             },
             "normalization_info": {

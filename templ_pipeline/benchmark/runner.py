@@ -70,12 +70,21 @@ class BenchmarkResult:
 
     def to_dict(self) -> Dict:
         """Convert to dictionary format compatible with existing benchmark code."""
-        return {
-            "success": self.success,
-            "rmsd_values": self.rmsd_values,
-            "runtime": self.runtime,
-            "error": self.error,
-        }
+        try:
+            return {
+                "success": self.success,
+                "rmsd_values": self.rmsd_values or {},
+                "runtime": self.runtime,
+                "error": str(self.error) if self.error is not None else None,
+            }
+        except Exception as e:
+            # Fallback if serialization fails
+            return {
+                "success": False,
+                "rmsd_values": {},
+                "runtime": 0.0,
+                "error": f"Serialization failed: {str(e)}"
+            }
 
 
 def monitor_memory_usage() -> Dict[str, float]:
@@ -110,12 +119,26 @@ def cleanup_memory():
 class BenchmarkRunner:
     """Memory-optimized TEMPL pipeline runner for benchmarks."""
 
-    def __init__(self, data_dir: str, poses_output_dir: Optional[str] = None):
+    def __init__(self, data_dir: str, poses_output_dir: Optional[str] = None, enable_error_tracking: bool = True, shared_cache_file: Optional[str] = None, shared_embedding_cache: Optional[str] = None):
         self.data_dir = Path(data_dir)
         self.poses_output_dir = Path(poses_output_dir) if poses_output_dir else None
         self.pipeline = None
         self.log = logging.getLogger(__name__)
         self._molecule_cache = None  # Will use shared cache
+        self._shared_cache_file = shared_cache_file
+        self._shared_embedding_cache = shared_embedding_cache
+        
+        # Initialize error tracking if enabled
+        self.error_tracker = None
+        if enable_error_tracking:
+            try:
+                from .error_tracking import BenchmarkErrorTracker
+                workspace_dir = self.poses_output_dir.parent if self.poses_output_dir else Path.cwd()
+                self.error_tracker = BenchmarkErrorTracker(workspace_dir)
+                self.log.info("Error tracking enabled")
+            except ImportError:
+                self.log.warning("Error tracking module not available")
+        
         self._setup_components()
 
     def _setup_components(self):
@@ -147,7 +170,9 @@ class BenchmarkRunner:
 
             if embedding_path.exists():
                 self.pipeline = TEMPLPipeline(
-                    embedding_path=str(embedding_path), output_dir=str(output_dir)
+                    embedding_path=str(embedding_path), 
+                    output_dir=str(output_dir),
+                    shared_embedding_cache=self._shared_embedding_cache
                 )
             else:
                 # Check legacy location as fallback
@@ -158,12 +183,16 @@ class BenchmarkRunner:
                     self.pipeline = TEMPLPipeline(
                         embedding_path=str(alt_embedding_path),
                         output_dir=str(output_dir),
+                        shared_embedding_cache=self._shared_embedding_cache
                     )
                 else:
                     self.log.warning(
                         "No embeddings found, initializing pipeline without embeddings"
                     )
-                    self.pipeline = TEMPLPipeline(output_dir=str(output_dir))
+                    self.pipeline = TEMPLPipeline(
+                        output_dir=str(output_dir),
+                        shared_embedding_cache=self._shared_embedding_cache
+                    )
 
             self.log.info(
                 f"TEMPL pipeline initialized with {memory_status['memory_gb']:.1f}GB memory usage"
@@ -189,9 +218,11 @@ class BenchmarkRunner:
                         f"Using global molecule cache: {len(self._molecule_cache)} molecules"
                     )
                 else:
+                    # Check for shared cache file from multiprocessing
+                    shared_cache_file = getattr(self, '_shared_cache_file', None)
                     # Fallback to original loading method
                     self._molecule_cache = load_molecules_with_shared_cache(
-                        self.data_dir
+                        self.data_dir, shared_cache_file=shared_cache_file
                     )
                     if not self._molecule_cache:
                         self.log.error("Failed to load molecule cache")
@@ -230,9 +261,17 @@ class BenchmarkRunner:
         crystal_mol = None
         effective_exclusions = set()
 
+        # Initialize error tracking if available
+        error_tracker = getattr(self, 'error_tracker', None)
+
         # Initial memory check
         memory_status = monitor_memory_usage()
         if memory_status["critical"]:
+            if error_tracker:
+                error_tracker.record_target_failure(
+                    params.target_pdb, 
+                    f"Critical memory usage: {memory_status['memory_gb']:.1f}GB"
+                )
             return BenchmarkResult(
                 success=False,
                 rmsd_values={},
@@ -246,15 +285,42 @@ class BenchmarkRunner:
             )
 
         try:
-            # Load protein file for target PDB
-            protein_file = self._get_protein_file(params.target_pdb)
+            # Load protein file for target PDB with graceful error handling
+            try:
+                protein_file = self._get_protein_file(params.target_pdb)
+            except FileNotFoundError as e:
+                if error_tracker:
+                    error_tracker.record_missing_pdb(
+                        params.target_pdb,
+                        "protein_file_not_found",
+                        str(e),
+                        "protein"
+                    )
+                raise ValueError(f"Protein file not found for {params.target_pdb}: {e}")
 
-            # Load ligand data using optimized shared cache
-            ligand_smiles, crystal_mol = self._load_ligand_data_from_sdf(
-                params.target_pdb
-            )
-            if not ligand_smiles or crystal_mol is None:
-                raise ValueError(f"Could not load ligand data for {params.target_pdb}")
+            # Load ligand data using optimized shared cache with graceful error handling
+            try:
+                ligand_smiles, crystal_mol = self._load_ligand_data_from_sdf(
+                    params.target_pdb
+                )
+                if not ligand_smiles or crystal_mol is None:
+                    if error_tracker:
+                        error_tracker.record_missing_pdb(
+                            params.target_pdb,
+                            "ligand_not_found",
+                            "Ligand data not found in database",
+                            "ligand"
+                        )
+                    raise ValueError(f"Could not load ligand data for {params.target_pdb}")
+            except Exception as e:
+                if error_tracker:
+                    error_tracker.record_missing_pdb(
+                        params.target_pdb,
+                        "ligand_load_failed",
+                        str(e),
+                        "ligand"
+                    )
+                raise ValueError(f"Could not load ligand data for {params.target_pdb}: {e}")
 
             # Early molecular quality validation
             try:
@@ -298,6 +364,9 @@ class BenchmarkRunner:
                 )
                 self.log.debug(f"Exclusions: {len(effective_exclusions)} PDBs")
 
+                # Use benchmark-specific output directory to prevent root directory pollution
+                benchmark_output_dir = str(self.poses_output_dir) if self.poses_output_dir else None
+                
                 pipeline_result = self.pipeline.run_full_pipeline(
                     protein_file=protein_file,
                     protein_pdb_id=params.target_pdb,
@@ -307,6 +376,7 @@ class BenchmarkRunner:
                     n_workers=params.internal_workers,  # Always 1 to prevent nested parallelization
                     similarity_threshold=params.similarity_threshold,
                     exclude_pdb_ids=effective_exclusions,
+                    output_dir=benchmark_output_dir,
                 )
 
                 self.log.debug(
@@ -314,14 +384,42 @@ class BenchmarkRunner:
                 )
 
             except Exception as pipeline_error:
-                self.log.error(
-                    f"Pipeline execution failed for {params.target_pdb}: {pipeline_error}"
-                )
-                self.log.error(f"Error type: {type(pipeline_error).__name__}")
-                import traceback
+                # Handle skip exceptions gracefully
+                from ..core.skip_manager import MoleculeSkipException, skip_molecule, SkipReason
+                
+                if isinstance(pipeline_error, MoleculeSkipException):
+                    # Record the skip and return gracefully
+                    skip_molecule(
+                        params.target_pdb, 
+                        pipeline_error.reason, 
+                        pipeline_error.message, 
+                        pipeline_error.details
+                    )
+                    self.log.info(f"Molecule {params.target_pdb} skipped: {pipeline_error.message}")
+                    
+                    # Return a special skip result that can be handled by benchmark
+                    return BenchmarkResult(
+                        success=False,
+                        rmsd_values={},
+                        runtime=time.time() - start_time,
+                        error=f"SKIPPED ({pipeline_error.reason.value}): {pipeline_error.message}",
+                        metadata={
+                            "target_pdb": params.target_pdb,
+                            "status": "skipped",
+                            "skip_reason": pipeline_error.reason.value,
+                            "skip_message": pipeline_error.message,
+                        }
+                    )
+                else:
+                    # Handle regular errors as before
+                    self.log.error(
+                        f"Pipeline execution failed for {params.target_pdb}: {pipeline_error}"
+                    )
+                    self.log.error(f"Error type: {type(pipeline_error).__name__}")
+                    import traceback
 
-                self.log.error(f"Traceback: {traceback.format_exc()}")
-                raise RuntimeError(f"Pipeline execution failed: {str(pipeline_error)}")
+                    self.log.error(f"Traceback: {traceback.format_exc()}")
+                    raise RuntimeError(f"Pipeline execution failed: {str(pipeline_error)}")
 
             # Validate pipeline result structure
             if not isinstance(pipeline_result, dict):
@@ -388,6 +486,10 @@ class BenchmarkRunner:
                 pass
 
             if rmsd_values:
+                # Record successful target processing
+                if self.error_tracker:
+                    self.error_tracker.record_target_success(params.target_pdb)
+                    
                 self.log.info(
                     f"TEMPL completed for {params.target_pdb} in {runtime:.1f}s"
                 )
@@ -403,6 +505,11 @@ class BenchmarkRunner:
                     },
                 )
             else:
+                # Record failed target processing
+                error_msg = "No poses generated or RMSD calculation failed"
+                if self.error_tracker:
+                    self.error_tracker.record_target_failure(params.target_pdb, error_msg)
+                    
                 self.log.warning(
                     f"TEMPL completed for {params.target_pdb} but no RMSD values"
                 )
@@ -410,7 +517,7 @@ class BenchmarkRunner:
                     success=False,
                     rmsd_values={},
                     runtime=runtime,
-                    error="No poses generated or RMSD calculation failed",
+                    error=error_msg,
                     metadata={
                         "target_pdb": params.target_pdb,
                         "excluded_count": len(effective_exclusions),
@@ -420,6 +527,8 @@ class BenchmarkRunner:
 
         except FileNotFoundError as e:
             runtime = time.time() - start_time
+            if self.error_tracker:
+                self.error_tracker.record_target_failure(params.target_pdb, f"File not found: {str(e)}")
             self.log.error(f"File not found for {params.target_pdb}: {e}")
             cleanup_memory()
             return BenchmarkResult(
@@ -430,6 +539,8 @@ class BenchmarkRunner:
             )
         except ValueError as e:
             runtime = time.time() - start_time
+            if self.error_tracker:
+                self.error_tracker.record_target_failure(params.target_pdb, f"Invalid input data: {str(e)}")
             self.log.error(f"Invalid input data for {params.target_pdb}: {e}")
             cleanup_memory()
             return BenchmarkResult(
@@ -440,6 +551,8 @@ class BenchmarkRunner:
             )
         except Exception as e:
             runtime = time.time() - start_time
+            if self.error_tracker:
+                self.error_tracker.record_target_failure(params.target_pdb, str(e))
             self.log.error(f"TEMPL pipeline failed for {params.target_pdb}: {e}")
             cleanup_memory()
             return BenchmarkResult(
@@ -606,6 +719,8 @@ def run_templ_pipeline_for_benchmark(
     timeout: int = 1800,
     data_dir: str = None,
     poses_output_dir: str = None,
+    shared_cache_file: str = None,
+    shared_embedding_cache: str = None,
 ) -> Dict:
     """Main entry point for benchmark pipeline execution."""
 
@@ -625,6 +740,24 @@ def run_templ_pipeline_for_benchmark(
         timeout=timeout,
     )
 
-    runner = BenchmarkRunner(data_dir, poses_output_dir)
+    runner = BenchmarkRunner(
+        data_dir, 
+        poses_output_dir, 
+        shared_cache_file=shared_cache_file,
+        shared_embedding_cache=shared_embedding_cache
+    )
     result = runner.run_single_target(params)
-    return result.to_dict()
+    
+    # Ensure result is properly converted to dictionary
+    if hasattr(result, 'to_dict'):
+        return result.to_dict()
+    elif isinstance(result, dict):
+        return result
+    else:
+        # Fallback for unexpected return types
+        return {
+            "success": False,
+            "rmsd_values": {},
+            "runtime": 0.0,
+            "error": f"Unexpected result type: {type(result)}"
+        }

@@ -95,7 +95,6 @@ def main():
         logger.info("Creating main layout...")
         layout = MainLayout(config, session)
 
-        # ✅ Use the proper layout render method instead of manual rendering
         layout.render()
 
         logger.info("Main function completed successfully")
@@ -154,12 +153,9 @@ def main():
             col1, col2, col3 = st.columns(3)
 
             with col1:
-                if st.button("🔄 Restart Application"):
+                if st.button("Restart Application"):
                     st.cache_data.clear()
                     st.cache_resource.clear()
-                    for key in list(st.session_state.keys()):
-                        del st.session_state[key]
-                    st.rerun()
 
             with col2:
                 if st.button("Clear Session Only"):
@@ -169,7 +165,7 @@ def main():
                     st.rerun()
 
             with col3:
-                if st.button("📋 Copy Error Info"):
+                if st.button("Copy Error Info"):
                     error_info = f"Error: {str(e)}\n\n{traceback.format_exc()}"
                     st.code(error_info)
                     st.info("Copy the error information above")
