@@ -155,9 +155,9 @@ class PipelineService:
                         import streamlit as st
 
                         if hasattr(st, "error"):
-                            st.error(f"❌ {error_msg}")
+                            st.error(f" {error_msg}")
                             st.info(
-                                f"💡 **Suggestion**: Upload the PDB file directly using the 'Upload File' option"
+                                f"**Suggestion**: Upload the PDB file directly using the 'Upload File' option"
                             )
 
                             # Show help for getting PDB files
@@ -255,17 +255,17 @@ class PipelineService:
                         # Already handled above
                         pass
                     elif "No templates found" in error_str:
-                        st.error("❌ No similar templates found in database")
+                        st.error("No similar templates found in database")
                         st.info(
-                            "💡 Try uploading custom template molecules or using a different protein"
+                            "Try uploading custom template molecules or using a different protein"
                         )
                     elif "embedding" in error_str.lower():
-                        st.error("❌ Failed to generate protein embedding")
+                        st.error("Failed to generate protein embedding")
                         st.info(
-                            "💡 Check that the PDB file is valid and contains protein chains"
+                            "Check that the PDB file is valid and contains protein chains"
                         )
                     else:
-                        st.error(f"❌ Pipeline error: {error_str}")
+                        st.error(f"Pipeline error: {error_str}")
             except:
                 logger.error(f"Pipeline error: {error_str}")
 
@@ -347,9 +347,9 @@ class PipelineService:
                     import streamlit as st
 
                     if hasattr(st, "warning"):
-                        st.warning("⚠️ No similar proteins found in database")
+                        st.warning("No similar proteins found in database")
                         st.info(
-                            "💡 Consider uploading custom template molecules instead"
+                            "Consider uploading custom template molecules instead"
                         )
                 except:
                     logger.warning("No similar proteins found in database")
@@ -362,7 +362,7 @@ class PipelineService:
                 import streamlit as st
 
                 if hasattr(st, "success"):
-                    st.success(f"✅ Found {len(templates)} similar protein structures")
+                    st.success(f"Found {len(templates)} similar protein structures")
 
                     # Show top templates
                     with st.expander("Top similar proteins", expanded=False):

@@ -200,8 +200,8 @@ class MolecularSessionManager:
                     # Track if this is a good pose
                     combo_score = scores.get("combo", scores.get("combo_score", 0))
                     if (
-                        combo_score > 0.15
-                    ):  # Threshold for keeping poses - Updated from 0.3 to 0.15 based on literature validation
+                        combo_score > 0.45
+                    ):  # Threshold for keeping poses - Using SCORE_FAIR threshold for pose prediction quality
                         best_poses[method] = {
                             "key": pose_key,
                             "scores": scores,
