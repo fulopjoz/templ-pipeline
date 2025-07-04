@@ -181,7 +181,3 @@ temp/
 CLAUDE.md
 .mypy_cache/benchmark_workspace_time-split_*/
 .mypy_cache/
-
-# Benchmark workspace directories
-benchmark_workspace_*/
-templ_benchmark_results_*/
