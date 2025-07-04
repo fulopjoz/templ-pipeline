@@ -1,2 +1,182 @@
+# ==============================================
+# PYTHON & DEVELOPMENT
+# ==============================================
+
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*.pyc
+*.so
+.Python
+
+# Distribution and packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Testing and coverage
+.coverage
+.pytest_cache/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.templ/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+*.sublime-workspace
+*.sublime-project
+
+# ==============================================
+# PROJECT-SPECIFIC DATA & OUTPUTS
+# ==============================================
+
+# Large data directories
 data/PDBBind/PDBbind_v2020_other_PL
 data/PDBBind/PDBbind_v2020_refined
+!data/README.md
+temp_*
+# Output and results
+output/
+output_*/
+
+# Model files and checkpoints
+*.pth
+*.pkl
+*.h5
+*.hdf5
+*.ckpt
+*.pt
+*.model
+*.bin
+
+# ==============================================
+# TEMPORARY & BACKUP FILES
+# ==============================================
+
+# Backup files
+*.backup
+*_backup.py
+*_broken_backup.py
+*_fast.py
+*_original.py
+*_working_base.py
+*.bak
+*.tmp
+*.temp
+*~
+*.old
+
+# Debug and diagnostic files
+debug_*.py
+diagnostic_*.py
+ultra_minimal.py
+test_minimal_*.py
+temp_*.py
+analysis_*.py
+
+# Memory bank backups
+memory-bank/*.backup
+cursor-memory-bank/
+
+# ==============================================
+# SYSTEM & OS FILES
+# ==============================================
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Log files
+*.log
+logs/
+log/
+*.log.*
+
+# ==============================================
+# CHEMICAL & SCIENTIFIC DATA
+# ==============================================
+
+# Chemical data files
+*.mol2
+*.sdf.backup
+*.npz.backup
+*.cv.tsv
+*.ind.tsv
+*.smi
+tmp_*.sdf
+temp_*.sdf
+
+# Temporary calculation files
+*.tmp.csv
+*.tmp.tsv
+*.tmp.sdf
+*.tmp.mol2
+
+# ==============================================
+# DEPLOYMENT & CONFIGURATION
+# ==============================================
+
+# Docker and deployment
+Dockerfile.optimized
+templ-app-optimized.yaml
+deploy-optimized.sh
+test-docker-local.sh
+
+# Package files
+*.pkg
+*.tgz
+*.tar.gz
+*.zip
+*.rar
+*.7z
+
+# Temporary directories
+/tmp/
+tmp*/
+temp/
+.temp/
+
+
+# CLAUDE
+CLAUDE.md
+.mypy_cache/
