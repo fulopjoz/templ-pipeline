@@ -15,7 +15,8 @@ The main classes and functions:
 """
 
 import logging
-from concurrent.futures import ProcessPoolExecutor
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import Dict, List, Optional, Tuple, Any, Union, Set
 import numpy as np
 
@@ -969,6 +970,48 @@ def _score_and_align_task(args_tuple):
         return None
 
 
+def _get_executor_for_context(n_workers: int):
+    """Get appropriate executor based on process context and thread resource management.
+    
+    Uses ThreadPoolExecutor if running in daemon process (to avoid 
+    'daemonic processes are not allowed to have children' error),
+    otherwise uses ProcessPoolExecutor for better performance.
+    
+    Integrates with ThreadResourceManager to prevent thread exhaustion.
+    """
+    try:
+        # Import ThreadResourceManager with fallback handling
+        try:
+            from .thread_manager import get_safe_worker_count, log_thread_status
+            
+            # Get safe worker count for scoring tasks
+            safe_workers = get_safe_worker_count(n_workers, task_type="scoring")
+            
+            # Log thread status for debugging
+            log_thread_status("before_executor_creation")
+            
+        except (ImportError, AttributeError) as import_error:
+            # Fallback if thread manager not available
+            logger.warning(f"Thread manager not available, using conservative worker count: {import_error}")
+            safe_workers = min(n_workers, 4)  # Conservative fallback
+        
+        current_process = multiprocessing.current_process()
+        if hasattr(current_process, 'daemon') and current_process.daemon:
+            # Running in daemon process, use threads
+            logger.debug(f"Using ThreadPoolExecutor with {safe_workers} workers (daemon process detected, requested: {n_workers})")
+            return ThreadPoolExecutor(max_workers=safe_workers)
+        else:
+            # Not in daemon process, use processes
+            logger.debug(f"Using ProcessPoolExecutor with {safe_workers} workers (requested: {n_workers})")
+            return ProcessPoolExecutor(max_workers=safe_workers)
+    except Exception as e:
+        # Fallback to threads if there's any issue with process detection
+        logger.warning(f"Process detection failed, using ThreadPoolExecutor: {e}")
+        # Use minimal worker count as fallback
+        fallback_workers = min(n_workers, 2)
+        return ThreadPoolExecutor(max_workers=fallback_workers)
+
+
 def select_best(
     confs: Chem.Mol,
     tpl: Chem.Mol,
@@ -1086,10 +1129,32 @@ def select_best(
 
         # Process this batch
         if n_workers > 1 and len(args_list) > 1:
-            with ProcessPoolExecutor(
-                max_workers=min(n_workers, len(args_list))
-            ) as executor:
-                batch_results = list(executor.map(_score_and_align_task, args_list))
+            try:
+                # Import thread monitoring functions (optional)
+                try:
+                    from .thread_manager import log_thread_status
+                    # Log thread status before creating executor
+                    log_thread_status("before_batch_processing")
+                except ImportError:
+                    # Thread monitoring not available, continue without it
+                    pass
+                
+                with _get_executor_for_context(
+                    min(n_workers, len(args_list))
+                ) as executor:
+                    batch_results = list(executor.map(_score_and_align_task, args_list))
+                
+                # Log thread status after executor cleanup (optional)
+                try:
+                    from .thread_manager import log_thread_status
+                    log_thread_status("after_batch_processing")
+                except ImportError:
+                    # Thread monitoring not available, continue without it
+                    pass
+                
+            except Exception as e:
+                logger.warning(f"Parallel processing failed: {e}, falling back to sequential")
+                batch_results = [_score_and_align_task(args) for args in args_list]
         else:
             batch_results = [_score_and_align_task(args) for args in args_list]
 

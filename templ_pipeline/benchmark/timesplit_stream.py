@@ -67,6 +67,9 @@ class TimesplitConfig:
     # Hard cap for each worker process (address space limit). If a worker
     # exceeds this amount the kernel will OOM-kill it or raise MemoryError.
     per_worker_ram_gb: float = 4.0
+    # Shared cache files for workers
+    shared_cache_file: Optional[str] = None
+    shared_embedding_cache: Optional[str] = None
 
     def ensure_dirs(self) -> None:
         Path(self.results_dir).mkdir(parents=True, exist_ok=True)
@@ -122,9 +125,33 @@ def _worker_task(args: tuple) -> Dict:
         pass
 
     try:
+        # Determine which split this target belongs to and compute exclusions
+        target_split = None
+        timesplit_exclusions = set()
+        
+        # Try to determine target's split by checking which split file contains it
+        for split_name in ["train", "val", "test"]:
+            try:
+                split_pdbs = load_timesplit_pdb_list(split_name)
+                if target_pdb.lower() in [pdb.lower() for pdb in split_pdbs]:
+                    target_split = split_name
+                    break
+            except Exception:
+                continue
+        
+        if target_split:
+            # Get time-based exclusions for this target's split
+            timesplit_exclusions = get_timesplit_template_exclusions(target_pdb, target_split)
+        else:
+            # Fallback: just exclude the target itself
+            timesplit_exclusions = {target_pdb}
+        
+        # Combine original exclusions with time-based exclusions
+        effective_exclusions = (cfg.exclude_pdb_ids or set()) | timesplit_exclusions
+
         result = run_templ_pipeline_for_benchmark(
             target_pdb=target_pdb,
-            exclude_pdb_ids=cfg.exclude_pdb_ids or set(),
+            exclude_pdb_ids=effective_exclusions,
             n_conformers=cfg.n_conformers,
             template_knn=cfg.template_knn,
             similarity_threshold=cfg.similarity_threshold,
@@ -132,8 +159,17 @@ def _worker_task(args: tuple) -> Dict:
             timeout=cfg.timeout,
             data_dir=cfg.data_dir,
             poses_output_dir=os.path.join(cfg.results_dir, "poses"),
+            shared_cache_file=cfg_dict.get('shared_cache_file'),
+            shared_embedding_cache=cfg_dict.get('shared_embedding_cache'),
         )
+        
+        # Ensure result is a dictionary (handle case where BenchmarkResult object is returned)
+        if hasattr(result, 'to_dict'):
+            result = result.to_dict()
+        
         result["pdb_id"] = target_pdb
+        result["target_split"] = target_split
+        result["exclusions_count"] = len(effective_exclusions)
         result["runtime_total"] = time.perf_counter() - start
         return result
 
@@ -177,6 +213,12 @@ def run_timesplit_streaming(
         raise ValueError("No target PDBs provided")
 
     results_dir = results_dir or os.path.join(os.getcwd(), "timesplit_stream_results")
+    
+    # Calculate optimal internal workers if not specified or if default value
+    effective_max_workers = max_workers or os.cpu_count() or 2
+    if internal_workers == 1:  # Default value, optimize it
+        internal_workers = _calculate_optimal_internal_workers(effective_max_workers)
+    
     cfg = TimesplitConfig(
         data_dir=data_dir,
         results_dir=results_dir,
@@ -187,7 +229,7 @@ def run_timesplit_streaming(
         similarity_threshold=similarity_threshold,
         internal_workers=internal_workers,
         timeout=timeout,
-        max_workers=max_workers or os.cpu_count() or 2,
+        max_workers=effective_max_workers,
         max_ram_gb=max_ram_gb,
         memory_per_worker_gb=memory_per_worker_gb,
         per_worker_ram_gb=per_worker_ram_gb,
@@ -233,9 +275,63 @@ def run_timesplit_streaming(
 
     pool_size = _compute_pool_size(cfg)
 
+    # Pre-load shared caches for workers
+    print(f"Pre-loading caches to share across {pool_size} workers...")
+    shared_cache_file = None
+    shared_embedding_cache = None
+    
+    # 1. Pre-load molecule cache
+    try:
+        from templ_pipeline.core.utils import (
+            load_molecules_with_shared_cache, 
+            create_shared_molecule_cache,
+            create_shared_embedding_cache,
+            cleanup_shared_cache
+        )
+        
+        # Load molecules once
+        data_path = Path(data_dir)
+        molecules = load_molecules_with_shared_cache(data_path)
+        if molecules:
+            # Create shared cache file for workers
+            shared_cache_file = create_shared_molecule_cache(molecules, Path(cfg.results_dir))
+            print(f"Created shared molecule cache with {len(molecules)} molecules: {shared_cache_file}")
+        else:
+            print("Warning: Failed to pre-load molecule cache")
+    except Exception as e:
+        print(f"Warning: Failed to pre-load molecule cache: {e}")
+
+    # 2. Pre-load embedding cache
+    try:
+        from templ_pipeline.core.embedding import EmbeddingManager
+        
+        # Create a temporary embedding manager to load embeddings
+        temp_embedding_manager = EmbeddingManager()
+        if temp_embedding_manager.embedding_db:
+            # Create shared embedding cache
+            embedding_data = {
+                'embedding_db': temp_embedding_manager.embedding_db,
+                'embedding_chain_data': temp_embedding_manager.embedding_chain_data
+            }
+            shared_embedding_cache = create_shared_embedding_cache(embedding_data, Path(cfg.results_dir))
+            print(f"Created shared embedding cache with {len(embedding_data['embedding_db'])} embeddings: {shared_embedding_cache}")
+        else:
+            print("Warning: Failed to load embeddings for shared cache")
+    except Exception as e:
+        print(f"Warning: Failed to pre-load embedding cache: {e}")
+
+    # Add cleanup handler
+    import atexit
+    if shared_cache_file:
+        atexit.register(cleanup_shared_cache)
+
     ctx = mp.get_context("spawn")
     with ctx.Pool(processes=pool_size, maxtasksperchild=1) as pool:
-        tasks_iter = ((pdb_id, asdict(cfg)) for pdb_id in cfg.target_pdbs)
+        # Add shared cache files to config for workers
+        cfg_dict = asdict(cfg)
+        cfg_dict['shared_cache_file'] = shared_cache_file
+        cfg_dict['shared_embedding_cache'] = shared_embedding_cache
+        tasks_iter = ((pdb_id, cfg_dict) for pdb_id in cfg.target_pdbs)
         for result in pool.imap_unordered(_worker_task, tasks_iter):
             # Append to JSONL
             with output_jsonl.open("a", encoding="utf-8") as fh:
@@ -252,11 +348,132 @@ def run_timesplit_streaming(
                 )
 
             _maybe_throttle(pool, cfg)
+    
+    # Generate error summary report at the end
+    _generate_error_summary_report(cfg)
+
+
+def _generate_error_summary_report(cfg: TimesplitConfig) -> None:
+    """Generate comprehensive error summary report from individual error reports."""
+    try:
+        from .error_tracking import BenchmarkErrorTracker
+        import json
+        from pathlib import Path
+        from collections import defaultdict
+        
+        results_dir = Path(cfg.results_dir)
+        error_tracking_dir = results_dir / "error_tracking"
+        
+        if not error_tracking_dir.exists():
+            return  # No error tracking data available
+            
+        # Initialize combined error tracker
+        combined_tracker = BenchmarkErrorTracker(results_dir)
+        
+        # Load and combine individual worker error reports
+        error_report_files = list(error_tracking_dir.glob("worker_error_report_*.json"))
+        
+        if error_report_files:
+            print(f"Combining error reports from {len(error_report_files)} workers...")
+            
+            for error_file in error_report_files:
+                try:
+                    with open(error_file, 'r') as f:
+                        worker_report = json.load(f)
+                    
+                    # Add worker data to combined tracker
+                    if "missing_pdbs" in worker_report:
+                        for pdb_id, records in worker_report["missing_pdbs"].items():
+                            for record in records:
+                                combined_tracker.record_missing_pdb(
+                                    record["pdb_id"],
+                                    record["error_type"], 
+                                    record["error_message"],
+                                    record["component"],
+                                    record.get("context", {})
+                                )
+                    
+                    # Track successful/failed targets
+                    if worker_report.get("successful_targets", 0) > 0:
+                        # Extract PDB ID from filename
+                        pdb_id = error_file.stem.replace("worker_error_report_", "")
+                        combined_tracker.record_target_success(pdb_id)
+                    elif worker_report.get("failed_targets", 0) > 0:
+                        pdb_id = error_file.stem.replace("worker_error_report_", "") 
+                        combined_tracker.record_target_failure(pdb_id, "Worker processing failed")
+                        
+                except Exception as e:
+                    print(f"Warning: Failed to process error report {error_file}: {e}")
+        
+        # Also parse the main results JSONL for additional error information
+        results_jsonl = results_dir / "results_stream.jsonl"
+        if results_jsonl.exists():
+            try:
+                with open(results_jsonl, 'r') as f:
+                    for line in f:
+                        if line.strip():
+                            result = json.loads(line)
+                            pdb_id = result.get("pdb_id", "unknown")
+                            
+                            if result.get("success", False):
+                                combined_tracker.record_target_success(pdb_id)
+                            else:
+                                error_msg = result.get("error", "Unknown error")
+                                combined_tracker.record_target_failure(pdb_id, error_msg)
+            except Exception as e:
+                print(f"Warning: Failed to parse results JSONL: {e}")
+        
+        # Generate and save final combined error report
+        final_report_path = combined_tracker.save_error_report("timesplit_combined_error_report.json")
+        
+        # Print summary to console
+        combined_tracker.print_error_summary()
+        
+        # Generate recovery plan
+        recovery_plan = combined_tracker.create_missing_pdb_recovery_plan()
+        if recovery_plan:
+            recovery_plan_path = error_tracking_dir / "recovery_plan.json"
+            with open(recovery_plan_path, 'w') as f:
+                json.dump(recovery_plan, f, indent=2)
+            print(f"\nRecovery plan saved to: {recovery_plan_path}")
+            print("Recovery Plan Summary:")
+            for category, pdbs in recovery_plan.items():
+                print(f"  {category}: {len(pdbs)} PDBs")
+        
+        print(f"\nDetailed error report: {final_report_path}")
+        
+    except ImportError:
+        print("Error tracking module not available - skipping error summary")
+    except Exception as e:
+        print(f"Warning: Failed to generate error summary: {e}")
 
 
 ###############################################################################
 # Helper utilities
 ###############################################################################
+
+
+def _calculate_optimal_internal_workers(n_workers: int) -> int:
+    """Calculate optimal internal workers for scoring performance.
+    
+    Strategy: Use fewer benchmark workers with more internal workers each
+    to optimize scoring performance while preventing CPU oversubscription.
+    
+    Args:
+        n_workers: Number of benchmark workers (concurrent PDB targets)
+        
+    Returns:
+        Optimal number of internal workers for scoring
+    """
+    # For high worker counts, reduce benchmark workers but increase internal workers
+    if n_workers >= 16:
+        return 3  # 16 benchmark workers × 3 internal = 48 total (may oversubscribe but scoring is I/O bound)
+    elif n_workers >= 8:
+        return 2  # 8 benchmark workers × 2 internal = 16 total (balanced)
+    elif n_workers >= 4:
+        return 2  # 4 benchmark workers × 2 internal = 8 total (conservative)
+    else:
+        return max(1, min(3, 6 // n_workers))  # For low worker counts, allow more internal workers
 
 
 def _maybe_throttle(pool: mp.pool.Pool, cfg: TimesplitConfig) -> None:
@@ -314,18 +531,80 @@ def load_timesplit_pdb_list(split_name: str) -> List[str]:
     if split_name not in {"train", "val", "test"}:
         raise ValueError(f"Invalid split name: {split_name}")
 
-    # Locate the split file relative to the package root so that it works in
-    # both editable installs and packaged wheels.
-    package_root = Path(__file__).resolve().parent.parent  # templ_pipeline/
-    split_file = package_root / "data" / "splits" / f"timesplit_{split_name}"
-
-    if not split_file.exists():
-        raise FileNotFoundError(f"Time-split file not found: {split_file}")
+    # Locate the split file with multiple fallback paths for robustness
+    potential_paths = [
+        # From package root (templ_pipeline/)
+        Path(__file__).resolve().parent.parent / "data" / "splits" / f"timesplit_{split_name}",
+        # From current working directory
+        Path.cwd() / "data" / "splits" / f"timesplit_{split_name}",
+        # From project root
+        Path.cwd() / "templ_pipeline" / "data" / "splits" / f"timesplit_{split_name}",
+        # Relative paths
+        Path("data") / "splits" / f"timesplit_{split_name}",
+        Path("..") / "data" / "splits" / f"timesplit_{split_name}",
+    ]
+    
+    split_file = None
+    for path in potential_paths:
+        if path.exists():
+            split_file = path
+            break
+    
+    if split_file is None:
+        raise FileNotFoundError(
+            f"Time-split file 'timesplit_{split_name}' not found. Tried locations:\n" +
+            "\n".join(f"  - {p}" for p in potential_paths)
+        )
 
     with split_file.open("r", encoding="utf-8") as fh:
         pdbs = [ln.strip().lower() for ln in fh if ln.strip()]
 
     return pdbs
+
+
+def get_timesplit_template_exclusions(target_pdb: str, target_split: str) -> Set[str]:
+    """Get PDB IDs to exclude from template search based on time split rules.
+    
+    Time split rules:
+    - Train (<2018): Use leave-one-out within train (exclude target + val + test)
+    - Val (2018-2019): Use only train templates (exclude target + val + test)  
+    - Test (>2019): Use train + val templates (exclude target + test)
+    
+    Parameters
+    ----------
+    target_pdb
+        The target PDB ID being processed
+    target_split 
+        The split this target belongs to ("train", "val", "test")
+        
+    Returns
+    -------
+    Set[str]
+        Set of PDB IDs to exclude from template search
+    """
+    exclusions = {target_pdb}  # Always exclude the target itself
+    
+    try:
+        if target_split == "train":
+            # Train: exclude val and test sets (leave-one-out within train)
+            exclusions.update(load_timesplit_pdb_list("val"))
+            exclusions.update(load_timesplit_pdb_list("test"))
+            
+        elif target_split == "val":
+            # Val: exclude val and test sets (use only train templates)
+            exclusions.update(load_timesplit_pdb_list("val"))
+            exclusions.update(load_timesplit_pdb_list("test"))
+            
+        elif target_split == "test":
+            # Test: exclude test set only (use train + val templates)
+            exclusions.update(load_timesplit_pdb_list("test"))
+            
+    except Exception as e:
+        # If we can't load splits, at least exclude the target
+        import logging
+        logging.warning(f"Could not load split files for exclusions: {e}")
+    
+    return exclusions
 
 
 # Expose helper for external use (e.g., tests)
@@ -354,27 +633,56 @@ def run_timesplit_benchmark(
     from pathlib import Path
     import json
 
-    # Default data directory - try to find actual data location
+    # Default data directory - discover TEMPL pipeline data location dynamically
     import os
-
-    data_dir = os.environ.get("PDBBIND_DATA_DIR", "/data/pdbbind")
-
-    # Try common locations if default doesn't exist
-    if not os.path.exists(data_dir):
-        possible_dirs = [
-            "/home/ubuntu/mcs/templ_pipeline/data",
-            "/home/ubuntu/mcs/templ_pipeline/data/PDBBind",
-            "/home/ubuntu/mcs/data",
-            "/home/ubuntu/data",
-            "./templ_pipeline/data",
-            "./templ_pipeline/data/PDBBind",
-            "./data",
-            "../data",
-        ]
-        for candidate in possible_dirs:
-            if os.path.exists(candidate):
-                data_dir = candidate
-                break
+    
+    # Try multiple potential data directory locations
+    potential_data_dirs = [
+        # From current file location: go up to find data directory
+        Path(__file__).resolve().parent.parent / "data",
+        # From current working directory
+        Path.cwd() / "data",
+        # If running from templ_pipeline subdirectory
+        Path.cwd() / "templ_pipeline" / "data",
+        # Relative paths
+        Path("data"),
+        Path("..") / "data",
+        Path("../../data"),  # In case we're deeper in the directory structure
+    ]
+    
+    data_dir = None
+    for candidate_path in potential_data_dirs:
+        # Check if this looks like a TEMPL data directory by looking for key files
+        if (candidate_path.exists() and 
+            (candidate_path / "ligands" / "processed_ligands_new.sdf.gz").exists()):
+            data_dir = str(candidate_path)
+            break
+    
+    # Fallback to PDBBind-style directories if TEMPL data not found
+    if data_dir is None:
+        # Check environment variable first
+        env_data_dir = os.environ.get("PDBBIND_DATA_DIR")
+        if env_data_dir and Path(env_data_dir).exists():
+            data_dir = env_data_dir
+        else:
+            # Try to find PDBBind data directories dynamically
+            potential_pdbbind_dirs = [
+                # From discovered data directory
+                *(candidate_path / "PDBBind" for candidate_path in potential_data_dirs if candidate_path.exists()),
+                # Generic fallback locations
+                Path.cwd() / "data" / "PDBBind",
+                Path("data") / "PDBBind", 
+                Path("..") / "data" / "PDBBind",
+            ]
+            
+            for candidate in potential_pdbbind_dirs:
+                if candidate.exists():
+                    data_dir = str(candidate)
+                    break
+            
+            # Final fallback
+            if data_dir is None:
+                data_dir = "/data/pdbbind"
 
     # ------------------------------------------------------------------
     # Load selected splits from packaged lists
@@ -420,7 +728,7 @@ def run_timesplit_benchmark(
             max_ram_gb=max_ram_gb,
             memory_per_worker_gb=memory_per_worker_gb,
             per_worker_ram_gb=per_worker_ram_gb,
-            internal_workers=1,  # Force single internal worker to prevent nested parallelization
+            internal_workers=_calculate_optimal_internal_workers(n_workers or 2),  # Balanced workers for scoring performance
         )
 
         # Return success indicator for compatibility
