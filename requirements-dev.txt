@@ -496,6 +496,10 @@ streamlit==1.46.1
     #   templ-pipeline
 sympy==1.14.0
     # via torch
+tabulate==0.9.0
+    # via
+    #   templ-pipeline
+    #   templ-pipeline (pyproject.toml)
 templ-pipeline[full] @ file:///home/ubuntu/mcs/templ_pipeline
     # via file:///home/ubuntu/mcs/templ-pipeline
 tenacity==9.1.2
