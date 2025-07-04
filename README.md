@@ -137,15 +137,55 @@ python run_streamlit_app.py
 
 ---
 
-## Benchmarking Examples
+## Benchmarking
+
+TEMPL includes comprehensive benchmarking capabilities for reproducing paper results and evaluating performance.
+
+### Quick Benchmarks
 
 ```bash
-# Polaris challenge (CPU-only, 8 workers)
-templ benchmark polaris --n-workers 8 --n-conformers 200
+# Quick Polaris benchmark (reduced dataset for testing)
+templ benchmark polaris --quick
 
-# PDBbind time-split (ensure PDBBind/ downloaded first)
-templ benchmark time-split --n-workers 8 --pipeline-workers 1
+# Quick timesplit benchmark (test set only, 5 PDBs max)
+templ benchmark time-split --test-only --max-pdbs 5
 ```
+
+### Full Benchmarks
+
+```bash
+# Complete Polaris benchmark with hardware optimization
+templ benchmark polaris --n-workers 8 --hardware-profile balanced
+
+# Complete timesplit benchmark (requires PDBBind dataset)
+templ benchmark time-split --n-workers 4 --max-ram 16.0
+```
+
+### Hardware Optimization
+
+```bash
+# Conservative profile (safe for shared systems)
+templ benchmark polaris --hardware-profile conservative
+
+# Aggressive profile (maximum performance)
+templ benchmark time-split --hardware-profile aggressive --enable-hyperthreading
+
+# Custom resource limits
+templ benchmark polaris --cpu-limit 8 --memory-limit 12.0
+```
+
+### Benchmark Options
+
+| Option | Description |
+|--------|-------------|
+| `--quick` | Run reduced dataset for quick validation |
+| `--hardware-profile` | `conservative`, `balanced`, `aggressive`, or `auto` |
+| `--n-workers` | Number of parallel workers |
+| `--max-ram` | Memory limit in GB (timesplit only) |
+| `--test-only` | Evaluate test set only (timesplit only) |
+| `--max-pdbs` | Limit number of PDBs for testing |
+
+Results are saved to structured workspace directories with CSV, JSON, and Markdown summaries.
 
 ---
 
