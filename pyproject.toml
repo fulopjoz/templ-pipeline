@@ -3,8 +3,8 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "templ_pipeline"
-version = "0.1.0"
+name = "templ-pipeline"
+version = "1.0.0"
 description = "TEMPL (Template-based Protein Ligand) pose prediction pipeline"
 authors = [
     {name = "TEMPL Team", email = "author@example.com"},
@@ -18,47 +18,74 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
     "Topic :: Scientific/Engineering :: Chemistry",
 ]
+
+# Core dependencies - essential for all installations
 dependencies = [
     "numpy>=1.20.0",
-    "pandas>=1.3.0",
+    "pandas>=1.3.0", 
     "scikit-learn>=1.0.0",
-    "streamlit>=1.10.0",
     "rdkit>=2022.03.1",
     "biopython>=1.79",
-    "tqdm>=4.62.0",
-    "transformers>=4.10.0",
-    "torch>=1.10.0",
-    "py3Dmol>=1.8.0",
     "biotite>=0.34.0",
-    "stmol>=0.0.9",
-    "rich>=12.0.0",
-    "colorama>=0.4.4",
     "spyrmsd>=0.8.0",
-    "pebble>=4.6.0",
-    "psutil>=5.8.0",
 ]
 
 [project.optional-dependencies]
+# Basic CLI enhancements (progress bars, colored output)
+basic = [
+    "tqdm>=4.62.0",
+    "rich>=12.0.0",
+    "colorama>=0.4.4",
+]
+
+# Web interface (includes basic enhancements)
+web = [
+    "templ-pipeline[basic]",
+    "streamlit>=1.45.0",
+]
+
+# Performance optimizations (system monitoring, parallel processing)
+performance = [
+    "psutil>=5.8.0",
+    "pebble>=4.6.0",
+]
+
+# Embedding/AI features (protein language models)
+embeddings = [
+    "transformers>=4.10.0",
+    "torch>=2.0.0",  # Auto-detects CUDA
+    "sentence-transformers>=2.0.0",
+]
+
+# Full installation (all optional features)
+full = [
+    "templ-pipeline[basic,performance,embeddings]",
+    "streamlit>=1.45.0",
+]
+
+# Development (contributors only)
 dev = [
+    "templ-pipeline[full]",
     "pytest>=7.0.0",
     "pytest-cov>=3.0.0",
-    "black>=22.3.0",
-    "isort>=5.10.0",
+    "pytest-asyncio>=1.0.0",
+    "black>=22.0.0",
+    "isort>=5.0.0",
     "flake8>=4.0.0",
     "mypy>=0.950",
-]
-examples = [
-    "matplotlib>=3.5.0",
-]
-scripts = [
-    "umap-learn>=0.5.0",
 ]
 
 [project.scripts]
 templ = "templ_pipeline.cli.main:main"
+
+[project.entry-points."console_scripts"]
+templ = "templ_pipeline.cli.main:main"
+templ-pipeline = "templ_pipeline.cli.main:main"
 
 [project.urls]
 "Homepage" = "https://github.com/username/templ_pipeline"
@@ -79,10 +106,13 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 markers = [
-    "fast: marks tests as fast running",
+    "fast: marks tests as fast running (< 10s)",
+    "medium: marks tests as medium running (< 30s)", 
+    "slow: marks tests as slow running (> 30s)",
+    "integration: marks tests as integration tests",
+    "ui: marks tests as UI/Streamlit tests",
     "performance: marks tests as performance-related",
-    "slow: marks tests as slow running"
 ]
 
 [tool.deptry]
-per_rule_ignores = { DEP003 = ["templ_pipeline"], DEP004 = ["matplotlib", "umap"] } 
+per_rule_ignores = { DEP003 = ["templ_pipeline"], DEP004 = ["matplotlib", "umap"] }

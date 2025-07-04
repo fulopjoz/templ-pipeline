@@ -1,3 +1,4 @@
 *.npz filter=lfs diff=lfs merge=lfs -text
 *.sdf filter=lfs diff=lfs merge=lfs -text
+data/embeddings/*.npz filter=lfs diff=lfs merge=lfs -text
 *.sdf !text !filter !merge !diff

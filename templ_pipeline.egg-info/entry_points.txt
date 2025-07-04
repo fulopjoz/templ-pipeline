@@ -1,2 +1,0 @@
-[console_scripts]
-templ = templ_pipeline.cli.main:main
