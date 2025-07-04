@@ -49,7 +49,34 @@ import uuid
 import random
 
 # Import chemistry functions
-from .chemistry import detect_and_substitute_organometallic, needs_uff_fallback
+try:
+    from .chemistry import detect_and_substitute_organometallic, needs_uff_fallback
+except ImportError:
+    # Define fallback functions if chemistry module not available
+    def detect_and_substitute_organometallic(mol, name="unknown"):
+        return mol, False, []
+    def needs_uff_fallback(mol):
+        return False
+
+# Import organometallic handling
+try:
+    from .organometallic import (
+        detect_and_substitute_organometallic as detect_organometallic_alt,
+        needs_uff_fallback as needs_uff_alt,
+        has_organometallic_atoms,
+        minimize_with_uff,
+        embed_with_uff_fallback
+    )
+except ImportError:
+    # Use existing functions if organometallic module not available
+    detect_organometallic_alt = detect_and_substitute_organometallic
+    needs_uff_alt = needs_uff_fallback
+    def has_organometallic_atoms(mol):
+        return False, []
+    def minimize_with_uff(mol, conf_ids, fixed_atoms=None, max_its=200):
+        pass
+    def embed_with_uff_fallback(mol, n_conformers, ps, coordMap=None):
+        return []
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -332,6 +359,102 @@ def find_best_ca_rmsd_template(refs: List[Chem.Mol]) -> int:
     return best_idx
 
 
+def get_central_atom(mol: Chem.Mol) -> int:
+    """Get the index of the central atom by picking the atom with the smallest
+    sum of shortest path to all other atoms. In case of tie returns the first one.
+    
+    Args:
+        mol: Input molecule
+        
+    Returns:
+        Index of the central atom
+    """
+    if mol is None or mol.GetNumAtoms() == 0:
+        return 0
+        
+    try:
+        tdm = Chem.GetDistanceMatrix(mol)
+        pathsum = [(idx, sum(row)) for idx, row in enumerate(tdm)]
+        return sorted(pathsum, key=lambda x: x[1])[0][0]
+    except Exception as e:
+        logger.warning(f"Failed to calculate central atom, using atom 0: {e}")
+        return 0
+
+
+def central_atom_embed(tgt: Chem.Mol, ref: Chem.Mol, n_conformers: int, n_workers: int) -> Optional[Chem.Mol]:
+    """Generate conformers using central atom positioning when MCS fails.
+    
+    Places target molecule's central atom at template's central atom position.
+    
+    Args:
+        tgt: Target molecule
+        ref: Reference template molecule  
+        n_conformers: Number of conformers to generate
+        n_workers: Number of workers for parallel processing
+        
+    Returns:
+        Molecule with generated conformers positioned using central atom alignment
+    """
+    from rdkit.Geometry import Point3D
+    
+    # Get central atoms
+    tgt_central = get_central_atom(tgt)
+    ref_central = get_central_atom(ref)
+    ref_central_pos = ref.GetConformer().GetAtomPosition(ref_central)
+    
+    logger.info(
+        f"Central atom positioning: target atom {tgt_central} -> template atom {ref_central}"
+    )
+    
+    # Generate unconstrained conformers first
+    probe = Chem.AddHs(tgt)
+    ps = rdDistGeom.ETKDGv3()
+    ps.numThreads = n_workers if n_workers > 0 else 0
+    conf_ids = rdDistGeom.EmbedMultipleConfs(probe, n_conformers, ps)
+    
+    if not conf_ids:
+        logger.warning("Failed to generate conformers for central atom positioning")
+        return probe
+    
+    # Find central atom in the H-added molecule
+    # Map from original molecule to H-added molecule
+    atom_map = {}
+    for i, atom in enumerate(tgt.GetAtoms()):
+        atom_map[i] = i  # Assuming H's are added at the end
+    
+    probe_central = atom_map.get(tgt_central, tgt_central)
+    
+    # Translate each conformer to align central atoms
+    for cid in conf_ids:
+        conf = probe.GetConformer(cid)
+        current_central_pos = conf.GetAtomPosition(probe_central)
+        
+        # Calculate translation vector
+        translation = ref_central_pos - current_central_pos
+        
+        # Apply translation to all atoms
+        for i in range(conf.GetNumAtoms()):
+            old_pos = conf.GetAtomPosition(i)
+            new_pos = old_pos + translation
+            conf.SetAtomPosition(i, new_pos)
+        
+        # Quick UFF relaxation to remove strain from simple translation
+        try:
+            AllChem.UFFOptimizeMolecule(probe, confId=cid, maxIters=50)
+        except Exception as uff_e:
+            logger.debug(f"UFF optimization warning (conf {cid}): {uff_e}")
+    
+    # Sanitize molecule after coordinate translation
+    try:
+        Chem.SanitizeMol(probe)
+        probe.GetRingInfo()  # Ensure ring information is properly maintained
+    except Exception as e:
+        logger.warning(f"Sanitization after central atom translation failed: {e}")
+    
+    logger.info(f"Generated {len(conf_ids)} conformers using central atom alignment")
+    return probe
+
+
 def prepare_mol(
     mol: Chem.Mol, remove_stereo: bool = False, simplify: bool = False
 ) -> Optional[Chem.Mol]:
@@ -527,6 +650,69 @@ def generate_conformers(
                 logger.info(
                     f"DEBUG: mcs_atom_indices content (failed case): {mcs_atom_indices}"
                 )
+                
+                # ROBUST FALLBACK STRATEGY: Try multiple approaches when MCS-based generation fails
+                logger.info("MCS-based conformer generation failed - implementing fallback strategies")
+                
+                # Strategy 1: Central atom fallback if coverage is very low
+                if isinstance(mcs_atom_indices, dict) and mcs_atom_indices.get("atom_count", 0) < 5:
+                    logger.info("Strategy 1: Using central atom positioning due to poor MCS coverage")
+                    try:
+                        fallback_mol = central_atom_embed(query_mol, best_template, n_conformers, n_workers)
+                        if fallback_mol and fallback_mol.GetNumConformers() > 0:
+                            logger.info(f"Central atom fallback generated {fallback_mol.GetNumConformers()} conformers")
+                            if isinstance(mcs_atom_indices, dict):
+                                mcs_atom_indices["fallback_used"] = "central_atom"
+                            return fallback_mol, mcs_atom_indices
+                    except Exception as central_err:
+                        logger.warning(f"Central atom fallback failed: {str(central_err)}")
+                
+                # Strategy 2: Unconstrained conformer generation with best template positioning
+                logger.info("Strategy 2: Generating unconstrained conformers")
+                try:
+                    fallback_mol = Chem.AddHs(query_mol)
+                    ps = rdDistGeom.ETKDGv3()
+                    ps.numThreads = n_workers if n_workers > 0 else 0
+                    ps.maxIterations = 2000  # Increase attempts for difficult molecules
+                    ps.useRandomCoords = True
+                    ps.enforceChirality = False
+                    
+                    conf_ids = rdDistGeom.EmbedMultipleConfs(fallback_mol, n_conformers, ps)
+                    
+                    if conf_ids and len(conf_ids) > 0:
+                        logger.info(f"Unconstrained fallback generated {len(conf_ids)} conformers")
+                        if isinstance(mcs_atom_indices, dict):
+                            mcs_atom_indices["fallback_used"] = "unconstrained"
+                        return fallback_mol, mcs_atom_indices
+                        
+                except Exception as uncon_err:
+                    logger.warning(f"Unconstrained fallback failed: {str(uncon_err)}")
+                
+                # Strategy 3: Minimal conformer generation (last resort)
+                logger.warning("Strategy 3: Attempting minimal conformer generation as last resort")
+                try:
+                    minimal_mol = Chem.AddHs(query_mol)
+                    ps_minimal = rdDistGeom.ETKDGv3()
+                    ps_minimal.numThreads = 1  # Single thread for stability
+                    ps_minimal.maxIterations = 500
+                    ps_minimal.useRandomCoords = True
+                    ps_minimal.enforceChirality = False
+                    
+                    # Try with fewer conformers
+                    minimal_confs = min(n_conformers, 20)
+                    conf_ids = rdDistGeom.EmbedMultipleConfs(minimal_mol, minimal_confs, ps_minimal)
+                    
+                    if conf_ids and len(conf_ids) > 0:
+                        logger.warning(f"Minimal fallback generated {len(conf_ids)} conformers (reduced from {n_conformers})")
+                        if isinstance(mcs_atom_indices, dict):
+                            mcs_atom_indices["fallback_used"] = "minimal"
+                        return minimal_mol, mcs_atom_indices
+                        
+                except Exception as minimal_err:
+                    logger.error(f"All fallback strategies failed: {str(minimal_err)}")
+                
+                # If all fallbacks fail, return None but preserve MCS info for debugging
+                logger.error("All conformer generation strategies failed")
                 return None, mcs_atom_indices
         except Exception as e:
             logger.error(

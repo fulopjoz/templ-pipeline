@@ -26,14 +26,6 @@ try:
 except ImportError:
     logger.warning("Enhanced scoring components not available")
 
-# Import unified workspace management
-try:
-    from .unified_workspace_manager import UnifiedWorkspaceManager, WorkspaceConfig
-    
-    logger.debug("Unified workspace manager loaded")
-except ImportError:
-    logger.warning("Unified workspace manager not available")
-
 
 class TEMPLPipeline:
     """Main pipeline orchestrator for TEMPL."""
@@ -41,97 +33,48 @@ class TEMPLPipeline:
     def __init__(
         self,
         embedding_path: Optional[str] = None,
-        output_dir: str = "workspace",
+        output_dir: str = "output",
         run_id: Optional[str] = None,
         auto_cleanup: bool = False,
-        use_unified_workspace: bool = True,
-        workspace_config: Optional[WorkspaceConfig] = None,
+        shared_embedding_cache: Optional[str] = None,
     ):
         """
         Initialize the TEMPL pipeline.
 
         Args:
             embedding_path: Path to embedding database
-            output_dir: Base directory for workspace (formerly output only)
+            output_dir: Base directory for output files
             run_id: Custom run identifier (default: timestamp)
-            auto_cleanup: Whether to automatically clean up temp files on exit
-            use_unified_workspace: Whether to use the new unified workspace manager
-            workspace_config: Configuration for workspace management
+            auto_cleanup: Whether to automatically clean up output directory on exit
         """
         self.embedding_path = embedding_path
         self.auto_cleanup = auto_cleanup
         self._cleanup_registered = False
-        self.use_unified_workspace = use_unified_workspace
+        self.shared_embedding_cache = shared_embedding_cache
 
-        # Initialize workspace management
-        if self.use_unified_workspace:
-            try:
-                # Create workspace configuration
-                if workspace_config is None:
-                    workspace_config = WorkspaceConfig(
-                        base_dir=output_dir,
-                        auto_cleanup=auto_cleanup
-                    )
-                
-                # Initialize unified workspace manager
-                self.workspace_manager = UnifiedWorkspaceManager(
-                    run_id=run_id,
-                    config=workspace_config
-                )
-                
-                # For backward compatibility, expose output_dir
-                self.output_dir = self.workspace_manager.output_dir
-                self.run_id = self.workspace_manager.run_id
-                
-                logger.info(f"Initialized unified workspace: {self.workspace_manager.run_dir}")
-                
-            except Exception as e:
-                logger.warning(f"Failed to initialize unified workspace: {e}")
-                logger.info("Falling back to legacy output directory management")
-                self.use_unified_workspace = False
-                self._init_legacy_output_dir(output_dir, run_id)
+        # Create timestamped output directory
+        if run_id:
+            self.output_dir = Path(f"{output_dir}_{run_id}")
         else:
-            self._init_legacy_output_dir(output_dir, run_id)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self.output_dir = Path(f"{output_dir}_{timestamp}")
+
+        self.output_dir.mkdir(exist_ok=True)
 
         # Register cleanup if requested
         if self.auto_cleanup and not self._cleanup_registered:
             import atexit
-            atexit.register(self._cleanup_workspace)
+
+            atexit.register(self._cleanup_output_dir)
             self._cleanup_registered = True
-            logger.debug(f"Registered auto-cleanup for workspace")
+            logger.debug(f"Registered auto-cleanup for {self.output_dir}")
 
         # Initialize components lazily
         self._embedding_manager = None
         self._rdkit_modules = None
 
-    def _init_legacy_output_dir(self, output_dir: str, run_id: Optional[str]):
-        """Initialize legacy output directory management."""
-        # Create timestamped output directory (legacy behavior)
-        if run_id:
-            self.output_dir = Path(f"{output_dir}_{run_id}")
-            self.run_id = run_id
-        else:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            self.output_dir = Path(f"{output_dir}_{timestamp}")
-            self.run_id = timestamp
-
-        self.output_dir.mkdir(exist_ok=True)
-        self.workspace_manager = None
-        logger.info(f"Initialized legacy output directory: {self.output_dir}")
-
-    def _cleanup_workspace(self):
-        """Clean up workspace using appropriate method."""
-        if self.use_unified_workspace and self.workspace_manager:
-            try:
-                self.workspace_manager.cleanup_temp_files()
-                logger.debug(f"Cleaned up workspace temp files: {self.workspace_manager.run_dir}")
-            except Exception as e:
-                logger.warning(f"Failed to clean up workspace: {e}")
-        else:
-            self._cleanup_output_dir()
-
     def _cleanup_output_dir(self):
-        """Clean up the output directory (legacy method)."""
+        """Clean up the output directory."""
         if self.output_dir and self.output_dir.exists():
             try:
                 import shutil
@@ -144,52 +87,8 @@ class TEMPLPipeline:
                 )
 
     def cleanup(self):
-        """Manually clean up workspace or output directory."""
-        self._cleanup_workspace()
-
-    def get_temp_file(self, prefix: str = "templ", suffix: str = ".tmp", category: str = "processing") -> str:
-        """
-        Get a temporary file path using workspace manager.
-        
-        Args:
-            prefix: File prefix
-            suffix: File extension  
-            category: File category ('uploaded', 'processing', 'cache')
-            
-        Returns:
-            Path to temporary file
-        """
-        if self.use_unified_workspace and self.workspace_manager:
-            return self.workspace_manager.get_temp_file(prefix, suffix, category)
-        else:
-            # Fallback to tempfile for legacy mode
-            import tempfile
-            fd, temp_path = tempfile.mkstemp(prefix=f"{prefix}_", suffix=suffix)
-            os.close(fd)
-            return temp_path
-
-    def save_uploaded_file(self, content: bytes, filename: str, secure_hash: Optional[str] = None) -> str:
-        """
-        Save uploaded file using workspace manager.
-        
-        Args:
-            content: File content
-            filename: Original filename
-            secure_hash: Optional security hash
-            
-        Returns:
-            Path to saved file
-        """
-        if self.use_unified_workspace and self.workspace_manager:
-            return self.workspace_manager.save_uploaded_file(content, filename, secure_hash)
-        else:
-            # Fallback to output directory for legacy mode
-            import hashlib
-            content_hash = hashlib.sha256(content).hexdigest()[:16]
-            safe_filename = f"{content_hash}_{int(datetime.now().timestamp())}{Path(filename).suffix}"
-            file_path = self.output_dir / safe_filename
-            file_path.write_bytes(content)
-            return str(file_path)
+        """Manually clean up the output directory."""
+        self._cleanup_output_dir()
 
     def __enter__(self):
         """Context manager entry."""
@@ -198,7 +97,7 @@ class TEMPLPipeline:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit with cleanup."""
         if self.auto_cleanup:
-            self._cleanup_workspace()
+            self._cleanup_output_dir()
 
     def _get_embedding_manager(self):
         """Lazy initialization of embedding manager."""
@@ -223,7 +122,10 @@ class TEMPLPipeline:
                         "No embedding database found. Please specify embedding_path."
                     )
 
-            self._embedding_manager = EmbeddingManager(self.embedding_path)
+            self._embedding_manager = EmbeddingManager(
+                self.embedding_path, 
+                shared_embedding_cache=self.shared_embedding_cache
+            )
 
         return self._embedding_manager
 
@@ -505,9 +407,31 @@ class TEMPLPipeline:
         """
         from .mcs import generate_conformers, find_mcs
         from .scoring import select_best
+        from .molecule_validation import validate_target_molecule, get_molecule_complexity_info
 
         if not template_mols:
             raise ValueError("No template molecules provided")
+
+        # Validate query molecule before processing with skip management
+        from .skip_manager import MoleculeSkipException, create_validation_skip_wrapper
+        
+        query_mol_clean = Chem.RemoveHs(query_mol) if query_mol else None
+        
+        # Create validation wrapper that converts failures to skip exceptions
+        validation_wrapper = create_validation_skip_wrapper(validate_target_molecule)
+        
+        try:
+            is_valid, validation_msg = validation_wrapper(query_mol_clean, "query", peptide_threshold=8)
+            
+            # Log complexity information for debugging
+            complexity_info = get_molecule_complexity_info(query_mol_clean)
+            logger.debug(f"Query molecule complexity: {complexity_info}")
+            
+        except MoleculeSkipException as skip_ex:
+            # Log the skip and re-raise to be handled by caller
+            complexity_info = get_molecule_complexity_info(query_mol_clean)
+            logger.info(f"Molecule complexity: {complexity_info}")
+            raise skip_ex
 
         logger.info(
             f"Generating poses with {len(template_mols)} templates, {num_conformers} conformers, {n_workers} workers"
@@ -524,10 +448,22 @@ class TEMPLPipeline:
             logger.info(f"MCS info captured for template selection")
 
         if conformers is None:
-            raise RuntimeError("Failed to generate conformers")
+            # Check if fallback info is available in mcs_info
+            if mcs_info and isinstance(mcs_info, dict) and mcs_info.get("fallback_used"):
+                fallback_type = mcs_info.get("fallback_used")
+                logger.error(f"Conformer generation failed even with {fallback_type} fallback strategy")
+                raise RuntimeError(f"All conformer generation strategies failed (including {fallback_type} fallback)")
+            else:
+                logger.error("Conformer generation failed without attempting fallback strategies")
+                raise RuntimeError("Failed to generate conformers - no fallback strategies were attempted")
 
         n_generated = conformers.GetNumConformers()
         logger.info(f"Generated {n_generated}/{num_conformers} conformers")
+        
+        # Log if fallback was used
+        if mcs_info and isinstance(mcs_info, dict) and mcs_info.get("fallback_used"):
+            fallback_type = mcs_info.get("fallback_used") 
+            logger.warning(f"Used {fallback_type} fallback strategy for conformer generation")
 
         if n_generated == 0:
             raise RuntimeError("No conformers generated")
@@ -595,9 +531,10 @@ class TEMPLPipeline:
         batch_id: Optional[str] = None,
         custom_prefix: Optional[str] = None,
         generate_fair_metadata: bool = True,
+        output_dir: Optional[str] = None,
     ) -> str:
         """
-        Save poses to SDF file using unified workspace management.
+        Save poses to SDF file using adaptive file naming system.
 
         Args:
             poses: Dictionary of poses from generate_poses
@@ -609,6 +546,7 @@ class TEMPLPipeline:
             batch_id: Batch identifier for batch processing
             custom_prefix: Custom prefix for filename
             generate_fair_metadata: Whether to generate FAIR metadata (default: True)
+            output_dir: Custom output directory (overrides default timestamped directory)
 
         Returns:
             Path to the saved SDF file
@@ -618,194 +556,14 @@ class TEMPLPipeline:
             return ""
 
         try:
-            # Generate filename using unified workspace approach
-            if self.use_unified_workspace and self.workspace_manager:
-                # Use workspace manager for output file naming
-                if custom_prefix:
-                    base_filename = f"{custom_prefix}_poses"
-                elif target_pdb:
-                    base_filename = f"{target_pdb}_poses"
-                elif template_pdb and template_pdb != "unknown":
-                    base_filename = f"{template_pdb}_poses"
-                else:
-                    base_filename = "poses"
-                
-                sdf_filename = f"{base_filename}.sdf"
-                
-                # Create SDF content
-                sdf_content = self._create_sdf_content(poses, template_pdb, target_pdb)
-                
-                # Save using workspace manager
-                output_path = self.workspace_manager.save_output(
-                    sdf_filename, 
-                    sdf_content, 
-                    category="result"
-                )
-                
-                poses_written = len(poses)
-                best_scores = self._extract_best_scores(poses)
-                
-            else:
-                # Fallback to legacy approach with output manager
-                output_path = self._save_results_legacy(
-                    poses, template_pdb, target_pdb, ligand_smiles, 
-                    ligand_file, template_source, batch_id, custom_prefix
-                )
-                poses_written = len(poses)
-                best_scores = self._extract_best_scores(poses)
-
-            # Generate comprehensive metadata if requested
-            if generate_fair_metadata:
-                try:
-                    metadata = self._create_comprehensive_metadata(
-                        output_path=output_path,
-                        poses_count=poses_written,
-                        best_scores=best_scores,
-                        template_pdb=template_pdb,
-                        target_pdb=target_pdb,
-                        ligand_smiles=ligand_smiles,
-                        ligand_file=ligand_file,
-                        template_source=template_source,
-                        batch_id=batch_id
-                    )
-                    
-                    # Save metadata using workspace manager
-                    if self.use_unified_workspace and self.workspace_manager:
-                        base_name = Path(output_path).stem
-                        self.workspace_manager.save_metadata(base_name, metadata)
-                    else:
-                        # Legacy metadata saving
-                        metadata_path = output_path.replace(".sdf", "_metadata.json")
-                        with open(metadata_path, 'w') as f:
-                            import json
-                            json.dump(metadata, f, indent=2)
-                    
-                except Exception as e:
-                    logger.warning(f"Failed to generate metadata: {e}")
-
-            logger.info(f"Saved {poses_written} poses to {output_path}")
-            return output_path
-
-        except Exception as e:
-            logger.error(f"Error saving poses: {e}")
-            # Final fallback to simple SDF file
-            return self._save_fallback_sdf(poses)
-
-    def _create_sdf_content(self, poses: Dict[str, Tuple[Any, Dict[str, float]]], 
-                           template_pdb: str, target_pdb: Optional[str]) -> str:
-        """Create SDF content from poses dictionary."""
-        Chem, _ = self._get_rdkit()
-        
-        # Create temporary file to write SDF content
-        import tempfile
-        with tempfile.NamedTemporaryFile(mode='w+', suffix='.sdf', delete=False) as tmp:
-            writer = Chem.SDWriter(tmp.name)
-            
-            for pose_id, (mol, scores) in poses.items():
-                try:
-                    # Add pose metadata to molecule
-                    mol.SetProp("_Name", pose_id)
-                    mol.SetProp("Template_PDB", template_pdb)
-                    if target_pdb:
-                        mol.SetProp("Target_PDB", target_pdb)
-
-                    # Add scores as properties
-                    for score_name, score_value in scores.items():
-                        mol.SetProp(score_name, str(score_value))
-
-                    writer.write(mol)
-
-                except Exception as e:
-                    logger.warning(f"Failed to process pose {pose_id}: {e}")
-                    continue
-            
-            writer.close()
-            
-            # Read the content back
-            with open(tmp.name, 'r') as f:
-                content = f.read()
-            
-            # Clean up temporary file
-            os.unlink(tmp.name)
-            
-            return content
-
-    def _extract_best_scores(self, poses: Dict[str, Tuple[Any, Dict[str, float]]]) -> Dict[str, float]:
-        """Extract best scores from poses dictionary."""
-        best_scores = {}
-        
-        for pose_id, (mol, scores) in poses.items():
-            for score_name, score_value in scores.items():
-                if (score_name not in best_scores or 
-                    score_value > best_scores[score_name]):
-                    best_scores[score_name] = score_value
-        
-        return best_scores
-
-    def _create_comprehensive_metadata(self, output_path: str, poses_count: int,
-                                     best_scores: Dict[str, float], template_pdb: str,
-                                     target_pdb: Optional[str], ligand_smiles: Optional[str],
-                                     ligand_file: Optional[str], template_source: Optional[str],
-                                     batch_id: Optional[str]) -> Dict[str, Any]:
-        """Create comprehensive metadata for the prediction results."""
-        
-        metadata = {
-            "pipeline_info": {
-                "version": "2.0.0",
-                "run_id": self.run_id,
-                "timestamp": datetime.now().isoformat(),
-                "workspace_unified": self.use_unified_workspace
-            },
-            "input": {
-                "target_pdb": target_pdb,
-                "ligand_smiles": ligand_smiles,
-                "ligand_file": ligand_file,
-                "template_source": template_source or "database",
-                "batch_id": batch_id
-            },
-            "output": {
-                "file_path": output_path,
-                "format": "sdf",
-                "poses_count": poses_count,
-                "best_scores": best_scores
-            },
-            "templates": {
-                "primary_template": template_pdb
-            },
-            "processing": {
-                "workspace_structure": "unified" if self.use_unified_workspace else "legacy"
-            }
-        }
-        
-        # Add molecular descriptors if SMILES available
-        if ligand_smiles:
-            try:
-                # Try to calculate basic descriptors
-                from rdkit import Descriptors
-                from rdkit.Chem import Crippen
-                
-                Chem, _ = self._get_rdkit()
-                mol = Chem.MolFromSmiles(ligand_smiles)
-                if mol:
-                    metadata["molecular_properties"] = {
-                        "molecular_weight": Descriptors.MolWt(mol),
-                        "logp": Crippen.MolLogP(mol),
-                        "num_atoms": mol.GetNumAtoms(),
-                        "num_bonds": mol.GetNumBonds(),
-                        "num_rings": Descriptors.RingCount(mol)
-                    }
-            except Exception as e:
-                logger.debug(f"Could not calculate molecular descriptors: {e}")
-        
-        return metadata
-
-    def _save_results_legacy(self, poses, template_pdb, target_pdb, ligand_smiles,
-                           ligand_file, template_source, batch_id, custom_prefix) -> str:
-        """Legacy save method using OutputManager if available."""
-        try:
+            # Create output manager and prediction context
             from ..core.output_manager import OutputManager, PredictionContext
 
-            output_manager = OutputManager()
+            # Use custom output directory if provided, otherwise use default timestamped directory
+            if output_dir:
+                output_manager = OutputManager(output_dir=output_dir, run_id="")
+            else:
+                output_manager = OutputManager()
 
             # Create prediction context for adaptive naming
             context = PredictionContext(
@@ -820,62 +578,175 @@ class TEMPLPipeline:
             # Generate filename using adaptive naming
             filename = output_manager.generate_output_filename(context, "poses", "sdf")
 
-        except ImportError:
-            # Fallback to simple naming if OutputManager not available
-            if custom_prefix:
-                filename = f"{custom_prefix}_poses.sdf"
-            elif target_pdb:
-                filename = f"{target_pdb}_poses.sdf"
-            else:
-                filename = f"poses_{self.run_id}.sdf"
-            
-            # Use output directory
-            filename = str(self.output_dir / filename)
-
-        # Create SDF writer
-        Chem, _ = self._get_rdkit()
-        writer = Chem.SDWriter(filename)
-
-        # Write poses to file
-        for pose_id, (mol, scores) in poses.items():
-            try:
-                mol.SetProp("_Name", pose_id)
-                mol.SetProp("Template_PDB", template_pdb)
-                if target_pdb:
-                    mol.SetProp("Target_PDB", target_pdb)
-
-                for score_name, score_value in scores.items():
-                    mol.SetProp(score_name, str(score_value))
-
-                writer.write(mol)
-
-            except Exception as e:
-                logger.warning(f"Failed to write pose {pose_id}: {e}")
-                continue
-
-        writer.close()
-        return filename
-
-    def _save_fallback_sdf(self, poses: Dict[str, Tuple[Any, Dict[str, float]]]) -> str:
-        """Final fallback method to save poses."""
-        try:
-            fallback_filename = str(self.output_dir / "poses_fallback.sdf")
+            # Create SDF writer
             Chem, _ = self._get_rdkit()
-            writer = Chem.SDWriter(fallback_filename)
-            
+            writer = Chem.SDWriter(filename)
+
+            best_scores = {}
+            poses_written = 0
+
+            # Write poses to file
             for pose_id, (mol, scores) in poses.items():
-                mol.SetProp("_Name", pose_id)
-                writer.write(mol)
-            
+                try:
+                    # Add pose metadata to molecule
+                    mol.SetProp("_Name", pose_id)
+                    mol.SetProp("Template_PDB", template_pdb)
+                    if target_pdb:
+                        mol.SetProp("Target_PDB", target_pdb)
+
+                    # Add scores as properties
+                    for score_name, score_value in scores.items():
+                        mol.SetProp(score_name, str(score_value))
+
+                        # Track best scores
+                        if (
+                            score_name not in best_scores
+                            or score_value > best_scores[score_name]
+                        ):
+                            best_scores[score_name] = score_value
+
+                    writer.write(mol)
+                    poses_written += 1
+
+                except Exception as e:
+                    logger.warning(f"Failed to write pose {pose_id}: {e}")
+                    continue
+
             writer.close()
-            logger.warning(f"Used fallback SDF save: {fallback_filename}")
-            return fallback_filename
-            
+
+            # Generate FAIR metadata if requested
+            if generate_fair_metadata:
+                try:
+                    self._generate_fair_metadata(
+                        filename=filename,
+                        context=context,
+                        poses_count=poses_written,
+                        best_scores=best_scores,
+                        template_pdb=template_pdb,
+                        ligand_smiles=ligand_smiles,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to generate FAIR metadata: {e}")
+
+            logger.info(f"Saved {poses_written} poses to {filename}")
+            return filename
+
         except Exception as e:
-            logger.error(f"Even fallback save failed: {e}")
-            return ""
+            logger.error(f"Error saving poses: {e}")
+            # Fallback to simple naming if adaptive naming fails
+            fallback_filename = "poses.sdf"
+            try:
+                Chem, _ = self._get_rdkit()
+                writer = Chem.SDWriter(fallback_filename)
+                for pose_id, (mol, scores) in poses.items():
+                    mol.SetProp("_Name", pose_id)
+                    writer.write(mol)
+                writer.close()
+                return fallback_filename
+            except:
+                return ""
 
+    def _generate_fair_metadata(
+        self,
+        filename: str,
+        context,
+        poses_count: int,
+        best_scores: Dict[str, float],
+        template_pdb: str,
+        ligand_smiles: Optional[str],
+    ) -> None:
+        """
+        Generate comprehensive FAIR metadata for the prediction results.
 
+        Args:
+            filename: Output filename
+            context: PredictionContext object
+            poses_count: Number of poses generated
+            best_scores: Best scoring values
+            template_pdb: Template PDB identifier
+            ligand_smiles: SMILES string of ligand
+        """
+        try:
+            from ..fair.core.metadata_engine import MetadataEngine
+            from ..fair.biology.molecular_descriptors import (
+                calculate_comprehensive_descriptors,
+            )
+
+            # Create metadata engine
+            metadata_engine = MetadataEngine(pipeline_version="2.0.0")
+
+            # Determine input type and value
+            input_type = "unknown"
+            input_value = ""
+            template_identifiers = []
+
+            if context.pdb_id:
+                input_type = "pdb_id"
+                input_value = context.pdb_id
+            elif ligand_smiles:
+                input_type = "smiles"
+                input_value = ligand_smiles
+            elif context.input_file:
+                input_type = "sdf_file"
+                input_value = context.input_file
+
+            if template_pdb and template_pdb != "unknown":
+                template_identifiers = [template_pdb]
+
+            # Create input metadata
+            input_metadata = metadata_engine.create_input_metadata(
+                target_identifier=context.pdb_id,
+                input_type=input_type,
+                input_value=input_value,
+                input_file=context.input_file,
+                template_source=context.template_source,
+                template_identifiers=template_identifiers,
+                parameters={
+                    "batch_id": context.batch_id,
+                    "custom_prefix": context.custom_prefix,
+                    "template_pdb": template_pdb,
+                },
+            )
+
+            # Create output metadata
+            output_metadata = metadata_engine.create_output_metadata(
+                primary_output=filename,
+                output_format="sdf",
+                poses_generated=poses_count,
+                best_scores=best_scores,
+            )
+
+            # Generate molecular descriptors if SMILES available
+            biological_context = {}
+            if ligand_smiles:
+                try:
+                    descriptors = calculate_comprehensive_descriptors(ligand_smiles)
+                    if descriptors.get("calculation_success"):
+                        biological_context["molecular_descriptors"] = descriptors
+                except Exception as e:
+                    logger.warning(f"Failed to calculate molecular descriptors: {e}")
+
+            # Create scientific metadata
+            scientific_metadata = metadata_engine.create_scientific_metadata(
+                biological_context=biological_context
+            )
+
+            # Create provenance record
+            provenance_record = metadata_engine.create_provenance_record(
+                input_metadata, output_metadata, scientific_metadata
+            )
+
+            # Export metadata to JSON
+            metadata_path = filename.replace(".sdf", "_metadata.json")
+            metadata_engine.export_metadata(
+                provenance_record, metadata_path, format="json"
+            )
+
+            logger.info(f"FAIR metadata saved to {metadata_path}")
+
+        except Exception as e:
+            logger.error(f"Error generating FAIR metadata: {e}")
+            # Don't raise exception - metadata generation failure shouldn't stop pipeline
 
     def run_full_pipeline(
         self,
@@ -889,6 +760,7 @@ class TEMPLPipeline:
         similarity_threshold: Optional[float] = None,
         use_aligned_poses: bool = True,
         exclude_pdb_ids: Optional[Set[str]] = None,
+        output_dir: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Run the complete TEMPL pipeline.
@@ -904,6 +776,7 @@ class TEMPLPipeline:
             similarity_threshold: Minimum similarity threshold for templates
             use_aligned_poses: If True, return aligned poses. If False, return original conformers.
             exclude_pdb_ids: Set of PDB IDs to exclude from template search
+            output_dir: Custom output directory for saving results
 
         Returns:
             Dictionary with pipeline results
@@ -1029,6 +902,7 @@ class TEMPLPipeline:
                 template_source="database" if protein_pdb_id else None,
                 batch_id=None,
                 custom_prefix=None,
+                output_dir=output_dir,
             )
             results["output_file"] = output_file
 
