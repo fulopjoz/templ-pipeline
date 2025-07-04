@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 # Global cache manager for shared molecules across processes
 _GLOBAL_MOLECULE_CACHE = None
+_SHARED_CACHE_FILE = None
 
 
 def initialize_global_molecule_cache():
@@ -58,6 +59,134 @@ def set_global_molecule_cache(molecules: List[Any]):
     if _GLOBAL_MOLECULE_CACHE is None:
         _GLOBAL_MOLECULE_CACHE = {}
     _GLOBAL_MOLECULE_CACHE["molecules"] = molecules
+
+
+def create_shared_molecule_cache(molecules: List[Any], cache_dir: Optional[Path] = None) -> str:
+    """Create a shared molecule cache file for multiprocessing.
+    
+    Args:
+        molecules: List of RDKit molecules to cache
+        cache_dir: Directory to store cache file (default: temp directory)
+    
+    Returns:
+        Path to the cache file
+    """
+    import tempfile
+    import pickle
+    import os
+    
+    if cache_dir is None:
+        cache_dir = Path(tempfile.gettempdir())
+    
+    cache_dir.mkdir(exist_ok=True, parents=True)
+    
+    # Create unique cache file
+    cache_file = cache_dir / f"templ_molecule_cache_{os.getpid()}_{len(molecules)}.pkl"
+    
+    # Serialize molecules to file
+    with open(cache_file, 'wb') as f:
+        pickle.dump(molecules, f, protocol=pickle.HIGHEST_PROTOCOL)
+    
+    global _SHARED_CACHE_FILE
+    _SHARED_CACHE_FILE = str(cache_file)
+    
+    logger.info(f"Created shared molecule cache: {cache_file}")
+    return str(cache_file)
+
+
+def load_shared_molecule_cache(cache_file: str) -> Optional[List[Any]]:
+    """Load molecules from shared cache file.
+    
+    Args:
+        cache_file: Path to cache file
+        
+    Returns:
+        List of molecules or None if failed
+    """
+    import pickle
+    
+    try:
+        if not os.path.exists(cache_file):
+            return None
+            
+        with open(cache_file, 'rb') as f:
+            molecules = pickle.load(f)
+        
+        logger.info(f"Loaded {len(molecules)} molecules from shared cache: {cache_file}")
+        return molecules
+        
+    except Exception as e:
+        logger.warning(f"Failed to load shared cache {cache_file}: {e}")
+        return None
+
+
+def cleanup_shared_cache():
+    """Clean up shared cache file."""
+    global _SHARED_CACHE_FILE
+    if _SHARED_CACHE_FILE and os.path.exists(_SHARED_CACHE_FILE):
+        try:
+            os.unlink(_SHARED_CACHE_FILE)
+            logger.info(f"Cleaned up shared cache: {_SHARED_CACHE_FILE}")
+        except Exception as e:
+            logger.warning(f"Failed to clean up cache: {e}")
+        finally:
+            _SHARED_CACHE_FILE = None
+
+
+def create_shared_embedding_cache(embedding_data: dict, cache_dir: Optional[Path] = None) -> str:
+    """Create a shared embedding cache file for multiprocessing.
+    
+    Args:
+        embedding_data: Dictionary containing embeddings and metadata
+        cache_dir: Directory to store cache file (default: temp directory)
+    
+    Returns:
+        Path to the cache file
+    """
+    import tempfile
+    import pickle
+    import os
+    
+    if cache_dir is None:
+        cache_dir = Path(tempfile.gettempdir())
+    
+    cache_dir.mkdir(exist_ok=True, parents=True)
+    
+    # Create unique cache file
+    cache_file = cache_dir / f"templ_embedding_cache_{os.getpid()}_{len(embedding_data)}.pkl"
+    
+    # Serialize embedding data to file
+    with open(cache_file, 'wb') as f:
+        pickle.dump(embedding_data, f, protocol=pickle.HIGHEST_PROTOCOL)
+    
+    logger.info(f"Created shared embedding cache: {cache_file}")
+    return str(cache_file)
+
+
+def load_shared_embedding_cache(cache_file: str) -> Optional[dict]:
+    """Load embeddings from shared cache file.
+    
+    Args:
+        cache_file: Path to cache file
+        
+    Returns:
+        Dictionary with embedding data or None if failed
+    """
+    import pickle
+    
+    try:
+        if not os.path.exists(cache_file):
+            return None
+            
+        with open(cache_file, 'rb') as f:
+            embedding_data = pickle.load(f)
+        
+        logger.info(f"Loaded embeddings from shared cache: {cache_file}")
+        return embedding_data
+        
+    except Exception as e:
+        logger.warning(f"Failed to load shared embedding cache {cache_file}: {e}")
+        return None
 
 
 def get_pocket_chain_ids_from_file(pocket_file: str) -> List[str]:
@@ -683,11 +812,17 @@ def get_shared_molecule_cache() -> Optional[Dict]:
 
 
 def load_molecules_with_shared_cache(
-    data_dir: Path, cache_key: str = "molecules"
+    data_dir: Path, cache_key: str = "molecules", shared_cache_file: Optional[str] = None
 ) -> List[Any]:
     """Load molecules using shared cache if available, fallback to local cache."""
 
-    # Try shared cache first
+    # Try shared cache file first (for multiprocessing)
+    if shared_cache_file:
+        molecules = load_shared_molecule_cache(shared_cache_file)
+        if molecules:
+            return molecules
+
+    # Try in-memory shared cache
     shared_cache = get_shared_molecule_cache()
     if shared_cache and cache_key in shared_cache:
         logger.info(f"Using shared cache: {len(shared_cache[cache_key])} molecules")
