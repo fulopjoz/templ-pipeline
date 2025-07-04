@@ -115,7 +115,7 @@ Use `templ --help` for all commands or `templ --help examples` for example usage
 TEMPL ships **no PDB structures or ligands**. Download datasets manually:
 
 ### PDBbind v2020
-1. Register and download from PDBbind website
+1. Register and download from [PDBbind website](https://www.pdbbind-plus.org.cn/download)
 2. Place in `templ_pipeline/data/PDBBind/` with this structure:
 ```
 PDBBind/
