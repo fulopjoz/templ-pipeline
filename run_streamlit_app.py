@@ -147,18 +147,34 @@ def select_port():
     Returns:
         tuple: (port, selection_message)
     """
-    # Configuration from environment variables
-    start_port = int(os.getenv("TEMPL_PORT_START", "8501"))
-    port_range = int(os.getenv("TEMPL_PORT_RANGE", "10"))
+    # Configuration from environment variables with error handling
+    try:
+        start_port = int(os.getenv("TEMPL_PORT_START", "8501"))
+    except ValueError:
+        raise ValueError("TEMPL_PORT_START must be a valid integer")
+    
+    try:
+        port_range = int(os.getenv("TEMPL_PORT_RANGE", "10"))
+    except ValueError:
+        raise ValueError("TEMPL_PORT_RANGE must be a valid integer")
     
     # Check for explicit port configuration
     explicit_port = None
-    if os.getenv("PORT"):
-        explicit_port = int(os.getenv("PORT"))
-        source = "PORT environment variable"
-    elif os.getenv("STREAMLIT_SERVER_PORT"):
-        explicit_port = int(os.getenv("STREAMLIT_SERVER_PORT"))
-        source = "STREAMLIT_SERVER_PORT environment variable"
+    port_env = os.getenv("PORT")
+    if port_env:
+        try:
+            explicit_port = int(port_env)
+            source = "PORT environment variable"
+        except ValueError:
+            raise ValueError("PORT must be a valid integer")
+    else:
+        streamlit_port_env = os.getenv("STREAMLIT_SERVER_PORT")
+        if streamlit_port_env:
+            try:
+                explicit_port = int(streamlit_port_env)
+                source = "STREAMLIT_SERVER_PORT environment variable"
+            except ValueError:
+                raise ValueError("STREAMLIT_SERVER_PORT must be a valid integer")
     
     if explicit_port:
         # User specified a port explicitly
@@ -179,7 +195,9 @@ def select_port():
     else:
         print(f"Port {start_port} in use, searching for alternative...")
         try:
-            port = find_available_port(start_port + 1, port_range - 1)  # Skip already checked port
+            # Ensure we try at least 1 port even if port_range is 1
+            remaining_attempts = max(1, port_range - 1)
+            port = find_available_port(start_port + 1, remaining_attempts)  # Skip already checked port
             return port, f"Port {start_port} in use, using {port} instead"
         except RuntimeError as e:
             raise RuntimeError(str(e))
@@ -206,13 +224,14 @@ def main():
     try:
         port, port_message = select_port()
         print(port_message)
-    except RuntimeError as e:
+    except (RuntimeError, ValueError) as e:
         print(f"Error: Port selection failed: {e}")
         print()
         print("Solutions:")
         print("   - Free up some ports (kill other web servers)")
         print("   - Set a custom port: export PORT=9000")
         print("   - Change port range: export TEMPL_PORT_RANGE=20")
+        print("   - Check environment variables contain valid integers")
         sys.exit(1)
     
     # Get URLs
