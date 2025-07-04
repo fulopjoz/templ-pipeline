@@ -88,15 +88,15 @@ class InputSection:
                             mol = None
                         self.session.set(SESSION_KEYS["QUERY_MOL"], mol)
                         self.session.set(SESSION_KEYS["INPUT_SMILES"], smiles)
-                        st.success(f"✅ SMILES validated: {smiles}")
+                        st.success("SMILES validated: {smiles}")
                     else:
                         self.session.set(SESSION_KEYS["INPUT_SMILES"], None)
-                        st.error(f"❌ {msg}")
+                        st.error(f"{msg}")
                 except Exception as e:
                     logger.error(f"Error validating SMILES: {e}")
                     # Fallback - just store the SMILES
                     self.session.set(SESSION_KEYS["INPUT_SMILES"], smiles)
-                    st.warning(f"⚠️ SMILES stored (validation failed): {smiles}")
+                    st.warning(f"SMILES stored (validation failed): {smiles}")
             else:
                 # Clear SMILES when input is empty
                 self.session.set(SESSION_KEYS["INPUT_SMILES"], None)
@@ -149,10 +149,10 @@ class InputSection:
                     # Clear file path when using PDB ID
                     self.session.set(SESSION_KEYS["PROTEIN_FILE_PATH"], None)
                     self.session.set(SESSION_KEYS["CUSTOM_TEMPLATES"], None)
-                    st.success(f"✅ PDB ID validated: {pdb_id.upper()}")
+                    st.success(f"PDB ID validated: {pdb_id.upper()}")
                 else:
                     self.session.set(SESSION_KEYS["PROTEIN_PDB_ID"], None)
-                    st.error("❌ PDB ID must be 4 alphanumeric characters")
+                    st.error("PDB ID must be 4 alphanumeric characters")
             else:
                 # Clear PDB ID when input is empty
                 self.session.set(SESSION_KEYS["PROTEIN_PDB_ID"], None)
@@ -173,7 +173,7 @@ class InputSection:
                     self.session.set(SESSION_KEYS["PROTEIN_PDB_ID"], None)
                     self.session.set(SESSION_KEYS["CUSTOM_TEMPLATES"], None)
 
-                    st.success(f"✅ PDB file uploaded: {uploaded_file.name}")
+                    st.success(f"PDB file uploaded: {uploaded_file.name}")
 
                     # Optional: Try to extract PDB ID from file for display purposes only
                     try:
@@ -205,7 +205,7 @@ class InputSection:
                         # Clear protein inputs when using custom templates
                         self.session.set(SESSION_KEYS["PROTEIN_PDB_ID"], None)
                         self.session.set(SESSION_KEYS["PROTEIN_FILE_PATH"], None)
-                        st.success(f"✅ Loaded {len(templates)} template molecules")
+                        st.success(f"Loaded {len(templates)} template molecules")
                     else:
                         st.error("No valid molecules found in SDF")
                 except Exception as e:

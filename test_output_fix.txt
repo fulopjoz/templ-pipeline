@@ -1,0 +1,130 @@
+INFO: Welcome to TEMPL! For getting started help: templ --help getting-started
+INFO: Optimized config (balanced) → n_workers=22, internal_workers=1, CPUs=22, RAM=51.9GB
+INFO: Optimized config (balanced) → n_workers=22, internal_workers=1, CPUs=22, RAM=51.9GB
+INFO: Hardware optimization: auto profile
+INFO: Workers: 11, Strategy: memory-bound
+INFO: Starting Timesplit benchmark for splits: test
+INFO: Using 11 workers, 200 conformers
+INFO: Workspace directory: benchmark_workspace_time-split_20250704_085949/
+INFO: Error tracking enabled
+INFO: TEMPL pipeline initialized with 0.1GB memory usage
+INFO: Shared cache not available, loading individually
+INFO: Loading molecules from processed_ligands_new.sdf.gz...
+INFO: Error tracking enabled
+INFO: TEMPL pipeline initialized with 0.1GB memory usage
+INFO: Shared cache not available, loading individually
+INFO: Loading molecules from processed_ligands_new.sdf.gz...
+INFO: Loaded 18902 molecules from processed_ligands_new.sdf.gz (skipped 0)
+INFO: Memory used for loading: 0.4GB
+INFO: Loaded 18902 molecules into cache
+INFO: Running TEMPL pipeline for 6qqw
+INFO: Starting pipeline execution for 6qqw
+INFO: Step 1: Generating protein embedding
+INFO: Loaded 18902 molecules from processed_ligands_new.sdf.gz (skipped 0)
+INFO: Memory used for loading: 0.4GB
+INFO: Loaded 18902 molecules into cache
+INFO: Running TEMPL pipeline for 6d08
+INFO: Starting pipeline execution for 6d08
+INFO: Step 1: Generating protein embedding
+INFO: Generating embedding for /home/ubuntu/mcs/templ_pipeline/data/PDBBind/PDBbind_v2020_other_PL/v2020-other-PL/6d08/6d08_protein.pdb
+INFO: Generating embedding for /home/ubuntu/mcs/templ_pipeline/data/PDBBind/PDBbind_v2020_refined/refined-set/6qqw/6qqw_protein.pdb
+2025-07-04 08:59:56,465 - templ_pipeline.core.embedding - INFO - Loaded 18902 embeddings from /home/ubuntu/mcs/templ_pipeline/data/embeddings/protein_embeddings_base.npz
+INFO: Loaded 18902 embeddings from /home/ubuntu/mcs/templ_pipeline/data/embeddings/protein_embeddings_base.npz
+INFO: Using cached embedding for PDB: 6d08
+INFO: Retrieved cached embedding with shape (1280,) for chain A
+INFO: Step 2: Finding similar templates
+INFO: Finding similar templates
+2025-07-04 08:59:56,560 - templ_pipeline.core.embedding - INFO - Loaded 18902 embeddings from /home/ubuntu/mcs/templ_pipeline/data/embeddings/protein_embeddings_base.npz
+INFO: Loaded 18902 embeddings from /home/ubuntu/mcs/templ_pipeline/data/embeddings/protein_embeddings_base.npz
+INFO: Using cached embedding for PDB: 6qqw
+INFO: Retrieved cached embedding with shape (1280,) for chain A
+INFO: Step 2: Finding similar templates
+INFO: Finding similar templates
+2025-07-04 08:59:56,648 - templ_pipeline.core.embedding - INFO - Found 100 neighbors for QUERY.
+INFO: Found 100 neighbors for QUERY.
+INFO: Found 100 templates
+INFO: Step 3: Loading template molecules
+INFO: Loading templates from: data/ligands/processed_ligands_new.sdf.gz (with error tolerance)
+2025-07-04 08:59:56,756 - templ_pipeline.core.embedding - INFO - Found 100 neighbors for QUERY.
+INFO: Found 100 neighbors for QUERY.
+INFO: Found 100 templates
+INFO: Step 3: Loading template molecules
+INFO: Loading templates from: data/ligands/processed_ligands_new.sdf.gz (with error tolerance)
+INFO: Template loading complete: 100 templates loaded from 18902 processed
+INFO: Loaded 100 template molecules using standardized loader
+INFO: Step 4: Preparing query molecule
+INFO: Creating molecule from SMILES: C[C@H]([NH3+])C(=O)N[C@@H](CCCC[NH3+])C(=O)N[C@@H](CCC(N)=O)C(=O)N[C@H](C(=O)N[C@@H](C)C(=O)N[C@@H](CCCNC(N)=[NH2+])C(=O)N[C@@H](CCCC[NH2+]Cc1ccccc1)C(=O)N[C@@H](CO)C(=O)[O-])[C@@H](C)O
+INFO: Template loading complete: 100 templates loaded from 18902 processed
+INFO: Loaded 100 template molecules using standardized loader
+INFO: Step 4: Preparing query molecule
+INFO: Creating molecule from SMILES: Nc1cc(-c2ccc3ccn(Cc4ccccc4)c3c2)n[nH]1
+INFO: Query molecule prepared (standardized): 22 atoms, 25 bonds
+INFO: Step 5: Generating poses (alignment=enabled)
+INFO: Generating poses with 100 templates, 200 conformers, 1 workers
+INFO: Finding MCS and generating conformers
+INFO: Generating conformers for unnamed_query using 100 templates: template_0, template_1, template_2...
+INFO: Query molecule: 22 atoms, 25 bonds
+INFO: MCS tiebreaker: selected template 36 with similarity 1.000
+INFO: Selected template template_36 with MCS SMARTS: Nc1:c:c(-c2:c:c:c3:c:c:n(-Cc4:c:c:c:c:c:4):c:3:c:2):n:n:1
+INFO: Query molecule prepared (standardized): 69 atoms, 69 bonds
+INFO: Step 5: Generating poses (alignment=enabled)
+INFO: Generating poses with 100 templates, 200 conformers, 1 workers
+INFO: Finding MCS and generating conformers
+INFO: Generating conformers for unnamed_query using 100 templates: template_0, template_1, template_2...
+INFO: Query molecule: 69 atoms, 69 bonds
+INFO: Successfully generated 200 conformers
+INFO: DEBUG: mcs_atom_indices type: <class 'dict'>
+INFO: DEBUG: mcs_atom_indices content: {'atom_count': 22, 'bond_count': 25, 'similarity_score': 0.9, 'query_atoms': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21], 'template_atoms': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21], 'smarts': 'Nc1:c:c(-c2:c:c:c3:c:c:n(-Cc4:c:c:c:c:c:4):c:3:c:2):n:n:1', 'organometallic_handling': {'target_had_metals': False, 'template_had_metals': False, 'target_substitutions': ['No organometallic atoms detected'], 'template_substitutions': ['No organometallic atoms detected']}, 'selected_template_index': 36}
+INFO: MCS info captured for template selection
+INFO: Generated 200/200 conformers
+INFO: Scoring and selecting best poses (aligned_poses=True)
+INFO: Scoring 200 conformers using 1 workers
+INFO: Generated 3 best poses, 200 total ranked poses
+INFO: Step 6: Saving results
+INFO: Output manager initialized: benchmark_workspace_time-split_20250704_085949/raw_results/timesplit/poses_20250704_090009
+INFO: Metadata exported to JSON: benchmark_workspace_time-split_20250704_085949/raw_results/timesplit/poses_20250704_090009/6qqw_20250704_090009_poses_metadata.json
+INFO: FAIR metadata saved to benchmark_workspace_time-split_20250704_085949/raw_results/timesplit/poses_20250704_090009/6qqw_20250704_090009_poses_metadata.json
+INFO: Saved 3 poses to benchmark_workspace_time-split_20250704_085949/raw_results/timesplit/poses_20250704_090009/6qqw_20250704_090009_poses.sdf
+INFO: Pipeline completed successfully (alignment_used=True)
+INFO: Successfully calculated RMSD for 3 metrics
+INFO: TEMPL completed for 6qqw in 18.4s
+INFO: Selected template template_31 with MCS SMARTS: CC(=O)-NC(-C(=O)-NC(-C)-C(=O)-NC(-C)-C(=O)-NC(-CCCCNC)-C(=O)-NC(-CO)-C=O)-C-[#6]
+INFO: Successfully generated 200 conformers
+INFO: DEBUG: mcs_atom_indices type: <class 'dict'>
+INFO: DEBUG: mcs_atom_indices content: {'atom_count': 35, 'bond_count': 34, 'similarity_score': 0.6000000000000001, 'query_atoms': [15, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 57, 58, 59, 60, 61, 62, 63, 64, 66, 67], 'template_atoms': [0, 1, 2, 3, 4, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 41, 42, 43, 44, 45, 46, 47, 49, 5, 6], 'smarts': 'CC(=O)-NC(-C(=O)-NC(-C)-C(=O)-NC(-C)-C(=O)-NC(-CCCCNC)-C(=O)-NC(-CO)-C=O)-C-[#6]', 'organometallic_handling': {'target_had_metals': False, 'template_had_metals': False, 'target_substitutions': ['No organometallic atoms detected'], 'template_substitutions': ['No organometallic atoms detected']}, 'selected_template_index': 31}
+INFO: MCS info captured for template selection
+INFO: Generated 200/200 conformers
+INFO: Scoring and selecting best poses (aligned_poses=True)
+INFO: Scoring 200 conformers using 1 workers
+INFO: Generated 3 best poses, 200 total ranked poses
+INFO: Step 6: Saving results
+INFO: Output manager initialized: benchmark_workspace_time-split_20250704_085949/raw_results/timesplit/poses_20250704_090412
+INFO: Metadata exported to JSON: benchmark_workspace_time-split_20250704_085949/raw_results/timesplit/poses_20250704_090412/6d08_20250704_090412_poses_metadata.json
+INFO: FAIR metadata saved to benchmark_workspace_time-split_20250704_085949/raw_results/timesplit/poses_20250704_090412/6d08_20250704_090412_poses_metadata.json
+INFO: Saved 3 poses to benchmark_workspace_time-split_20250704_085949/raw_results/timesplit/poses_20250704_090412/6d08_20250704_090412_poses.sdf
+INFO: Pipeline completed successfully (alignment_used=True)
+INFO: Successfully calculated RMSD for 3 metrics
+INFO: TEMPL completed for 6d08 in 261.6s
+INFO: Generating summary for timesplit benchmark
+INFO: Saved csv summary to benchmark_workspace_time-split_20250704_085949/summaries/timesplit_benchmark_summary_20250704_090413.csv
+INFO: Saved json summary to benchmark_workspace_time-split_20250704_085949/summaries/timesplit_benchmark_summary_20250704_090413.json
+INFO: Saved markdown summary to benchmark_workspace_time-split_20250704_085949/summaries/timesplit_benchmark_summary_20250704_090413.md
+INFO: Generated summary files:
+INFO:   CSV: benchmark_workspace_time-split_20250704_085949/summaries/timesplit_benchmark_summary_20250704_090413.csv
+INFO:   JSON: benchmark_workspace_time-split_20250704_085949/summaries/timesplit_benchmark_summary_20250704_090413.json
+INFO:   MARKDOWN: benchmark_workspace_time-split_20250704_085949/summaries/timesplit_benchmark_summary_20250704_090413.md
+INFO: Timesplit benchmark completed successfully!
+INFO: Workspace directory: benchmark_workspace_time-split_20250704_085949
+
+============================================================
+BENCHMARK ERROR SUMMARY
+============================================================
+Total targets attempted: 2
+Successful targets: 2
+Failed targets: 0
+Success rate: 100.0%
+Unique missing PDBs: 0
+Total error instances: 0
+============================================================
+
+Detailed error report: benchmark_workspace_time-split_20250704_085949/raw_results/timesplit/error_tracking/timesplit_combined_error_report.json
