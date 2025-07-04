@@ -28,7 +28,7 @@ def get_optimized_worker_config(
         workload_type: "balanced", "cpu_intensive", "io_intensive", "memory_intensive"
         dataset_size: Number of items to process (for scaling decisions)
     """
-    total_cpus = (os.cpu_count() - 2) or 1
+    total_cpus = (os.cpu_count() - 1) or 1
     memory_info = get_memory_info()
 
     # Base configuration
