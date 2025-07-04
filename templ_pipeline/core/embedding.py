@@ -722,6 +722,7 @@ class EmbeddingManager:
         cache_dir: Optional[str] = None,
         enable_batching: bool = True,
         max_batch_size: int = 8,
+        shared_embedding_cache: Optional[str] = None,
     ):
         """Initialize the embedding manager with a path to pre-computed embeddings."""
         resolved_path = _resolve_embedding_path(embedding_path)
@@ -733,6 +734,7 @@ class EmbeddingManager:
         self.on_demand_embeddings = {}  # Dynamically generated embeddings
         self.on_demand_chain_data = {}  # Chain data for on-demand embeddings
         self.pdb_to_uniprot = {}  # For UniProt exclusion
+        self.shared_embedding_cache = shared_embedding_cache  # Shared cache file for multiprocessing
 
         # Cache configuration
         self.use_cache = use_cache
@@ -769,7 +771,22 @@ class EmbeddingManager:
         return self.embedding_db
 
     def _load_embeddings(self) -> bool:
-        """Load pre-computed embeddings from NPZ file."""
+        """Load pre-computed embeddings from NPZ file or shared cache."""
+        
+        # Try shared cache first (for multiprocessing)
+        if self.shared_embedding_cache:
+            try:
+                from templ_pipeline.core.utils import load_shared_embedding_cache
+                cached_data = load_shared_embedding_cache(self.shared_embedding_cache)
+                if cached_data:
+                    self.embedding_db = cached_data.get('embedding_db', {})
+                    self.embedding_chain_data = cached_data.get('embedding_chain_data', {})
+                    logger.info(f"Loaded {len(self.embedding_db)} embeddings from shared cache")
+                    return True
+            except Exception as e:
+                logger.warning(f"Failed to load from shared embedding cache: {e}")
+        
+        # Fallback to loading from NPZ file
         if not self.embedding_path or not os.path.exists(self.embedding_path):
             logger.warning(
                 f"Embedding file not found or path is invalid: '{self.embedding_path}'"
