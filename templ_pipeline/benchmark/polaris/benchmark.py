@@ -1045,14 +1045,37 @@ def main(argv: List[str] | None = None):
             f"Full benchmark: {args.n_conformers} conformers, {args.n_workers} workers"
         )
 
-    # Dataset directory resolution
+    # Dataset directory resolution with multiple fallback paths
     if args.dataset_dir:
         data_dir = Path(args.dataset_dir)
     else:
-        # Default packaged path: templ_pipeline/data/polaris
-        data_dir = Path(__file__).resolve().parent.parent.parent / "data" / "polaris"
-    if not data_dir.exists():
-        raise FileNotFoundError(f"Dataset directory not found: {data_dir}")
+        # Try multiple potential locations for the polaris data
+        potential_paths = [
+            # From benchmark file location: go up to project root then to data
+            Path(__file__).resolve().parent.parent.parent / "data" / "polaris",
+            # From current working directory
+            Path.cwd() / "data" / "polaris", 
+            # Relative to templ_pipeline directory
+            Path.cwd() / "templ_pipeline" / "data" / "polaris",
+            # If running from project root
+            Path("data") / "polaris",
+            # If running from templ_pipeline subdirectory
+            Path("..") / "data" / "polaris",
+        ]
+        
+        data_dir = None
+        for path in potential_paths:
+            if path.exists() and (path / "train_sarsmols.sdf").exists():
+                data_dir = path
+                logger.info(f"Found polaris data at: {data_dir}")
+                break
+        
+        if data_dir is None:
+            raise FileNotFoundError(
+                f"Polaris dataset directory not found. Tried locations:\n" + 
+                "\n".join(f"  - {p}" for p in potential_paths) +
+                "\n\nPlease ensure polaris data files are in one of these locations or use --dataset-dir"
+            )
 
     # Validate data files and load datasets with progress
     if not validate_data_files(data_dir):
