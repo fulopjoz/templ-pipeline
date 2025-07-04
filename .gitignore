@@ -179,4 +179,4 @@ temp/
 
 # CLAUDE
 CLAUDE.md
-.mypy_cache/
+.mypy_cache/benchmark_workspace_time-split_*/
