@@ -437,6 +437,41 @@ def setup_parser():
         default=4.0,
         help="Hard memory cap per worker in GiB (time-split only)",
     )
+    # Advanced hardware optimization arguments
+    benchmark_parser.add_argument(
+        "--hardware-profile",
+        choices=["auto", "conservative", "balanced", "aggressive"],
+        default="auto",
+        help="Hardware utilization profile: auto (detect), conservative (safe), balanced (default), aggressive (max performance)",
+    )
+    benchmark_parser.add_argument(
+        "--cpu-limit",
+        type=int,
+        default=None,
+        help="Maximum number of CPU cores to use (overrides auto-detection)",
+    )
+    benchmark_parser.add_argument(
+        "--memory-limit",
+        type=float,
+        default=None,
+        help="Maximum system memory to use in GiB (overrides auto-detection)",
+    )
+    benchmark_parser.add_argument(
+        "--worker-strategy", 
+        choices=["auto", "io-bound", "cpu-bound", "memory-bound"],
+        default="auto",
+        help="Worker allocation strategy based on workload characteristics",
+    )
+    benchmark_parser.add_argument(
+        "--enable-hyperthreading",
+        action="store_true",
+        help="Enable hyperthreading utilization (may improve or hurt performance)",
+    )
+    benchmark_parser.add_argument(
+        "--disable-auto-scaling",
+        action="store_true", 
+        help="Disable automatic worker scaling based on system load",
+    )
     benchmark_parser.set_defaults(func=benchmark_command)
 
     return parser, help_system
@@ -793,12 +828,227 @@ def load_template_molecules_from_sdf(template_pdbs):
         raise
 
 
+def _generate_unified_summary(workspace_dir, benchmark_type):
+    """Generate unified summary files for benchmark results."""
+    try:
+        from templ_pipeline.benchmark.summary_generator import BenchmarkSummaryGenerator
+        import json
+        from pathlib import Path
+        
+        generator = BenchmarkSummaryGenerator()
+        raw_results_dir = workspace_dir / "raw_results"
+        summaries_dir = workspace_dir / "summaries"
+        
+        # Find result files based on benchmark type
+        result_files = []
+        if benchmark_type == "polaris":
+            # Look for Polaris JSON results
+            polaris_dir = Path("templ_benchmark_results_polaris")
+            if polaris_dir.exists():
+                result_files.extend(list(polaris_dir.glob("*.json")))
+        elif benchmark_type == "timesplit":
+            # Look for Timesplit JSONL results - check multiple locations
+            jsonl_locations = [
+                raw_results_dir / "timesplit" / "results_stream.jsonl",
+                raw_results_dir / "results_stream.jsonl", 
+                workspace_dir / "raw_results" / "timesplit" / "results_stream.jsonl"
+            ]
+            
+            for jsonl_path in jsonl_locations:
+                if jsonl_path.exists():
+                    result_files.append(jsonl_path)
+                    logger.info(f"Found timesplit results: {jsonl_path}")
+                    break
+            
+            # Also look for any other JSON/JSONL files as fallback
+            if raw_results_dir.exists():
+                result_files.extend(list(raw_results_dir.glob("**/*.jsonl")))
+                result_files.extend(list(raw_results_dir.glob("**/*.json")))
+        
+        if not result_files:
+            logger.warning(f"No result files found for {benchmark_type} benchmark summary")
+            logger.warning(f"Searched in: {raw_results_dir}")
+            if raw_results_dir.exists():
+                all_files = list(raw_results_dir.rglob("*"))
+                logger.warning(f"Files found in results dir: {all_files}")
+            return
+        
+        # Load and combine results
+        all_results = {}
+        for file_path in result_files:
+            try:
+                logger.info(f"Loading results from: {file_path}")
+                if file_path.suffix == ".jsonl":
+                    # JSONL format
+                    results = []
+                    with open(file_path, 'r') as f:
+                        for line_num, line in enumerate(f, 1):
+                            if line.strip():
+                                try:
+                                    results.append(json.loads(line))
+                                except json.JSONDecodeError as je:
+                                    logger.warning(f"Invalid JSON on line {line_num} in {file_path}: {je}")
+                    logger.info(f"Loaded {len(results)} results from {file_path}")
+                    all_results[file_path.stem] = results
+                elif file_path.suffix == ".json":
+                    # JSON format
+                    with open(file_path, 'r') as f:
+                        results = json.load(f)
+                    logger.info(f"Loaded JSON results from {file_path}")
+                    all_results[file_path.stem] = results
+            except Exception as e:
+                logger.warning(f"Failed to load {file_path}: {e}")
+        
+        if not all_results:
+            logger.warning("No valid results loaded for summary generation")
+            return
+        
+        # Generate summary
+        if len(all_results) == 1:
+            results_data = list(all_results.values())[0]
+        else:
+            results_data = all_results
+            
+        summary = generator.generate_unified_summary(results_data, benchmark_type)
+        
+        # Save summary files
+        saved_files = generator.save_summary_files(
+            summary, 
+            summaries_dir,
+            f"{benchmark_type}_benchmark_summary"
+        )
+        
+        if saved_files:
+            logger.info(f"Generated summary files:")
+            for fmt, path in saved_files.items():
+                logger.info(f"  {fmt.upper()}: {path}")
+        
+    except Exception as e:
+        logger.warning(f"Failed to generate unified summary: {e}")
+
+
+def _optimize_hardware_config(args):
+    """Optimize hardware configuration based on CLI arguments and system capabilities."""
+    base_config = _get_hardware_config()
+    
+    # Start with base configuration
+    config = {
+        "n_workers": base_config["n_workers"],
+        "profile": getattr(args, "hardware_profile", "auto"),
+        "strategy": getattr(args, "worker_strategy", "auto"),
+        "memory_optimized": False,
+        "total_memory_gb": 0,
+    }
+    
+    try:
+        # Get system information for optimization
+        import psutil
+        system_memory_gb = psutil.virtual_memory().total / (1024**3)
+        cpu_count = psutil.cpu_count(logical=False)  # Physical cores
+        logical_cpus = psutil.cpu_count(logical=True)  # Logical cores (with hyperthreading)
+        
+        config["total_memory_gb"] = system_memory_gb
+        
+        # Apply CPU limit if specified
+        if hasattr(args, "cpu_limit") and args.cpu_limit:
+            cpu_count = min(cpu_count, args.cpu_limit)
+            logical_cpus = min(logical_cpus, args.cpu_limit)
+        
+        # Apply memory limit if specified
+        if hasattr(args, "memory_limit") and args.memory_limit:
+            system_memory_gb = min(system_memory_gb, args.memory_limit)
+            config["memory_optimized"] = True
+        
+        # Determine hyperthreading usage
+        use_hyperthreading = getattr(args, "enable_hyperthreading", False)
+        effective_cpus = logical_cpus if use_hyperthreading else cpu_count
+        
+        # Apply hardware profile
+        if config["profile"] == "conservative":
+            # Use 50% of available resources
+            config["n_workers"] = max(1, effective_cpus // 2)
+            args.max_ram_gb = getattr(args, "max_ram_gb", None) or system_memory_gb * 0.5
+        elif config["profile"] == "balanced":
+            # Use 75% of available resources (default)
+            config["n_workers"] = max(1, int(effective_cpus * 0.75))
+            args.max_ram_gb = getattr(args, "max_ram_gb", None) or system_memory_gb * 0.75
+        elif config["profile"] == "aggressive":
+            # Use 90% of available resources
+            config["n_workers"] = max(1, int(effective_cpus * 0.9))
+            args.max_ram_gb = getattr(args, "max_ram_gb", None) or system_memory_gb * 0.9
+        else:  # auto
+            # Use heuristics based on workload type
+            if args.suite == "polaris":
+                # Polaris is more compute-intensive
+                config["n_workers"] = max(1, int(effective_cpus * 0.8))
+                config["strategy"] = "cpu-bound"
+            elif args.suite == "time-split":
+                # Timesplit can be memory-intensive with large datasets
+                config["n_workers"] = max(1, int(effective_cpus * 0.7))
+                config["strategy"] = "memory-bound"
+            
+            args.max_ram_gb = getattr(args, "max_ram_gb", None) or system_memory_gb * 0.8
+        
+        # Apply worker strategy optimizations
+        if config["strategy"] == "io-bound":
+            # I/O bound can benefit from more workers
+            config["n_workers"] = min(config["n_workers"] * 2, effective_cpus)
+        elif config["strategy"] == "memory-bound":
+            # Memory bound should be more conservative
+            memory_per_worker = getattr(args, "per_worker_ram_gb", 4.0)
+            max_workers_by_memory = max(1, int(system_memory_gb * 0.8 / memory_per_worker))
+            config["n_workers"] = min(config["n_workers"], max_workers_by_memory)
+        
+        # Override with explicit n_workers if provided
+        if hasattr(args, "n_workers") and args.n_workers:
+            config["n_workers"] = args.n_workers
+        
+        # Ensure minimum of 1 worker
+        config["n_workers"] = max(1, config["n_workers"])
+        
+        # Apply memory optimizations for timesplit
+        if args.suite == "time-split":
+            # Ensure memory per worker is reasonable
+            if not hasattr(args, "per_worker_ram_gb") or not args.per_worker_ram_gb:
+                args.per_worker_ram_gb = min(4.0, system_memory_gb / config["n_workers"] * 0.8)
+            
+            # Set up memory throttling
+            if not hasattr(args, "max_ram_gb") or not args.max_ram_gb:
+                args.max_ram_gb = system_memory_gb * 0.8
+        
+    except ImportError:
+        # Fallback if psutil not available
+        logger.warning("Advanced hardware optimization unavailable (psutil not installed)")
+        config["n_workers"] = base_config["n_workers"]
+        if hasattr(args, "n_workers") and args.n_workers:
+            config["n_workers"] = args.n_workers
+    
+    return config
+
+
 def benchmark_command(args):
-    """Execute selected benchmark suite with minimal elegant progress display."""
-    # Set n_workers if not provided
-    if not hasattr(args, "n_workers") or args.n_workers is None:
-        hardware_config = _get_hardware_config()
-        args.n_workers = hardware_config["n_workers"]
+    """Execute selected benchmark suite with enhanced workspace organization."""
+    # Apply hardware optimization based on CLI arguments
+    hardware_config = _optimize_hardware_config(args)
+    args.n_workers = hardware_config["n_workers"]
+    
+    # Log hardware optimization decisions
+    logger.info(f"Hardware optimization: {hardware_config['profile']} profile")
+    logger.info(f"Workers: {args.n_workers}, Strategy: {hardware_config['strategy']}")
+    if hardware_config.get('memory_optimized'):
+        logger.info(f"Memory optimized: {hardware_config['total_memory_gb']:.1f}GB available")
+
+    # Create organized workspace directory for benchmark results
+    from datetime import datetime
+    from pathlib import Path
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    workspace_dir = Path(f"benchmark_workspace_{args.suite}_{timestamp}")
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Create subdirectories for organization
+    (workspace_dir / "raw_results").mkdir(exist_ok=True)
+    (workspace_dir / "summaries").mkdir(exist_ok=True)
+    (workspace_dir / "logs").mkdir(exist_ok=True)
 
     if args.suite == "polaris":
         try:
@@ -806,13 +1056,16 @@ def benchmark_command(args):
                 main as benchmark_main,
             )
 
+            logger.info(f"Starting Polaris benchmark with {args.n_workers} workers")
+            logger.info(f"Workspace directory: {workspace_dir}/")
+
             # Setup quiet logging for benchmark unless verbose requested
             if not hasattr(args, "verbose") or not args.verbose:
                 # Use WARNING level to minimize output, benchmark has its own progress system
                 original_level = logging.getLogger().level
                 logging.getLogger().setLevel(logging.WARNING)
 
-            # Convert CLI args to benchmark args
+            # Convert CLI args to benchmark args with workspace integration
             benchmark_args = []
             if hasattr(args, "n_workers") and args.n_workers:
                 benchmark_args.extend(["--n-workers", str(args.n_workers)])
@@ -831,6 +1084,10 @@ def benchmark_command(args):
             if not hasattr(args, "verbose") or not args.verbose:
                 logging.getLogger().setLevel(original_level)
 
+            # Generate unified summary for Polaris results
+            _generate_unified_summary(workspace_dir, "polaris")
+
+            logger.info(f"Polaris benchmark completed. Workspace: {workspace_dir}")
             return result
         except ImportError as e:
             logger.error(f"Polaris benchmark module not available: {e}")
@@ -851,6 +1108,10 @@ def benchmark_command(args):
             else:
                 splits_to_run = ["train", "val", "test"]
 
+            logger.info(f"Starting Timesplit benchmark for splits: {', '.join(splits_to_run)}")
+            logger.info(f"Using {args.n_workers} workers, {args.n_conformers} conformers")
+            logger.info(f"Workspace directory: {workspace_dir}/")
+
             # Setup quiet logging for benchmark unless verbose requested
             quiet_mode = not (hasattr(args, "verbose") and args.verbose)
             if quiet_mode:
@@ -858,8 +1119,15 @@ def benchmark_command(args):
                 original_level = logging.getLogger().level
                 logging.getLogger().setLevel(logging.WARNING)
 
-            # Convert CLI args to function kwargs
-            kwargs = {"splits_to_run": splits_to_run, "quiet": quiet_mode}
+            # Use workspace subdirectory for timesplit results
+            timesplit_results_dir = workspace_dir / "raw_results" / "timesplit"
+
+            # Convert CLI args to function kwargs with proper workspace management
+            kwargs = {
+                "splits_to_run": splits_to_run, 
+                "quiet": quiet_mode,
+                "streaming_output_dir": str(timesplit_results_dir),
+            }
 
             if hasattr(args, "n_workers") and args.n_workers:
                 kwargs["n_workers"] = args.n_workers
@@ -880,7 +1148,15 @@ def benchmark_command(args):
             if quiet_mode:
                 logging.getLogger().setLevel(original_level)
 
-            return 0 if result else 1
+            # Generate unified summary for Timesplit results
+            if result.get("success", False):
+                _generate_unified_summary(workspace_dir, "timesplit")
+                logger.info(f"Timesplit benchmark completed successfully!")
+                logger.info(f"Workspace directory: {workspace_dir}")
+                return 0
+            else:
+                logger.error(f"Timesplit benchmark failed: {result.get('error', 'Unknown error')}")
+                return 1
         except ImportError as e:
             logger.error(f"Time-split benchmark module not available: {e}")
             return 1
