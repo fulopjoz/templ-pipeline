@@ -72,11 +72,14 @@ Once activated, just use `templ` commands directly!
 # The setup script automatically activates the environment
 # You should see (.templ) in your prompt
 
-# 1-line pose prediction
-templ run \
-  --protein-file examples/1a1c_protein.pdb \
-  --ligand-smiles "CN(C)C(=O)Nc1cccc(c1)C2CCN(CC2)C" \
-  --output poses.sdf
+# Simple pose prediction
+templ run --protein-file protein.pdb --ligand-smiles "CCO"
+
+# Using PDB ID instead of file
+templ run --protein-pdb-id 1iky --ligand-smiles "CCO"
+
+# Using SDF file for ligand
+templ run --protein-file protein.pdb --ligand-file ligand.sdf
 
 # Show all available commands  
 templ --help
@@ -98,13 +101,12 @@ templ --help
 ### Common CLI Commands
 | Command | Purpose |
 |---------|---------|
-| `templ run` | One-shot pose prediction |
-| `templ embed` | Generate protein embeddings (ESM-2) |
-| `templ find-templates` | K-NN template search in PDBbind |
-| `templ generate-poses` | Constrained conformer generation & ranking |
-| `templ benchmark` | Reproduce paper benchmarks |
+| `templ run` | FULL: Complete pipeline (recommended for beginners) |
+| `templ embed` | EMBED: Generate protein embeddings |
+| `templ find-templates` | SEARCH: Find similar protein templates |
+| `templ generate-poses` | GENERATE: Generate ligand poses |
 
-Use `templ <command> --help` for detailed options.
+Use `templ --help` for all commands or `templ --help examples` for example usage.
 
 ---
 
