@@ -72,13 +72,23 @@ def set_global_random_seed(seed: int = 42) -> None:
     try:
         from rdkit import Chem
         from rdkit.Chem import AllChem
+        import rdkit.rdBase
         
         # RDKit uses this for conformer generation randomization
-        Chem.SetRandomSeed(seed)
+        # Updated for newer RDKit versions (2025.03.3+)
+        rdkit.rdBase.SeedRandomNumberGenerator(seed)
         
         logger.info(f"Global random seed set to {seed} (Python, NumPy, RDKit)")
     except ImportError:
         logger.info(f"Global random seed set to {seed} (Python, NumPy only - RDKit not available)")
+    except AttributeError:
+        # Fallback for older RDKit versions
+        try:
+            Chem.SetRandomSeed(seed)
+            logger.info(f"Global random seed set to {seed} (Python, NumPy, RDKit legacy)")
+        except AttributeError:
+            logger.warning(f"Could not set RDKit random seed - function not available")
+            logger.info(f"Global random seed set to {seed} (Python, NumPy only)")
     
     # Set environment variable for child processes
     os.environ['TEMPL_RANDOM_SEED'] = str(seed)
