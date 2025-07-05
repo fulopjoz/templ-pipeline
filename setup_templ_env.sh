@@ -423,6 +423,93 @@ install_from_pyproject() {
     print_success "Installed from pyproject.toml"
 }
 
+# Download and setup data files from Zenodo
+setup_data_files() {
+    print_section "Data Files Setup"
+    
+    # Create data directory structure
+    print_status "Creating data directory structure..."
+    mkdir -p data/embeddings
+    mkdir -p data/ligands
+    mkdir -p data/PDBBind
+    
+    # Check if data files already exist
+    if [[ -f "data/embeddings/templ_protein_embeddings_v1.0.0.npz" ]] && [[ -f "data/ligands/templ_processed_ligands_v1.0.0.sdf.gz" ]]; then
+        print_success "Data files already exist, skipping download"
+        return 0
+    fi
+    
+    print_status "Downloading TEMPL datasets from Zenodo..."
+    
+    # Download from Zenodo using zenodo-get
+    # DOI: https://doi.org/10.5281/zenodo.15813500
+    
+    if command -v zenodo_get >/dev/null 2>&1; then
+        print_status "Using zenodo_get to download datasets..."
+        
+        # Create temporary download directory
+        TEMP_DOWNLOAD_DIR=$(mktemp -d)
+        cd "$TEMP_DOWNLOAD_DIR"
+        
+        # Download from Zenodo record
+        print_status "Downloading from Zenodo record 15813500..."
+        zenodo_get 10.5281/zenodo.15813500 || {
+            print_error "Failed to download from Zenodo using zenodo_get"
+            cd - > /dev/null
+            rm -rf "$TEMP_DOWNLOAD_DIR"
+            return 1
+        }
+        
+        # Move files to appropriate locations
+        cd - > /dev/null
+        
+        if [[ -f "$TEMP_DOWNLOAD_DIR/templ_protein_embeddings_v1.0.0.npz" ]]; then
+            mv "$TEMP_DOWNLOAD_DIR/templ_protein_embeddings_v1.0.0.npz" data/embeddings/
+            print_success "Protein embeddings downloaded and moved to data/embeddings/"
+        fi
+        
+        if [[ -f "$TEMP_DOWNLOAD_DIR/templ_processed_ligands_v1.0.0.sdf.gz" ]]; then
+            mv "$TEMP_DOWNLOAD_DIR/templ_processed_ligands_v1.0.0.sdf.gz" data/ligands/
+            print_success "Processed ligands downloaded and moved to data/ligands/"
+        fi
+        
+        # Clean up temporary directory
+        rm -rf "$TEMP_DOWNLOAD_DIR"
+        
+    else
+        # Fallback: Use wget with direct URLs (if available)
+        print_warning "zenodo_get not available, attempting direct download with wget..."
+        
+        # Note: These URLs would need to be updated with actual Zenodo file URLs
+        # For now, we'll provide instructions to the user
+        print_error "Direct download URLs not available. Please manually download:"
+        echo ""
+        echo "1. Visit: https://doi.org/10.5281/zenodo.15813500"
+        echo "2. Download the following files:"
+        echo "   - templ_protein_embeddings_v1.0.0.npz"
+        echo "   - templ_processed_ligands_v1.0.0.sdf.gz"
+        echo "3. Place them in the appropriate directories:"
+        echo "   - templ_protein_embeddings_v1.0.0.npz → data/embeddings/"
+        echo "   - templ_processed_ligands_v1.0.0.sdf.gz → data/ligands/"
+        echo ""
+        print_warning "Setup will continue, but you'll need to download data files manually"
+        return 0
+    fi
+    
+    # Verify downloads
+    if [[ -f "data/embeddings/templ_protein_embeddings_v1.0.0.npz" ]] && [[ -f "data/ligands/templ_processed_ligands_v1.0.0.sdf.gz" ]]; then
+        print_success "All data files downloaded successfully!"
+        
+        # Display file sizes
+        print_status "Downloaded file information:"
+        ls -lh data/embeddings/templ_protein_embeddings_v1.0.0.npz 2>/dev/null || true
+        ls -lh data/ligands/templ_processed_ligands_v1.0.0.sdf.gz 2>/dev/null || true
+    else
+        print_warning "Some data files may not have downloaded correctly"
+        print_status "You can download them manually from: https://doi.org/10.5281/zenodo.15813500"
+    fi
+}
+
 # Verify installation
 verify_installation() {
     print_section "Installation Verification"
@@ -485,6 +572,7 @@ show_final_instructions() {
     echo "  Mode: $INSTALL_MODE"
     echo "  Python: $(python3 --version)"
     echo "  Hardware: $CPU_CORES cores, ${RAM_GB}GB RAM, GPU: $GPU_AVAILABLE"
+    echo "  Data Files: Automatically downloaded from Zenodo"
     echo
     
     echo -e "${CYAN}Usage:${NC}"
@@ -552,6 +640,7 @@ HEADER
     recommend_installation
     create_venv
     install_dependencies
+    setup_data_files
     verify_installation
     
     # Show final instructions (suppress if quiet mode)

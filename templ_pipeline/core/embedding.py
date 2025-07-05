@@ -97,14 +97,16 @@ if not logger.handlers:
     logger.addHandler(handler)
     # Don't set the level here - allow it to be controlled by the root logger
 
-# Import utility function to find paths to PDBbind files
+# Import utility functions to find paths to PDBbind files and data files
 try:
     from templ_pipeline.core.utils import (
         find_pdbbind_paths,
-    )  # For finding PDB locations
+        get_default_embedding_path,
+    )
 except ImportError:
-    logger.warning("Could not import find_pdbbind_paths from templ_pipeline.core.utils")
+    logger.warning("Could not import utility functions from templ_pipeline.core.utils")
     find_pdbbind_paths = None
+    get_default_embedding_path = None
 
 # Add constants at the top after imports
 CA_RMSD_THRESHOLD = 10.0  # Maximum C-alpha RMSD in Angstroms for protein filtering
@@ -113,10 +115,24 @@ CA_RMSD_FALLBACK_THRESHOLDS = [10.0, 15.0, 20.0]  # Progressive fallback thresho
 
 # --- Path Resolution Helper ---
 def _get_standard_embedding_paths() -> List[Path]:
+    """Get standard embedding paths, using new centralized path management first."""
+    potential_paths = []
+    
+    # First, try the new centralized path management system
+    if get_default_embedding_path:
+        current_dir = Path(__file__).parent.absolute()
+        # Try different base directories
+        for base_dir in [
+            current_dir.parent.parent,  # project root
+            current_dir.parent.parent.parent,  # if nested deeper
+            ".",  # current working directory
+        ]:
+            embedding_path = get_default_embedding_path(str(base_dir))
+            if embedding_path:
+                potential_paths.append(Path(embedding_path))
+    
+    # Standard path resolution for the correct embedding file
     current_dir = Path(__file__).parent.absolute()
-    # Default to a common structure: project_root/templ_pipeline/core/
-    # or project_root/src/templ_pipeline/core/
-    # This means root_dir could be current_dir.parent.parent
     root_dir_candidate1 = current_dir.parent.parent  # e.g., 'mcs' or 'project_root'
     root_dir_candidate2 = (
         current_dir.parent.parent.parent
@@ -125,7 +141,6 @@ def _get_standard_embedding_paths() -> List[Path]:
     root_dir = root_dir_candidate1  # Default assumption
 
     # Heuristic to find a more general project root if possible
-    # Looks for a common marker file or a known directory structure.
     project_root_marker = "README.md"
     if (
         (root_dir_candidate2 / project_root_marker).exists()
@@ -143,31 +158,24 @@ def _get_standard_embedding_paths() -> List[Path]:
         if (current_dir.parent / "data" / "embeddings").exists():
             root_dir = current_dir.parent
 
-    potential_paths = [
-        root_dir / "data" / "embeddings" / "protein_embeddings_base.npz",
-        root_dir
-        / "templ_pipeline"
-        / "data"
-        / "embeddings"
-        / "protein_embeddings_base.npz",
-        root_dir / "mcs_bench" / "data" / "protein_embeddings_base.npz",
-        root_dir
-        / "mcs_bench"
-        / "data"
-        / "esm2_embeddings"
-        / "protein_embeddings_base.npz",
-        Path.home() / ".cache" / "templ" / "embeddings" / "embeddings.npz",  # Symlink
-        Path("data", "embeddings", "protein_embeddings_base.npz"),  # Relative to CWD
-        Path(
-            "templ_pipeline", "data", "embeddings", "protein_embeddings_base.npz"
-        ),  # Relative to CWD
-        Path(
-            "/home/ubuntu/mcs/templ_pipeline/data/embeddings/protein_embeddings_base.npz"
-        ),  # Specific problematic path
+    # Add standard paths with correct ZENODO/v1.0.0 names
+    standard_paths = [
+        # Current standard path
+        root_dir / "data" / "embeddings" / "templ_protein_embeddings_v1.0.0.npz",
+        # ZENODO directory fallback
+        root_dir / "zenodo" / "data" / "templ_protein_embeddings_v1.0.0.npz",
+        # In case of direct data directory
+        root_dir / "templ_pipeline" / "data" / "embeddings" / "templ_protein_embeddings_v1.0.0.npz",
+        # Cache directory fallback
+        Path.home() / ".cache" / "templ" / "embeddings" / "templ_protein_embeddings_v1.0.0.npz",
+        # Relative to CWD
+        Path("data", "embeddings", "templ_protein_embeddings_v1.0.0.npz"),
+        Path("templ_pipeline", "data", "embeddings", "templ_protein_embeddings_v1.0.0.npz"),
     ]
+    
+    potential_paths.extend(standard_paths)
 
     # Return unique, resolved paths
-    # Using a set to ensure uniqueness before resolving, then list comprehension
     unique_paths = []
     seen_paths_str = set()
     for p in potential_paths:
@@ -203,10 +211,9 @@ def _resolve_embedding_path(embedding_path=None):
     1. Explicitly provided path
     2. TEMPL_EMBEDDING_PATH environment variable
     3. Default locations:
-       - ~/.cache/templ/embeddings/embeddings.npz
-       - ~/.cache/templ/embeddings/protein_embeddings_base.npz
-       - ./templ_pipeline/data/embeddings/protein_embeddings_base.npz
-       - Absolute path /home/ubuntu/mcs/templ_pipeline/data/embeddings/protein_embeddings_base.npz
+       - ~/.cache/templ/embeddings/templ_protein_embeddings_v1.0.0.npz
+       - ./data/embeddings/templ_protein_embeddings_v1.0.0.npz
+       - ./templ_pipeline/data/embeddings/templ_protein_embeddings_v1.0.0.npz
 
     Returns:
         The resolved path as a string
@@ -224,12 +231,9 @@ def _resolve_embedding_path(embedding_path=None):
 
     # Check default locations
     search_paths = [
-        Path.home() / ".cache" / "templ" / "embeddings" / "embeddings.npz",
-        Path.home() / ".cache" / "templ" / "embeddings" / "protein_embeddings_base.npz",
-        Path("templ_pipeline/data/embeddings/protein_embeddings_base.npz"),
-        Path(
-            "/home/ubuntu/mcs/templ_pipeline/data/embeddings/protein_embeddings_base.npz"
-        ),
+        Path.home() / ".cache" / "templ" / "embeddings" / "templ_protein_embeddings_v1.0.0.npz",
+        Path("data/embeddings/templ_protein_embeddings_v1.0.0.npz"),
+        Path("templ_pipeline/data/embeddings/templ_protein_embeddings_v1.0.0.npz"),
     ]
 
     for path in search_paths:
@@ -247,10 +251,9 @@ def _resolve_embedding_path(embedding_path=None):
                 pass
             return str(path)
 
-    # If no existing path found, return the environment variable or original path
-    # This might not exist, but it's the best guess
+    # If no existing path found, return the environment variable or default path
     return (
-        env_path or str(embedding_path) or "data/embeddings/protein_embeddings_base.npz"
+        env_path or "data/embeddings/templ_protein_embeddings_v1.0.0.npz"
     )
 
 
@@ -992,9 +995,7 @@ class EmbeddingManager:
             bool: True if embedding exists, False otherwise
         """
         # Normalize PDB ID
-        pdb_id = pdb_id.upper().split(":")[
-            -1
-        ]  # Normalize to uppercase for consistent lookup
+        pdb_id = pdb_id.upper().split(":")[-1]
 
         logger.debug(f"Checking for embedding of PDB ID: {pdb_id}")
 

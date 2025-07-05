@@ -69,3 +69,4 @@ tzdata==2025.2
     # via pandas
 urllib3==2.5.0
     # via requests
+zenodo-get>=1.6.0

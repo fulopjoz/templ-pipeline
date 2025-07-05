@@ -22,9 +22,12 @@ def get_test_data_path(data_type, pdb_id=None):
     # Base paths that might be used
     base_paths = {
         "embeddings": [
+            "data/embeddings/templ_protein_embeddings_v1.0.0.npz",
+            "templ_pipeline/data/embeddings/templ_protein_embeddings_v1.0.0.npz",
+            "../data/embeddings/templ_protein_embeddings_v1.0.0.npz",
+            # Legacy fallbacks for existing test environments
             "data/embeddings/protein_embeddings_base.npz",
             "templ_pipeline/data/embeddings/protein_embeddings_base.npz",
-            "../data/embeddings/protein_embeddings_base.npz",
             "/home/ubuntu/mcs/mcs_bench/data/protein_embeddings_base.npz",
             "/home/ubuntu/mcs/templ_pipeline/data/embeddings/protein_embeddings_base.npz",
         ],

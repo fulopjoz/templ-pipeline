@@ -48,7 +48,7 @@ def check_files():
         "data/example/1iky_ligand.sdf",
         "data/example/5eqy_protein.pdb",
         "data/example/5eqy_ligand.sdf",
-        "data/embeddings/protein_embeddings_base.npz",
+        "data/embeddings/templ_protein_embeddings_v1.0.0.npz",
     ]
 
     missing_files = []
@@ -97,7 +97,7 @@ def demo_find_templates(output_dir):
         "--protein-file",
         "data/example/1iky_protein.pdb",
         "--embedding-file",
-        "data/embeddings/protein_embeddings_base.npz",
+        "data/embeddings/templ_protein_embeddings_v1.0.0.npz",
         "--num-templates",
         "5",
         "--output-dir",
@@ -175,7 +175,7 @@ def demo_full_pipeline(output_dir):
         "--ligand-smiles",
         smiles,
         "--embedding-file",
-        "data/embeddings/protein_embeddings_base.npz",
+        "data/embeddings/templ_protein_embeddings_v1.0.0.npz",
         "--num-templates",
         "3",
         "--num-conformers",

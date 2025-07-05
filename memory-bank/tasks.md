@@ -206,7 +206,7 @@ The implementation successfully addresses all original issues:
 - **Planning Date**: 2024-12-30
 - **Implementation Date**: 2024-12-30
 - **Completion Date**: 2024-12-30
-- **User Request**: "we already have a embedding database we should use data/embeddings/protein_embeddings_base.npz"
+- **User Request**: "we already have a embedding database we should use data/embeddings/templ_protein_embeddings_v1.0.0.npz"
 
 #### Description ✅ COMPLETED
 Critical database issue preventing template matching functionality. The application successfully generated embeddings for input proteins but failed to find similar templates because the database contained only 5 dummy entries instead of thousands of real protein embeddings.
