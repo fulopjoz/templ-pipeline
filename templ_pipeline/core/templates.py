@@ -44,28 +44,50 @@ def safe_name(mol, default: str) -> str:
 
 
 def resolve_ligands_file_path() -> Optional[str]:
-    """Resolve the path to processed_ligands_new.sdf.gz with fallback strategy.
+    """Resolve the path to processed ligands file with ZENODO-compatible naming.
 
+    Uses the new centralized path management system first, then falls back to legacy paths.
     Tries multiple possible locations in order of preference:
-    1. Environment variable TEMPL_LIGANDS_PATH if set
+    1. New centralized path management (ZENODO naming)
+    2. Environment variable TEMPL_LIGANDS_PATH if set
     2. Relative paths from current working directory
     3. Absolute paths for common deployment scenarios
 
     Returns:
         Path to the ligands file if found, None otherwise
     """
-    # Check environment variable first
+    # Try new centralized path management first
+    try:
+        from templ_pipeline.core.utils import get_default_ligand_path
+        
+        # Try different base directories
+        for base_dir in [".", "..", "../.."]:
+            ligand_path = get_default_ligand_path(base_dir)
+            if ligand_path and os.path.exists(ligand_path):
+                log.debug(f"Found ligands file via centralized path management: {ligand_path}")
+                return ligand_path
+    except ImportError:
+        log.debug("Centralized path management not available, using legacy paths")
+    
+    # Check environment variable
     env_path = os.environ.get("TEMPL_LIGANDS_PATH")
     if env_path and os.path.exists(env_path):
         log.debug(f"Found ligands file via TEMPL_LIGANDS_PATH: {env_path}")
         return env_path
 
-    # Possible paths in order of preference - PRIORITIZE .gz files (fewer format errors)
+    # Legacy paths with new ZENODO names first, then old names
     possible_paths = [
-        # PRIORITY 1: .gz files (relative paths) - fewer SDF format errors
+        # PRIORITY 1: New ZENODO names (.gz files)
+        "zenodo/data/templ_processed_ligands_v1.0.0.sdf.gz",
+        "data/ligands/templ_processed_ligands_v1.0.0.sdf.gz",
+        "templ_pipeline/data/ligands/templ_processed_ligands_v1.0.0.sdf.gz",
+        # PRIORITY 2: Legacy names (.gz files) - fewer SDF format errors
         "data/ligands/processed_ligands_new.sdf.gz",
         "templ_pipeline/data/ligands/processed_ligands_new.sdf.gz",
-        # PRIORITY 2: .gz files (absolute paths) - fewer SDF format errors
+        # PRIORITY 3: Absolute paths with new names
+        "/home/ubuntu/mcs/templ_pipeline/zenodo/data/templ_processed_ligands_v1.0.0.sdf.gz",
+        "/home/ubuntu/mcs/templ_pipeline/data/ligands/templ_processed_ligands_v1.0.0.sdf.gz",
+        # PRIORITY 4: Absolute paths with legacy names
         "/home/ubuntu/mcs/templ_pipeline/data/ligands/processed_ligands_new.sdf.gz",
         "/home/ubuntu/mcs/mcs_bench/data/processed_ligands_new.sdf.gz",
         "data-minimal/ligands/processed_ligands_new.sdf.gz",

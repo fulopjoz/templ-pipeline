@@ -35,7 +35,7 @@ echo ""
 templ run \
     --protein-file data/example/1iky_protein.pdb \
     --ligand-smiles "COc1ccc(C(C)=O)c(O)c1[C@H]1C[C@H]1NC(=S)Nc1ccc(C#N)cn1" \
-    --embedding-file data/embeddings/protein_embeddings_base.npz \
+    --embedding-file data/embeddings/templ_protein_embeddings_v1.0.0.npz \
     --num-templates 3 \
     --num-conformers 50 \
     --output-dir "$OUTPUT_DIR/1iky_workflow"
@@ -53,7 +53,7 @@ echo ""
 templ run \
     --protein-file data/example/5eqy_protein.pdb \
     --ligand-file data/example/5eqy_ligand.sdf \
-    --embedding-file data/embeddings/protein_embeddings_base.npz \
+    --embedding-file data/embeddings/templ_protein_embeddings_v1.0.0.npz \
     --num-templates 3 \
     --num-conformers 50 \
     --output-dir "$OUTPUT_DIR/5eqy_workflow"
@@ -78,7 +78,7 @@ echo ""
 echo "Step 2: Find protein templates..."
 templ find-templates \
     --protein-file data/example/1iky_protein.pdb \
-    --embedding-file data/embeddings/protein_embeddings_base.npz \
+    --embedding-file data/embeddings/templ_protein_embeddings_v1.0.0.npz \
     --num-templates 5 \
     --output-dir "$OUTPUT_DIR/step_by_step"
 

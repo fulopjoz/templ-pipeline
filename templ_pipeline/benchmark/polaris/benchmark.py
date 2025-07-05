@@ -216,6 +216,8 @@ def run_templ_pipeline_single(
     exclude_mol: Optional[Chem.Mol] = None,
     n_conformers: int = 200,
     n_workers: int = 1,
+    save_poses: bool = False,
+    poses_output_dir: Optional[str] = None,
 ) -> Dict:
     """Run TEMPL pipeline for a single molecule with comprehensive result tracking."""
     result = {
@@ -289,6 +291,28 @@ def run_templ_pipeline_single(
                         "rmsd": rmsd,
                         "score": scores[metric],
                     }
+                    
+                    # Save pose if requested
+                    if save_poses and poses_output_dir:
+                        try:
+                            pose_path = _save_pose(
+                                pose, 
+                                result["molecule_name"], 
+                                metric, 
+                                poses_output_dir,
+                                {
+                                    "rmsd": rmsd,
+                                    "score": scores[metric],
+                                    "template_used": result["template_used"],
+                                    "n_conformers_generated": result["n_conformers_generated"],
+                                }
+                            )
+                            if "pose_files" not in result:
+                                result["pose_files"] = {}
+                            result["pose_files"][metric] = pose_path
+                        except Exception as e:
+                            logging.warning(f"Failed to save pose for {metric}: {str(e)}")
+                            
                 except Exception as e:
                     logging.warning(
                         f"RMSD calculation failed for {metric} on {result['molecule_name']}: {str(e)}"
@@ -325,6 +349,8 @@ def evaluate_with_leave_one_out(
     template_counts: Dict[str, int],
     n_workers: int = 1,
     n_conformers: int = 200,
+    save_poses: bool = False,
+    poses_output_dir: Optional[str] = None,
 ) -> Dict:
     """Enhanced leave-one-out evaluation."""
 
@@ -372,6 +398,8 @@ def evaluate_with_leave_one_out(
                         query_mol,
                         n_conformers,
                         1,
+                        save_poses,
+                        poses_output_dir,
                     ],
                     timeout=MOLECULE_TIMEOUT,
                 )
@@ -453,6 +481,8 @@ def evaluate_with_leave_one_out(
                     query_mol,
                     n_conformers,
                     1,
+                    save_poses,
+                    poses_output_dir,
                 )
                 future_to_mol[future] = (mol_name, query_mol)
 
@@ -531,6 +561,8 @@ def evaluate_with_templates(
     template_counts: Dict[str, int],
     n_workers: int = 1,
     n_conformers: int = 200,
+    save_poses: bool = False,
+    poses_output_dir: Optional[str] = None,
 ) -> Dict:
     """Enhanced evaluation with templates."""
 
@@ -571,7 +603,7 @@ def evaluate_with_templates(
 
                 future = pool.schedule(
                     run_templ_pipeline_single,
-                    args=[query_mol, template_mols, query_mol, None, n_conformers, 1],
+                    args=[query_mol, template_mols, query_mol, None, n_conformers, 1, save_poses, poses_output_dir],
                     timeout=MOLECULE_TIMEOUT,
                 )
                 futures.append((future, mol_name, query_mol))
@@ -652,6 +684,8 @@ def evaluate_with_templates(
                     None,
                     n_conformers,
                     1,
+                    save_poses,
+                    poses_output_dir,
                 )
                 future_to_mol[future] = (mol_name, query_mol)
 
@@ -970,6 +1004,17 @@ def build_parser() -> argparse.ArgumentParser:
         default="INFO",
         help="Set logging level",
     )
+    p.add_argument(
+        "--save-poses",
+        action="store_true",
+        help="Save predicted poses as SDF files for backtesting analysis",
+    )
+    p.add_argument(
+        "--poses-dir",
+        type=str,
+        default=None,
+        help="Directory to save predicted poses (default: benchmark_poses_<timestamp>)",
+    )
     return p
 
 
@@ -1045,36 +1090,41 @@ def main(argv: List[str] | None = None):
             f"Full benchmark: {args.n_conformers} conformers, {args.n_workers} workers"
         )
 
-    # Dataset directory resolution with multiple fallback paths
+    # Dataset directory resolution with ZENODO-compatible centralized path management
     if args.dataset_dir:
         data_dir = Path(args.dataset_dir)
     else:
-        # Try multiple potential locations for the polaris data
-        potential_paths = [
-            # From benchmark file location: go up to project root then to data
-            Path(__file__).resolve().parent.parent.parent / "data" / "polaris",
-            # From current working directory
-            Path.cwd() / "data" / "polaris", 
-            # Relative to templ_pipeline directory
-            Path.cwd() / "templ_pipeline" / "data" / "polaris",
-            # If running from project root
-            Path("data") / "polaris",
-            # If running from templ_pipeline subdirectory
-            Path("..") / "data" / "polaris",
-        ]
-        
+        # First try new centralized path management for ZENODO-compatible paths
         data_dir = None
-        for path in potential_paths:
-            if path.exists() and (path / "train_sarsmols.sdf").exists():
-                data_dir = path
-                logger.info(f"Found polaris data at: {data_dir}")
-                break
+        
+        # Polaris data stays in GitHub repository (not ZENODO)
+        logger.debug("Using direct path resolution for Polaris data")
+        
+        # Fallback to legacy path resolution if centralized management didn't work
+        if data_dir is None:
+            potential_paths = [
+                # ZENODO format first
+                Path(__file__).resolve().parent.parent.parent / "zenodo" / "data" / "polaris",
+                # Legacy paths
+                Path(__file__).resolve().parent.parent.parent / "data" / "polaris",
+                Path.cwd() / "data" / "polaris", 
+                Path.cwd() / "templ_pipeline" / "data" / "polaris",
+                Path("data") / "polaris",
+                Path("..") / "data" / "polaris",
+            ]
+            
+            for path in potential_paths:
+                if path.exists() and (path / "train_sarsmols.sdf").exists():
+                    data_dir = path
+                    logger.info(f"Found polaris data at: {data_dir}")
+                    break
         
         if data_dir is None:
             raise FileNotFoundError(
                 f"Polaris dataset directory not found. Tried locations:\n" + 
                 "\n".join(f"  - {p}" for p in potential_paths) +
-                "\n\nPlease ensure polaris data files are in one of these locations or use --dataset-dir"
+                "\n\nPolaris data is stored in the GitHub repository, not ZENODO. "
+                "Please ensure polaris data files are in one of these locations or use --dataset-dir"
             )
 
     # Validate data files and load datasets with progress
@@ -1124,6 +1174,8 @@ def main(argv: List[str] | None = None):
                     sars_template_counts,
                     args.n_workers,
                     args.n_conformers,
+                    save_poses=getattr(args, 'save_poses', False),
+                    poses_output_dir=getattr(args, 'poses_dir', None),
                 )
 
             # MERS training evaluation with native templates (leave-one-out)
@@ -1138,6 +1190,8 @@ def main(argv: List[str] | None = None):
                     mers_template_counts,
                     args.n_workers,
                     args.n_conformers,
+                    save_poses=getattr(args, 'save_poses', False),
+                    poses_output_dir=getattr(args, 'poses_dir', None),
                 )
 
             # MERS training evaluation with combined SARS-aligned + MERS templates
@@ -1154,6 +1208,8 @@ def main(argv: List[str] | None = None):
                     cross_template_counts,
                     args.n_workers,
                     args.n_conformers,
+                    save_poses=getattr(args, 'save_poses', False),
+                    poses_output_dir=getattr(args, 'poses_dir', None),
                 )
 
         # Run test set evaluations
@@ -1189,6 +1245,8 @@ def main(argv: List[str] | None = None):
                             sars_template_counts,
                             args.n_workers,
                             args.n_conformers,
+                            save_poses=args.save_poses,
+                            poses_output_dir=args.poses_dir,
                         )
 
                 # 2. MERS test evaluation with native templates
@@ -1205,6 +1263,8 @@ def main(argv: List[str] | None = None):
                             mers_template_counts,
                             args.n_workers,
                             args.n_conformers,
+                            save_poses=args.save_poses,
+                            poses_output_dir=args.poses_dir,
                         )
 
                 # 3. MERS test evaluation with combined MERS + SARS-aligned templates
@@ -1227,6 +1287,8 @@ def main(argv: List[str] | None = None):
                             mers_cross_template_counts,
                             args.n_workers,
                             args.n_conformers,
+                            save_poses=args.save_poses,
+                            poses_output_dir=args.poses_dir,
                         )
 
     except KeyboardInterrupt:
@@ -1304,6 +1366,53 @@ def main(argv: List[str] | None = None):
         logging.warning("No results to save.")
 
     return 0
+
+
+def _save_pose(
+    pose_mol: Chem.Mol,
+    molecule_name: str,
+    metric: str,
+    poses_output_dir: str,
+    metadata: Dict,
+) -> str:
+    """Save a pose molecule to SDF file with metadata.
+    
+    Args:
+        pose_mol: RDKit molecule object with 3D coordinates
+        molecule_name: Name of the query molecule  
+        metric: Scoring metric used (shape, color, combo)
+        poses_output_dir: Base directory for pose output
+        metadata: Dictionary containing RMSD, score, template info
+        
+    Returns:
+        Path to saved SDF file
+    """
+    # Create organized directory structure
+    mol_dir = Path(poses_output_dir) / "poses" / molecule_name
+    mol_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate timestamp for unique filenames
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Create filename: {molecule}_{metric}_{timestamp}.sdf
+    filename = f"{molecule_name}_{metric}_{timestamp}.sdf"
+    pose_path = mol_dir / filename
+    
+    # Add metadata as properties to molecule
+    pose_mol.SetProp("_Name", molecule_name)
+    pose_mol.SetProp("metric", metric)
+    pose_mol.SetProp("rmsd", str(metadata.get("rmsd", "N/A")))
+    pose_mol.SetProp("score", str(metadata.get("score", "N/A")))
+    pose_mol.SetProp("template_used", str(metadata.get("template_used", "N/A")))
+    pose_mol.SetProp("n_conformers_generated", str(metadata.get("n_conformers_generated", "N/A")))
+    pose_mol.SetProp("timestamp", timestamp)
+    
+    # Write to SDF file
+    writer = Chem.SDWriter(str(pose_path))
+    writer.write(pose_mol)
+    writer.close()
+    
+    return str(pose_path)
 
 
 if __name__ == "__main__":

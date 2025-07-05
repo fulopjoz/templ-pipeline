@@ -338,7 +338,7 @@ def main():
     if embedding_path is None:
         potential_paths = [
             "data/esm2_embeddings/embeddings.npz",
-            "data/protein_embeddings_base.npz",
+            "data/embeddings/templ_protein_embeddings_v1.0.0.npz",
             os.path.expanduser("~/.cache/templ/embeddings/embeddings.npz"),
         ]
         for path in potential_paths:

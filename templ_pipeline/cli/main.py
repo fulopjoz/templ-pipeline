@@ -22,7 +22,7 @@ Usage examples:
   templ embed --protein-file data/example/1iky_protein.pdb
 
   # Find protein templates
-  templ find-templates --protein-file data/example/1iky_protein.pdb --embedding-file data/embeddings/protein_embeddings_base.npz
+  templ find-templates --protein-file data/example/1iky_protein.pdb --embedding-file data/embeddings/templ_protein_embeddings_v1.0.0.npz
 
   # Generate poses with SMILES input
   templ generate-poses --protein-file data/example/1iky_protein.pdb --ligand-smiles "COc1ccc(C(C)=O)c(O)c1[C@H]1C[C@H]1NC(=S)Nc1ccc(C#N)cn1" --template-pdb 5eqy
@@ -31,7 +31,7 @@ Usage examples:
   templ generate-poses --protein-file data/example/1iky_protein.pdb --ligand-file data/example/1iky_ligand.sdf --template-pdb 5eqy
 
   # Run full pipeline
-  templ run --protein-file data/example/1iky_protein.pdb --ligand-smiles "COc1ccc(C(C)=O)c(O)c1[C@H]1C[C@H]1NC(=S)Nc1ccc(C#N)cn1" --embedding-file data/embeddings/protein_embeddings_base.npz
+  templ run --protein-file data/example/1iky_protein.pdb --ligand-smiles "COc1ccc(C(C)=O)c(O)c1[C@H]1C[C@H]1NC(=S)Nc1ccc(C#N)cn1" --embedding-file data/embeddings/templ_protein_embeddings_v1.0.0.npz
 """
 
 import argparse
@@ -194,6 +194,14 @@ def setup_parser():
         "--verbosity",
         choices=["minimal", "normal", "detailed", "debug"],
         help="Output verbosity level",
+    )
+    
+    # Add random seed for reproducible results
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducible results (default: 42)",
     )
 
     # Add subparsers for different commands
@@ -388,6 +396,17 @@ def setup_parser():
         "--verbose",
         action="store_true",
         help="Enable verbose debug output (otherwise minimal progress bars)",
+    )
+    benchmark_parser.add_argument(
+        "--save-poses",
+        action="store_true",
+        help="Save predicted poses as SDF files for backtesting analysis",
+    )
+    benchmark_parser.add_argument(
+        "--poses-dir",
+        type=str,
+        default=None,
+        help="Directory to save predicted poses (default: benchmark_poses_<timestamp>)",
     )
     # Time-split specific arguments
     benchmark_parser.add_argument(
@@ -1077,6 +1096,17 @@ def benchmark_command(args):
                 benchmark_args.extend(["--log-level", "DEBUG"])
             else:
                 benchmark_args.extend(["--log-level", "WARNING"])
+            
+            # Add pose saving arguments
+            if hasattr(args, "save_poses") and args.save_poses:
+                benchmark_args.append("--save-poses")
+                if hasattr(args, "poses_dir") and args.poses_dir:
+                    benchmark_args.extend(["--poses-dir", args.poses_dir])
+                else:
+                    # Use workspace subdirectory for poses
+                    default_poses_dir = workspace_dir / "predicted_poses"
+                    default_poses_dir.mkdir(exist_ok=True)
+                    benchmark_args.extend(["--poses-dir", str(default_poses_dir)])
 
             result = benchmark_main(benchmark_args)
 
@@ -1198,6 +1228,22 @@ def main():
             verbosity = VerbosityLevel(args.verbosity)
             configure_logging_for_verbosity(verbosity, "templ-cli")
             ux_config.update_preferences(default_verbosity=verbosity)
+        
+        # Set random seed for reproducible results
+        if hasattr(args, "seed") and args.seed is not None:
+            try:
+                from templ_pipeline.core.utils import set_global_random_seed
+                set_global_random_seed(args.seed)
+                logger.info(f"Random seed set to {args.seed} for reproducible results")
+            except ImportError:
+                logger.warning("Could not set random seed - utils module not available")
+        else:
+            # Set default seed if none specified
+            try:
+                from templ_pipeline.core.utils import ensure_reproducible_environment
+                ensure_reproducible_environment()
+            except ImportError:
+                logger.warning("Could not ensure reproducible environment")
 
         # Validate arguments
         if hasattr(args, "ligand_smiles") and args.ligand_smiles:

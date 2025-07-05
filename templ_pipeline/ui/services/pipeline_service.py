@@ -181,25 +181,13 @@ class PipelineService:
 
             # Initialize pipeline if not already done
             if self.pipeline is None:
-                if self.workspace_manager:
-                    # Use unified workspace manager
-                    self.pipeline = TEMPLPipeline(
-                        embedding_path=None,  # Auto-detect
-                        output_dir=self.workspace_manager.workspace_root,
-                        run_id=self.workspace_manager.run_id,
-                        use_unified_workspace=True,
-                        workspace_config=self.workspace_manager.config
-                    )
-                    logger.info("Pipeline initialized with unified workspace manager")
-                else:
-                    # Fallback to legacy mode
-                    self.pipeline = TEMPLPipeline(
-                        embedding_path=None,  # Auto-detect
-                        output_dir=self.config.paths.get("output_dir", "temp"),
-                        run_id=None,
-                        use_unified_workspace=False
-                    )
-                    logger.info("Pipeline initialized in legacy mode")
+                # Always use simplified initialization to avoid Streamlit errors
+                # Previous workspace manager integration was causing parameter issues
+                self.pipeline = TEMPLPipeline(
+                    embedding_path=None,  # Auto-detect
+                    output_dir=self.config.paths.get("output_dir", "temp"),
+                )
+                logger.info("Pipeline initialized with simplified configuration")
 
             # Prepare inputs
             smiles = molecule_data.get("input_smiles")
@@ -445,7 +433,8 @@ class PipelineService:
 
             # Continue with full pipeline
             return self._run_full_pipeline_with_templates(
-                smiles, templates, embedding, chain_id, progress_callback, user_settings
+                smiles, templates, embedding, chain_id, progress_callback, user_settings,
+                target_protein_file=pdb_file, target_protein_pdb_id=None
             )
 
         except Exception as e:
@@ -495,6 +484,8 @@ class PipelineService:
         chain_id: str,
         progress_callback: Optional[Callable],
         user_settings: Dict[str, Any],
+        target_protein_file: Optional[str] = None,
+        target_protein_pdb_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Continue full pipeline after finding templates"""
 
@@ -514,13 +505,18 @@ class PipelineService:
         if progress_callback:
             progress_callback("Generating poses...", 75)
 
-        # Generate poses
+        # Generate poses with protein alignment
         pose_results = self.pipeline.generate_poses(
             query_mol,
             template_mols,
             num_conformers=200,
             n_workers=4,
             use_aligned_poses=True,
+            target_protein_file=target_protein_file,
+            target_protein_pdb_id=target_protein_pdb_id,
+            target_chain_id=chain_id,
+            template_pdbs=template_pdbs,
+            template_similarities=[t[1] for t in templates] if templates else None,
         )
 
         if progress_callback:

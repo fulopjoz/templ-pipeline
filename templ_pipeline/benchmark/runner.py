@@ -154,7 +154,7 @@ class BenchmarkRunner:
         try:
             # Use correct subdirectory structure for embeddings
             embedding_path = (
-                self.data_dir / "embeddings" / "protein_embeddings_base.npz"
+                self.data_dir / "embeddings" / "templ_protein_embeddings_v1.0.0.npz"
             )
 
             # Set output directory
@@ -175,24 +175,13 @@ class BenchmarkRunner:
                     shared_embedding_cache=self._shared_embedding_cache
                 )
             else:
-                # Check legacy location as fallback
-                alt_embedding_path = self.data_dir / "protein_embeddings_base.npz"
-
-                if alt_embedding_path.exists():
-                    self.log.info(f"Using legacy embedding path: {alt_embedding_path}")
-                    self.pipeline = TEMPLPipeline(
-                        embedding_path=str(alt_embedding_path),
-                        output_dir=str(output_dir),
-                        shared_embedding_cache=self._shared_embedding_cache
-                    )
-                else:
-                    self.log.warning(
-                        "No embeddings found, initializing pipeline without embeddings"
-                    )
-                    self.pipeline = TEMPLPipeline(
-                        output_dir=str(output_dir),
-                        shared_embedding_cache=self._shared_embedding_cache
-                    )
+                self.log.warning(
+                    f"Embedding file not found at {embedding_path}, initializing pipeline without embeddings"
+                )
+                self.pipeline = TEMPLPipeline(
+                    output_dir=str(output_dir),
+                    shared_embedding_cache=self._shared_embedding_cache
+                )
 
             self.log.info(
                 f"TEMPL pipeline initialized with {memory_status['memory_gb']:.1f}GB memory usage"
