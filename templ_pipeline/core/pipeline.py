@@ -72,6 +72,13 @@ class TEMPLPipeline:
         # Initialize components lazily
         self._embedding_manager = None
         self._rdkit_modules = None
+        
+        # Initialize reproducible environment for deterministic results
+        try:
+            from .utils import ensure_reproducible_environment
+            ensure_reproducible_environment()
+        except ImportError:
+            logger.warning("Could not initialize reproducible environment - results may not be deterministic")
 
     def _cleanup_output_dir(self):
         """Clean up the output directory."""
@@ -107,9 +114,8 @@ class TEMPLPipeline:
             if self.embedding_path is None:
                 # Try default paths
                 default_paths = [
-                    "data/embeddings/protein_embeddings_base.npz",
-                    "templ_pipeline/data/embeddings/protein_embeddings_base.npz",
-                    "/home/ubuntu/mcs/templ_pipeline/data/embeddings/protein_embeddings_base.npz",
+                    "data/embeddings/templ_protein_embeddings_v1.0.0.npz",
+                    "templ_pipeline/data/embeddings/templ_protein_embeddings_v1.0.0.npz",
                 ]
 
                 for path in default_paths:
@@ -291,7 +297,7 @@ class TEMPLPipeline:
         Chem, _ = self._get_rdkit()
 
         templates = []
-        sdf_path = "templ_pipeline/data/ligands/processed_ligands_new_unzipped.sdf"
+        sdf_path = "templ_pipeline/data/ligands/templ_processed_ligands_v1.0.0.sdf.gz"
 
         if not os.path.exists(sdf_path):
             logger.error(f"Database file not found: {sdf_path}")
@@ -391,9 +397,14 @@ class TEMPLPipeline:
         num_conformers: int = 100,
         n_workers: int = 4,
         use_aligned_poses: bool = True,
+        target_protein_file: Optional[str] = None,
+        target_protein_pdb_id: Optional[str] = None,
+        target_chain_id: Optional[str] = None,
+        template_pdbs: Optional[List[str]] = None,
+        template_similarities: Optional[List[float]] = None,
     ) -> Dict[str, Tuple[Any, Dict[str, float]]]:
         """
-        Generate poses using template-based conformer generation.
+        Generate poses using template-based conformer generation with protein alignment.
 
         Args:
             query_mol: Query molecule
@@ -401,13 +412,20 @@ class TEMPLPipeline:
             num_conformers: Number of conformers to generate
             n_workers: Number of worker processes
             use_aligned_poses: If True, return aligned poses. If False, return original conformers with scores.
+            target_protein_file: Path to target protein PDB file
+            target_protein_pdb_id: Target protein PDB ID
+            target_chain_id: Target protein chain ID from embedding
+            template_pdbs: List of template PDB IDs corresponding to template_mols
+            template_similarities: List of similarity scores for templates
 
         Returns:
             Dictionary with poses and metadata, including MCS info
         """
-        from .mcs import generate_conformers, find_mcs
+        from .mcs import generate_conformers, find_mcs, transform_ligand
         from .scoring import select_best
         from .molecule_validation import validate_target_molecule, get_molecule_complexity_info
+        import biotite.structure.io as bsio
+        import os
 
         if not template_mols:
             raise ValueError("No template molecules provided")
@@ -436,11 +454,26 @@ class TEMPLPipeline:
         logger.info(
             f"Generating poses with {len(template_mols)} templates, {num_conformers} conformers, {n_workers} workers"
         )
+        
+        # CRITICAL FIX: Align template molecules to target protein binding site
+        aligned_template_mols = template_mols
+        if (target_protein_file or target_protein_pdb_id) and template_pdbs:
+            logger.info("Step 5a: Aligning template molecules to target protein binding site")
+            aligned_template_mols = self._align_template_molecules(
+                template_mols=template_mols,
+                template_pdbs=template_pdbs,
+                target_protein_file=target_protein_file,
+                target_protein_pdb_id=target_protein_pdb_id,
+                target_chain_id=target_chain_id,
+                template_similarities=template_similarities or [0.0] * len(template_mols)
+            )
+        else:
+            logger.warning("No protein structure information provided - using original template coordinates (poses may be misaligned)")
 
-        # Generate conformers with MCS-based constraints
-        logger.info("Finding MCS and generating conformers")
+        # Generate conformers with MCS-based constraints using aligned templates
+        logger.info("Step 5b: Finding MCS and generating conformers with aligned templates")
         conformers, mcs_info = generate_conformers(
-            query_mol, template_mols, n_conformers=num_conformers, n_workers=n_workers
+            query_mol, aligned_template_mols, n_conformers=num_conformers, n_workers=n_workers
         )
 
         # Store MCS info in results
@@ -519,6 +552,127 @@ class TEMPLPipeline:
         }
 
         return results
+
+    def _align_template_molecules(
+        self,
+        template_mols: List[Any],
+        template_pdbs: List[str],
+        target_protein_file: Optional[str] = None,
+        target_protein_pdb_id: Optional[str] = None,
+        target_chain_id: Optional[str] = None,
+        template_similarities: Optional[List[float]] = None,
+    ) -> List[Any]:
+        """
+        Align template molecules to target protein binding site using biotite protein alignment.
+        
+        This is the CRITICAL FIX for the misalignment issue - template ligands are transformed
+        to match the target protein's binding site coordinates.
+        
+        Args:
+            template_mols: List of template molecules in original coordinates
+            template_pdbs: List of template PDB IDs
+            target_protein_file: Path to target protein PDB file
+            target_protein_pdb_id: Target protein PDB ID
+            target_chain_id: Target protein chain ID from embedding
+            template_similarities: List of similarity scores for logging
+            
+        Returns:
+            List of aligned template molecules with transformed coordinates
+        """
+        aligned_mols = []
+        
+        try:
+            # Load target protein structure
+            target_struct = None
+            if target_protein_file and os.path.exists(target_protein_file):
+                logger.info(f"Loading target protein structure from file: {target_protein_file}")
+                target_struct = bsio.load_structure(target_protein_file)
+            elif target_protein_pdb_id:
+                # Try to find the PDB file in common locations
+                possible_paths = [
+                    f"data/pdbs/{target_protein_pdb_id.lower()}.pdb",
+                    f"templ_pipeline/data/pdbs/{target_protein_pdb_id.lower()}.pdb", 
+                    f"/home/ubuntu/mcs/templ_pipeline/data/pdbs/{target_protein_pdb_id.lower()}.pdb",
+                    f"data/{target_protein_pdb_id.lower()}.pdb"
+                ]
+                
+                for path in possible_paths:
+                    if os.path.exists(path):
+                        logger.info(f"Loading target protein structure for {target_protein_pdb_id} from: {path}")
+                        target_struct = bsio.load_structure(path)
+                        break
+                
+                if target_struct is None:
+                    logger.warning(f"Could not find PDB file for {target_protein_pdb_id} - alignment disabled")
+                    return template_mols
+            else:
+                logger.warning("No target protein structure available - alignment disabled")
+                return template_mols
+                
+            if target_struct is None:
+                logger.warning("Failed to load target protein structure - using original template coordinates")
+                return template_mols
+                
+            # Prepare target chains for alignment
+            target_chains = [target_chain_id] if target_chain_id else None
+            
+            # Align each template molecule
+            for i, (template_mol, template_pdb) in enumerate(zip(template_mols, template_pdbs)):
+                try:
+                    # Find template PDB file
+                    template_pdb_file = None
+                    possible_template_paths = [
+                        f"data/pdbs/{template_pdb.lower()}.pdb",
+                        f"templ_pipeline/data/pdbs/{template_pdb.lower()}.pdb",
+                        f"/home/ubuntu/mcs/templ_pipeline/data/pdbs/{template_pdb.lower()}.pdb",
+                        f"data/{template_pdb.lower()}.pdb"
+                    ]
+                    
+                    for path in possible_template_paths:
+                        if os.path.exists(path):
+                            template_pdb_file = path
+                            break
+                    
+                    if not template_pdb_file:
+                        logger.warning(f"Could not find PDB file for template {template_pdb} - using original coordinates")
+                        aligned_mols.append(template_mol)
+                        continue
+                    
+                    # Get similarity score for logging
+                    similarity = template_similarities[i] if template_similarities and i < len(template_similarities) else 0.0
+                    
+                    # Transform ligand using biotite protein alignment
+                    logger.debug(f"Aligning template {template_pdb} (similarity: {similarity:.3f}) to target binding site")
+                    
+                    aligned_mol = transform_ligand(
+                        mob_pdb=template_pdb_file,
+                        lig=template_mol,
+                        pid=template_pdb,
+                        ref_struct=target_struct,
+                        ref_chains=target_chains,
+                        mob_chains=None,  # Let function auto-detect
+                        similarity_score=similarity
+                    )
+                    
+                    if aligned_mol is not None:
+                        aligned_mols.append(aligned_mol)
+                        logger.debug(f"Successfully aligned template {template_pdb}")
+                    else:
+                        logger.warning(f"Failed to align template {template_pdb} - using original coordinates")
+                        aligned_mols.append(template_mol)
+                        
+                except Exception as e:
+                    logger.warning(f"Error aligning template {template_pdb}: {e} - using original coordinates")
+                    aligned_mols.append(template_mol)
+                    
+            alignment_success_rate = sum(1 for mol in aligned_mols if mol.HasProp("template_pdb")) / len(aligned_mols) if aligned_mols else 0
+            logger.info(f"Template alignment complete: {len(aligned_mols)} molecules processed, {alignment_success_rate:.1%} successfully aligned")
+            
+            return aligned_mols if aligned_mols else template_mols
+            
+        except Exception as e:
+            logger.error(f"Error in template alignment: {e} - using original coordinates")
+            return template_mols
 
     def save_results(
         self,
@@ -877,6 +1031,11 @@ class TEMPLPipeline:
                 num_conformers,
                 n_workers,
                 use_aligned_poses=use_aligned_poses,
+                target_protein_file=protein_file,
+                target_protein_pdb_id=protein_pdb_id,
+                target_chain_id=results.get("chain_id"),
+                template_pdbs=template_pdbs,
+                template_similarities=[t[1] for t in templates] if templates else None,
             )
 
             # Handle new dict format from generate_poses

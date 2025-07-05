@@ -141,7 +141,7 @@ class AppConfig:
             "embeddings_path": project_root
             / "data"
             / "embeddings"
-            / "protein_embeddings_base.npz",
+            / "templ_protein_embeddings_v1.0.0.npz",
             "templates_path": project_root / "data" / "templates",
         }
 

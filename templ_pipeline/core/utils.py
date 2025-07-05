@@ -11,6 +11,7 @@ This module provides utility functions for the TEMPL pipeline:
 import os
 import gzip
 import logging
+import random
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple, Any
 
@@ -37,6 +38,260 @@ logger = logging.getLogger(__name__)
 # Global cache manager for shared molecules across processes
 _GLOBAL_MOLECULE_CACHE = None
 _SHARED_CACHE_FILE = None
+
+# Global random seed management
+_GLOBAL_RANDOM_SEED = None
+_SEED_SET = False
+
+
+def set_global_random_seed(seed: int = 42) -> None:
+    """Set global random seed for reproducible results across all libraries.
+    
+    This function sets random seeds for:
+    - Python's built-in random module
+    - NumPy's random number generator
+    - RDKit's conformer generation (where supported)
+    - Other scientific libraries as needed
+    
+    Args:
+        seed: Random seed value (default: 42)
+    """
+    global _GLOBAL_RANDOM_SEED, _SEED_SET
+    
+    # Store the seed globally
+    _GLOBAL_RANDOM_SEED = seed
+    _SEED_SET = True
+    
+    # Set Python's built-in random seed
+    random.seed(seed)
+    
+    # Set NumPy random seed
+    np.random.seed(seed)
+    
+    # Set RDKit random seed if available
+    try:
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+        
+        # RDKit uses this for conformer generation randomization
+        Chem.SetRandomSeed(seed)
+        
+        logger.info(f"Global random seed set to {seed} (Python, NumPy, RDKit)")
+    except ImportError:
+        logger.info(f"Global random seed set to {seed} (Python, NumPy only - RDKit not available)")
+    
+    # Set environment variable for child processes
+    os.environ['TEMPL_RANDOM_SEED'] = str(seed)
+
+
+def get_global_random_seed() -> Optional[int]:
+    """Get the current global random seed.
+    
+    Returns:
+        Current random seed or None if not set
+    """
+    global _GLOBAL_RANDOM_SEED
+    return _GLOBAL_RANDOM_SEED
+
+
+def is_seed_set() -> bool:
+    """Check if global random seed has been set.
+    
+    Returns:
+        True if seed has been set, False otherwise
+    """
+    global _SEED_SET
+    return _SEED_SET
+
+
+def get_deterministic_seed(base_seed: Optional[int] = None, *components) -> int:
+    """Generate a deterministic seed based on components for reproducible sub-processes.
+    
+    This function creates deterministic seeds for parallel workers and sub-processes
+    while maintaining reproducibility across runs.
+    
+    Args:
+        base_seed: Base seed to use (uses global seed if None)
+        *components: Additional components to mix into the seed (strings, numbers, etc.)
+        
+    Returns:
+        Deterministic seed value
+    """
+    if base_seed is None:
+        base_seed = get_global_random_seed() or 42
+    
+    # Create a deterministic hash from components
+    import hashlib
+    
+    seed_string = f"{base_seed}"
+    for component in components:
+        seed_string += f"_{component}"
+    
+    # Use SHA-256 hash to create deterministic seed
+    hash_object = hashlib.sha256(seed_string.encode())
+    hash_hex = hash_object.hexdigest()
+    
+    # Convert first 8 characters to integer (sufficient for random seeds)
+    deterministic_seed = int(hash_hex[:8], 16) % (2**31 - 1)  # Keep within int32 range
+    
+    return deterministic_seed
+
+
+def ensure_reproducible_environment() -> None:
+    """Ensure reproducible environment by checking and setting seeds if needed.
+    
+    This function:
+    1. Checks if seed is already set globally
+    2. Checks environment variable for seed
+    3. Sets default seed if none found
+    4. Validates that RDKit operations will be deterministic
+    """
+    global _GLOBAL_RANDOM_SEED, _SEED_SET
+    
+    # Check if seed already set
+    if _SEED_SET and _GLOBAL_RANDOM_SEED is not None:
+        logger.debug(f"Reproducible environment already configured with seed {_GLOBAL_RANDOM_SEED}")
+        return
+    
+    # Check environment variable
+    env_seed = os.environ.get('TEMPL_RANDOM_SEED')
+    if env_seed:
+        try:
+            seed_value = int(env_seed)
+            set_global_random_seed(seed_value)
+            logger.info(f"Using random seed from environment: {seed_value}")
+            return
+        except ValueError:
+            logger.warning(f"Invalid TEMPL_RANDOM_SEED environment variable: {env_seed}")
+    
+    # Set default seed
+    default_seed = 42
+    set_global_random_seed(default_seed)
+    logger.info(f"Set default random seed for reproducibility: {default_seed}")
+
+
+# ZENODO-compatible file paths and version management
+DEFAULT_DATA_FILES = {
+    'protein_embeddings': 'templ_protein_embeddings_v1.0.0.npz',
+    'processed_ligands': 'templ_processed_ligands_v1.0.0.sdf.gz'
+}
+
+# Legacy file names for backward compatibility
+LEGACY_DATA_FILES = {
+    'protein_embeddings': 'protein_embeddings_base.npz',
+    'processed_ligands': 'processed_ligands_new.sdf.gz'
+}
+
+
+def get_data_file_path(file_type: str, base_dir: str = None) -> Optional[str]:
+    """Get the path to a data file, supporting both new ZENODO names and legacy names.
+    
+    Args:
+        file_type: Type of file ('protein_embeddings', 'processed_ligands')
+        base_dir: Base directory to search in (default: current directory)
+        
+    Returns:
+        Path to the data file, or None if not found
+    """
+    if base_dir is None:
+        base_dir = "."
+    
+    base_path = Path(base_dir)
+    
+    # Try new ZENODO format first
+    if file_type in DEFAULT_DATA_FILES:
+        # Check in zenodo/data/ directory first
+        zenodo_path = base_path / "zenodo" / "data" / DEFAULT_DATA_FILES[file_type]
+        if zenodo_path.exists():
+            return str(zenodo_path)
+        
+        # Check in standard data directories
+        if file_type == 'protein_embeddings':
+            standard_path = base_path / "data" / "embeddings" / DEFAULT_DATA_FILES[file_type]
+        elif file_type == 'processed_ligands':
+            standard_path = base_path / "data" / "ligands" / DEFAULT_DATA_FILES[file_type]
+        else:
+            standard_path = base_path / "data" / DEFAULT_DATA_FILES[file_type]
+            
+        if standard_path.exists():
+            return str(standard_path)
+    
+    # Fallback to legacy names
+    if file_type in LEGACY_DATA_FILES:
+        if file_type == 'protein_embeddings':
+            legacy_path = base_path / "data" / "embeddings" / LEGACY_DATA_FILES[file_type]
+        elif file_type == 'processed_ligands':
+            legacy_path = base_path / "data" / "ligands" / LEGACY_DATA_FILES[file_type]
+        else:
+            legacy_path = base_path / "data" / LEGACY_DATA_FILES[file_type]
+            
+        if legacy_path.exists():
+            logger.info(f"Using legacy file path for {file_type}: {legacy_path}")
+            return str(legacy_path)
+    
+    logger.warning(f"Data file not found for type '{file_type}' in {base_dir}")
+    return None
+
+
+def get_default_embedding_path(base_dir: str = None) -> Optional[str]:
+    """Get the default protein embedding file path."""
+    return get_data_file_path('protein_embeddings', base_dir)
+
+
+def get_default_ligand_path(base_dir: str = None) -> Optional[str]:
+    """Get the default processed ligands file path."""
+    return get_data_file_path('processed_ligands', base_dir)
+
+
+
+
+def validate_reproducibility() -> Dict[str, Any]:
+    """Validate that the environment is properly configured for reproducible results.
+    
+    Returns:
+        Dictionary with reproducibility status and recommendations
+    """
+    status = {
+        'seed_set': is_seed_set(),
+        'global_seed': get_global_random_seed(),
+        'python_random_state': random.getstate()[1][0],  # First element of random state
+        'numpy_random_state': np.random.get_state()[1][0],  # First element of numpy state
+        'rdkit_available': False,
+        'rdkit_deterministic': False,
+        'recommendations': []
+    }
+    
+    # Check RDKit determinism
+    try:
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+        
+        status['rdkit_available'] = True
+        
+        # Test RDKit determinism by generating conformers with same seed
+        mol = Chem.MolFromSmiles('CCO')
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        pos1 = mol.GetConformer().GetPositions()
+        
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        pos2 = mol.GetConformer().GetPositions()
+        
+        # Check if positions are identical (within floating point precision)
+        if np.allclose(pos1, pos2, atol=1e-10):
+            status['rdkit_deterministic'] = True
+        else:
+            status['recommendations'].append('RDKit conformer generation may not be fully deterministic')
+            
+    except ImportError:
+        status['recommendations'].append('RDKit not available - some operations may not be reproducible')
+    except Exception as e:
+        status['recommendations'].append(f'Error testing RDKit determinism: {e}')
+    
+    # Check if seed is set
+    if not status['seed_set']:
+        status['recommendations'].append('Call set_global_random_seed() for reproducible results')
+    
+    return status
 
 
 def initialize_global_molecule_cache():
@@ -740,6 +995,9 @@ def get_protein_file_paths(pdb_id: str, data_dir: Path) -> List[Path]:
 def find_ligand_file_paths(data_dir: Path) -> List[Path]:
     """Get possible ligand file paths."""
     return [
+        data_dir / "ligands" / "templ_processed_ligands_v1.0.0.sdf.gz",
+        data_dir / "ligands" / "templ_processed_ligands_v1.0.0.sdf",
+        # Legacy fallbacks
         data_dir / "ligands" / "processed_ligands_new.sdf.gz",
         data_dir / "ligands" / "processed_ligands_new_unzipped.sdf",
         data_dir / "processed_ligands_new.sdf.gz",
@@ -760,6 +1018,9 @@ def load_split_pdb_ids(split_file: Path, data_dir: Path) -> Set[str]:
 
     # Filter by available embeddings
     embedding_files = [
+        data_dir / "embeddings" / "templ_protein_embeddings_v1.0.0.npz",
+        data_dir / "templ_protein_embeddings_v1.0.0.npz",
+        # Legacy fallbacks
         data_dir / "protein_embeddings_base.npz",
         data_dir / "embeddings" / "protein_embeddings_base.npz",
     ]

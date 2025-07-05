@@ -5,10 +5,10 @@ This directory contains data files required for the TEMPL (Template-based Protei
 ## Directory Structure
 
 - `embeddings/`: Contains pre-computed protein embeddings
-  - `protein_embeddings_base.npz`: Pre-computed ESM2 embeddings for proteins in PDBbind
+  - `templ_protein_embeddings_v1.0.0.npz`: Pre-computed ESM2 embeddings for proteins in PDBbind
 
 - `ligands/`: Contains ligand structure files
-  - `processed_ligands_new.sdf.gz`: Processed ligand structures from PDBbind
+  - `templ_processed_ligands_v1.0.0.sdf.gz`: Processed ligand structures from PDBbind
 
 - `splits/`: Contains dataset split definitions for benchmarking
   - `timesplit_test`: Test set PDB IDs for time-split benchmarking
@@ -19,14 +19,14 @@ This directory contains data files required for the TEMPL (Template-based Protei
 
 ### Embeddings
 
-The `protein_embeddings_base.npz` file is a NumPy compressed archive containing:
+The `templ_protein_embeddings_v1.0.0.npz` file is a NumPy compressed archive containing:
 - `pdb_ids`: Array of PDB IDs
 - `embeddings`: Array of ESM2 embeddings (shape: [num_proteins, embedding_dim])
 - `chain_ids`: Array of chain IDs used for each protein
 
 ### Ligands
 
-The `processed_ligands_new.sdf.gz` file is a compressed Structure-Data File (SDF) containing:
+The `templ_processed_ligands_v1.0.0.sdf.gz` file is a compressed Structure-Data File (SDF) containing:
 - 3D structures of ligands from PDBbind
 - Additional properties for each ligand
 

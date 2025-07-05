@@ -153,9 +153,8 @@ def run_time_split_example(args: argparse.Namespace) -> None:
     embedding_path = args.embedding_path
     if not embedding_path:
         potential_paths = [
-            "data/embeddings/protein_embeddings_base.npz",
-            "templ_pipeline/data/embeddings/protein_embeddings_base.npz",
-            "mcs_bench/data/protein_embeddings_base.npz",
+            "data/embeddings/templ_protein_embeddings_v1.0.0.npz",
+            "templ_pipeline/data/embeddings/templ_protein_embeddings_v1.0.0.npz",
         ]
         for path in potential_paths:
             if os.path.exists(path):

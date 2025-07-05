@@ -762,7 +762,7 @@ def run_timesplit_benchmark(
         # Check if this looks like a TEMPL data directory by looking for key files
         if (
             candidate_path.exists()
-            and (candidate_path / "ligands" / "processed_ligands_new.sdf.gz").exists()
+            and (candidate_path / "ligands" / "templ_processed_ligands_v1.0.0.sdf.gz").exists()
         ):
             data_dir = str(candidate_path)
             break

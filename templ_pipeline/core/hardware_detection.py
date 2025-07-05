@@ -65,12 +65,13 @@ def get_basic_hardware_info() -> HardwareInfo:
             except:
                 total_ram_gb = 8.0  # Default fallback
 
-        # GPU detection
+        # Enhanced GPU detection with multiple methods
         gpu_available = False
         gpu_count = 0
         gpu_memory_gb = 0.0
         gpu_models = []
 
+        # Method 1: nvidia-smi (works for most NVIDIA GPUs)
         try:
             result = subprocess.run(
                 [
@@ -92,8 +93,75 @@ def get_basic_hardware_info() -> HardwareInfo:
                             gpu_models.append(parts[0])
                             gpu_memory_gb += float(parts[1]) / 1024  # Convert MB to GB
                 gpu_count = len(gpu_models)
-        except:
-            pass
+                logger.info(f"nvidia-smi detected {gpu_count} GPU(s): {gpu_models}")
+        except Exception as e:
+            logger.debug(f"nvidia-smi detection failed: {e}")
+
+        # Method 2: PyTorch CUDA detection (for CUDA-enabled laptop GPUs)
+        if not gpu_available:
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    gpu_available = True
+                    gpu_count = torch.cuda.device_count()
+                    gpu_memory_gb = 0
+                    for i in range(gpu_count):
+                        props = torch.cuda.get_device_properties(i)
+                        gpu_models.append(props.name)
+                        gpu_memory_gb += props.total_memory / (1024**3)  # Convert bytes to GB
+                    logger.info(f"PyTorch CUDA detected {gpu_count} GPU(s): {gpu_models}")
+            except ImportError:
+                logger.debug("PyTorch not available for GPU detection")
+            except Exception as e:
+                logger.debug(f"PyTorch CUDA detection failed: {e}")
+
+        # Method 3: Environment variable check (CUDA_VISIBLE_DEVICES)
+        if not gpu_available:
+            cuda_devices = os.environ.get('CUDA_VISIBLE_DEVICES')
+            if cuda_devices and cuda_devices != '':
+                try:
+                    if cuda_devices != '-1':  # -1 means no GPUs
+                        device_list = cuda_devices.split(',')
+                        gpu_count = len(device_list)
+                        gpu_available = True
+                        gpu_models = [f"CUDA Device {i}" for i in device_list]
+                        gpu_memory_gb = 4.0 * gpu_count  # Estimate 4GB per device
+                        logger.info(f"CUDA_VISIBLE_DEVICES detected {gpu_count} GPU(s)")
+                except Exception as e:
+                    logger.debug(f"CUDA_VISIBLE_DEVICES detection failed: {e}")
+
+        # Method 4: Check for NVIDIA driver
+        if not gpu_available:
+            try:
+                result = subprocess.run(
+                    ["nvidia-ml-py3", "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
+                )
+                if result.returncode == 0:
+                    gpu_available = True
+                    gpu_count = 1  # Conservative estimate
+                    gpu_models = ["NVIDIA GPU (driver detected)"]
+                    gpu_memory_gb = 2.0  # Conservative estimate
+                    logger.info("NVIDIA driver detected - assuming GPU available")
+            except Exception:
+                pass
+
+        # Method 5: Linux /proc/driver check
+        if not gpu_available and platform.system() == "Linux":
+            try:
+                if os.path.exists("/proc/driver/nvidia/version"):
+                    with open("/proc/driver/nvidia/version", "r") as f:
+                        content = f.read()
+                        if "NVIDIA" in content:
+                            gpu_available = True
+                            gpu_count = 1
+                            gpu_models = ["NVIDIA GPU (Linux driver)"]
+                            gpu_memory_gb = 2.0
+                            logger.info("Linux NVIDIA driver detected - assuming GPU available")
+            except Exception:
+                pass
 
         # Recommend configuration based on hardware
         if gpu_available and total_ram_gb >= 16 and gpu_memory_gb >= 8:

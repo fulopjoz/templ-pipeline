@@ -767,7 +767,13 @@ def _mmff_minimize_single_conformer_task(args_tuple):
             logger.debug(
                 f"_mmff_task: No conformers found in MolBlock for conf {conformer_id}, embedding"
             )
-            AllChem.EmbedMolecule(mol, randomSeed=42)
+            # Use deterministic seed for reproducible conformer generation
+            try:
+                from .utils import get_deterministic_seed
+                deterministic_seed = get_deterministic_seed(None, "mmff_embed", conformer_id)
+                AllChem.EmbedMolecule(mol, randomSeed=deterministic_seed)
+            except ImportError:
+                AllChem.EmbedMolecule(mol, randomSeed=42)
         # Work on first conformer (ID 0)
 
         mp = rdForceFieldHelpers.MMFFGetMoleculeProperties(
@@ -1217,6 +1223,14 @@ def generate_conformers_batched_constrained(
         if hasattr(ps, "maxAttempts"):
             ps.maxAttempts = 1000
         ps.useRandomCoords = True
+        
+        # Set deterministic seed for reproducible conformer generation
+        try:
+            from .utils import get_deterministic_seed
+            deterministic_seed = get_deterministic_seed(None, "constrained_embed", str(mol.GetProp("_Name") if mol.HasProp("_Name") else "unnamed"))
+            ps.randomSeed = deterministic_seed
+        except ImportError:
+            ps.randomSeed = 42  # Fallback to fixed seed
 
         conf_ids = rdDistGeom.EmbedMultipleConfs(
             mol, n_conformers, ps, coordMap=coord_map
@@ -1243,6 +1257,14 @@ def generate_conformers_batched_constrained(
         if hasattr(ps, "maxAttempts"):
             ps.maxAttempts = 1000
         ps.useRandomCoords = True
+        
+        # Set deterministic seed for reproducible conformer generation (per batch)
+        try:
+            from .utils import get_deterministic_seed
+            deterministic_seed = get_deterministic_seed(None, "constrained_embed_batch", batch_count, str(mol.GetProp("_Name") if mol.HasProp("_Name") else "unnamed"))
+            ps.randomSeed = deterministic_seed
+        except ImportError:
+            ps.randomSeed = 42 + batch_count  # Fallback to deterministic per-batch seed
 
         try:
             conf_ids = rdDistGeom.EmbedMultipleConfs(

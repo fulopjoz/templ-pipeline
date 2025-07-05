@@ -5,13 +5,29 @@ Template-based protein–ligand pose prediction with a single command-line inter
 ---
 
 ## Why TEMPL?
-TEMPL leverages **ligand similarity** and **template superposition** instead of exhaustive docking or deep neural networks. For familiar chemical space it provides fast, accurate poses with minimal compute.
 
+> ⚠️ **Important: TEMPL is a baseline method** designed for rapid prototyping and benchmarking. It will **not be accurate for challenging cases** such as novel chemical scaffolds, allosteric binding sites, or targets without similar templates in PDBBind. For production use cases, consider combining TEMPL with physics-based docking or machine learning methods.
+
+TEMPL leverages **ligand similarity** and **template superposition** instead of exhaustive docking or deep neural networks. For familiar chemical space within the PDBBind training set, it provides fast, reasonable poses with minimal compute.
+
+**Core Features:**
+* Template-based pose prediction using ligand similarity
 * Alignment driven by maximal common substructure (MCS)
 * Constrained conformer generation (ETKDG v3)
 * Shape / pharmacophore scoring for pose selection
 * Built-in benchmarks (Polaris, time-split PDBbind)
 * CPU-only by default; GPU optional for protein embeddings
+
+**Best suited for:**
+- Benchmarking and baseline comparisons
+- Rapid pose generation for known chemical space
+- Educational demonstrations of template-based methods
+- Initial exploration before more sophisticated methods
+
+**Not recommended for:**
+- Novel drug discovery with unprecedented scaffolds
+- Allosteric or cryptic binding sites
+- Production pharmaceutical pipelines without validation
 
 ---
 
@@ -112,9 +128,59 @@ Use `templ --help` for all commands or `templ --help examples` for example usage
 
 ## Dataset Setup
 
-TEMPL ships **no PDB structures or ligands**. Download datasets manually:
+TEMPL requires additional data files that are **automatically downloaded** from Zenodo during environment setup. The setup script will handle all data downloads for you!
 
-### PDBbind v2020
+### Automatic Download (Default)
+
+The setup script automatically downloads required datasets from Zenodo:
+
+```bash
+# Data files are downloaded automatically during setup
+source setup_templ_env.sh
+
+# Files will be placed in:
+# - data/embeddings/templ_protein_embeddings_v1.0.0.npz (~2GB)
+# - data/ligands/templ_processed_ligands_v1.0.0.sdf.gz (~800MB)
+```
+
+### Manual Download (If Automatic Fails)
+
+If automatic download fails, you can download manually from Zenodo:
+
+1. **Download from ZENODO**: https://doi.org/10.5281/zenodo.15813500
+   - `templ_protein_embeddings_v1.0.0.npz` (~2GB) - Pre-computed protein embeddings
+   - `templ_processed_ligands_v1.0.0.sdf.gz` (~800MB) - Processed ligand structures
+
+2. **Place files in correct locations**:
+   ```bash
+   # Create directories (if not exist)
+   mkdir -p data/embeddings data/ligands
+   
+   # Move downloaded files
+   mv templ_protein_embeddings_v1.0.0.npz data/embeddings/
+   mv templ_processed_ligands_v1.0.0.sdf.gz data/ligands/
+   ```
+
+### Using zenodo-get directly
+
+You can also use zenodo-get directly to download the datasets:
+
+```bash
+# Install zenodo-get if not already installed
+pip install zenodo-get
+
+# Download TEMPL datasets
+zenodo_get 10.5281/zenodo.15813500
+
+# Move files to correct locations
+mv templ_protein_embeddings_v1.0.0.npz data/embeddings/
+mv templ_processed_ligands_v1.0.0.sdf.gz data/ligands/
+```
+
+### Option 3: PDBbind v2020 (For Full Dataset)
+
+For complete benchmarking, also download PDBbind:
+
 1. Register and download from [PDBbind website](https://www.pdbbind-plus.org.cn/download)
 2. Place in `templ_pipeline/data/PDBBind/` with this structure:
 ```
@@ -123,8 +189,21 @@ PDBBind/
 └─ PDBbind_v2020_other_PL/v2020-other-PL/<PDB>/
 ```
 
-### Polaris benchmark
-Pre-processed data is already included under `templ_pipeline/benchmark/data/polaris/`.
+### Verify Installation
+
+Check that all required files are present:
+
+```bash
+# Check essential files
+templ --version                                              # Should show TEMPL version
+ls data/embeddings/templ_protein_embeddings_v1.0.0.npz     # Should exist (~2GB)
+ls data/ligands/templ_processed_ligands_v1.0.0.sdf.gz      # Should exist (~800MB)
+
+# Test with a quick benchmark
+templ benchmark polaris --quick
+```
+
+> **Note:** The data files (embeddings and ligands) are essential for TEMPL to work. If you encounter download issues during setup, you can download them manually from [Zenodo](https://doi.org/10.5281/zenodo.15813500) or open an issue on GitHub.
 
 ---
 
