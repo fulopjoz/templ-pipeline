@@ -6,7 +6,8 @@ Template-based protein–ligand pose prediction with a single command-line inter
 
 ## Why TEMPL?
 
-> ⚠️ **Important: TEMPL is a baseline method** designed for rapid prototyping and benchmarking. It will **not be accurate for challenging cases** such as novel chemical scaffolds, allosteric binding sites, or targets without similar templates in PDBBind. For production use cases, consider combining TEMPL with physics-based docking or machine learning methods.
+> ⚠️ **Method Scope**: TEMPL is a template-based baseline method optimized for rapid pose prediction within known chemical space. Performance may be limited for novel scaffolds, allosteric sites, or targets with insufficient template coverage. Consider validation or combination with physics-based methods.
+
 
 TEMPL leverages **ligand similarity** and **template superposition** instead of exhaustive docking or deep neural networks. For familiar chemical space within the PDBBind training set, it provides fast, reasonable poses with minimal compute.
 
@@ -161,6 +162,8 @@ If automatic download fails, you can download manually from Zenodo:
    mv templ_processed_ligands_v1.0.0.sdf.gz data/ligands/
    ```
 
+> **Note**: The setup script now automatically installs `zenodo_get` and downloads these files for you during installation.
+
 ### Using zenodo-get directly
 
 You can also use zenodo-get directly to download the datasets:
@@ -309,6 +312,41 @@ source setup_templ_env.sh
 # Wrong - creates environment but doesn't activate it
 ./setup_templ_env.sh
 ```
+
+### Data File Issues
+If you get errors about missing embeddings or ligand files:
+
+```bash
+# Check if data files exist
+ls data/embeddings/templ_protein_embeddings_v1.0.0.npz
+ls data/ligands/templ_processed_ligands_v1.0.0.sdf.gz
+
+# If missing, re-run setup to download automatically
+source setup_templ_env.sh
+
+# Or download manually from Zenodo (see Dataset Setup section)
+```
+
+### GPU Detection Issues
+If you have a GPU but it's not detected:
+
+```bash
+# Check GPU status
+nvidia-smi
+
+# Force GPU installation if auto-detection fails
+source setup_templ_env.sh --gpu-force
+
+# Use CPU-only if GPU issues persist
+source setup_templ_env.sh --cpu-only
+```
+
+### Pose Alignment Issues  
+If poses appear misaligned relative to protein binding sites:
+
+- Ensure you have the PDBBind dataset for optimal template alignment
+- Use PDB IDs from the database when possible (better than local files)
+- Check that protein superalignment is enabled in your pipeline runs
 
 ### Get Help
 ```bash

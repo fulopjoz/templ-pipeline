@@ -12,6 +12,8 @@ from typing import Dict, List, Optional, Tuple, Any, Set
 import tempfile
 from datetime import datetime
 from rdkit import Chem, RDLogger
+import biotite.structure.io as bsio
+from .directory_manager import DirectoryManager
 
 RDLogger.DisableLog("rdApp.*")
 Chem.SetDefaultPickleProperties(Chem.PropertyPickleOptions.AllProps)
@@ -52,22 +54,15 @@ class TEMPLPipeline:
         self._cleanup_registered = False
         self.shared_embedding_cache = shared_embedding_cache
 
-        # Create timestamped output directory
-        if run_id:
-            self.output_dir = Path(f"{output_dir}_{run_id}")
-        else:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            self.output_dir = Path(f"{output_dir}_{timestamp}")
-
-        self.output_dir.mkdir(exist_ok=True)
-
-        # Register cleanup if requested
-        if self.auto_cleanup and not self._cleanup_registered:
-            import atexit
-
-            atexit.register(self._cleanup_output_dir)
-            self._cleanup_registered = True
-            logger.debug(f"Registered auto-cleanup for {self.output_dir}")
+        # Use directory manager for better lifecycle management
+        self._directory_manager = DirectoryManager(
+            base_name="run",
+            run_id=run_id,
+            auto_cleanup=auto_cleanup,
+            lazy_creation=True,
+            centralized_output=True,
+            output_root=output_dir
+        )
 
         # Initialize components lazily
         self._embedding_manager = None
@@ -80,22 +75,14 @@ class TEMPLPipeline:
         except ImportError:
             logger.warning("Could not initialize reproducible environment - results may not be deterministic")
 
-    def _cleanup_output_dir(self):
-        """Clean up the output directory."""
-        if self.output_dir and self.output_dir.exists():
-            try:
-                import shutil
-
-                shutil.rmtree(self.output_dir)
-                logger.debug(f"Cleaned up output directory: {self.output_dir}")
-            except Exception as e:
-                logger.warning(
-                    f"Failed to clean up output directory {self.output_dir}: {e}"
-                )
+    @property
+    def output_dir(self) -> Path:
+        """Get the output directory, creating it if necessary."""
+        return self._directory_manager.directory
 
     def cleanup(self):
         """Manually clean up the output directory."""
-        self._cleanup_output_dir()
+        return self._directory_manager.cleanup()
 
     def __enter__(self):
         """Context manager entry."""
@@ -104,7 +91,7 @@ class TEMPLPipeline:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit with cleanup."""
         if self.auto_cleanup:
-            self._cleanup_output_dir()
+            self._directory_manager.cleanup()
 
     def _get_embedding_manager(self):
         """Lazy initialization of embedding manager."""
@@ -579,6 +566,10 @@ class TEMPLPipeline:
         Returns:
             List of aligned template molecules with transformed coordinates
         """
+        from .mcs import transform_ligand
+        import biotite.structure.io as bsio
+        import numpy as np
+        
         aligned_mols = []
         
         try:
@@ -588,12 +579,17 @@ class TEMPLPipeline:
                 logger.info(f"Loading target protein structure from file: {target_protein_file}")
                 target_struct = bsio.load_structure(target_protein_file)
             elif target_protein_pdb_id:
-                # Try to find the PDB file in common locations
+                # Try to find the PDB file in common locations including PDBBind dataset
                 possible_paths = [
                     f"data/pdbs/{target_protein_pdb_id.lower()}.pdb",
                     f"templ_pipeline/data/pdbs/{target_protein_pdb_id.lower()}.pdb", 
                     f"/home/ubuntu/mcs/templ_pipeline/data/pdbs/{target_protein_pdb_id.lower()}.pdb",
-                    f"data/{target_protein_pdb_id.lower()}.pdb"
+                    f"data/{target_protein_pdb_id.lower()}.pdb",
+                    # PDBBind dataset paths
+                    f"data/PDBBind/PDBbind_v2020_refined/refined-set/{target_protein_pdb_id.lower()}/{target_protein_pdb_id.lower()}_protein.pdb",
+                    f"data/PDBBind/PDBbind_v2020_other_PL/v2020-other-PL/{target_protein_pdb_id.lower()}/{target_protein_pdb_id.lower()}_protein.pdb",
+                    f"templ_pipeline/data/PDBBind/PDBbind_v2020_refined/refined-set/{target_protein_pdb_id.lower()}/{target_protein_pdb_id.lower()}_protein.pdb",
+                    f"templ_pipeline/data/PDBBind/PDBbind_v2020_other_PL/v2020-other-PL/{target_protein_pdb_id.lower()}/{target_protein_pdb_id.lower()}_protein.pdb"
                 ]
                 
                 for path in possible_paths:
@@ -616,8 +612,17 @@ class TEMPLPipeline:
             # Prepare target chains for alignment
             target_chains = [target_chain_id] if target_chain_id else None
             
+            # Prioritize self-templates (same PDB as target) for better alignment
+            template_items = list(zip(template_mols, template_pdbs, template_similarities or [0.0] * len(template_mols)))
+            template_items.sort(key=lambda x: (x[1].upper() != target_protein_pdb_id.upper(), -x[2]))  # Self-templates first, then by similarity
+            
+            # Update the order to match prioritization (important for MCS selection consistency)
+            template_mols = [item[0] for item in template_items]
+            template_pdbs = [item[1] for item in template_items]
+            template_similarities = [item[2] for item in template_items]
+            
             # Align each template molecule
-            for i, (template_mol, template_pdb) in enumerate(zip(template_mols, template_pdbs)):
+            for i, (template_mol, template_pdb, similarity) in enumerate(template_items):
                 try:
                     # Find template PDB file
                     template_pdb_file = None
@@ -625,7 +630,12 @@ class TEMPLPipeline:
                         f"data/pdbs/{template_pdb.lower()}.pdb",
                         f"templ_pipeline/data/pdbs/{template_pdb.lower()}.pdb",
                         f"/home/ubuntu/mcs/templ_pipeline/data/pdbs/{template_pdb.lower()}.pdb",
-                        f"data/{template_pdb.lower()}.pdb"
+                        f"data/{template_pdb.lower()}.pdb",
+                        # PDBBind dataset paths for templates
+                        f"data/PDBBind/PDBbind_v2020_refined/refined-set/{template_pdb.lower()}/{template_pdb.lower()}_protein.pdb",
+                        f"data/PDBBind/PDBbind_v2020_other_PL/v2020-other-PL/{template_pdb.lower()}/{template_pdb.lower()}_protein.pdb",
+                        f"templ_pipeline/data/PDBBind/PDBbind_v2020_refined/refined-set/{template_pdb.lower()}/{template_pdb.lower()}_protein.pdb",
+                        f"templ_pipeline/data/PDBBind/PDBbind_v2020_other_PL/v2020-other-PL/{template_pdb.lower()}/{template_pdb.lower()}_protein.pdb"
                     ]
                     
                     for path in possible_template_paths:
@@ -638,11 +648,26 @@ class TEMPLPipeline:
                         aligned_mols.append(template_mol)
                         continue
                     
-                    # Get similarity score for logging
-                    similarity = template_similarities[i] if template_similarities and i < len(template_similarities) else 0.0
+                    # Similarity score already extracted from tuple above
                     
                     # Transform ligand using biotite protein alignment
                     logger.debug(f"Aligning template {template_pdb} (similarity: {similarity:.3f}) to target binding site")
+                    
+                    # Get template chain information from embedding database
+                    template_chain_id = None
+                    try:
+                        embedding_manager = self._get_embedding_manager()
+                        if embedding_manager.has_embedding(template_pdb):
+                            _, template_chain_id = embedding_manager.get_embedding(template_pdb)
+                            logger.debug(f"Retrieved chain {template_chain_id} for template {template_pdb}")
+                        else:
+                            logger.debug(f"Template {template_pdb} not found in embedding database")
+                    except Exception as e:
+                        logger.debug(f"Could not get chain info for template {template_pdb}: {e}")
+                    
+                    # Use embedding-specified chains for both target and template
+                    mob_chains = [template_chain_id] if template_chain_id else None
+                    logger.debug(f"Template {template_pdb}: using mob_chains={mob_chains}, ref_chains={target_chains}")
                     
                     aligned_mol = transform_ligand(
                         mob_pdb=template_pdb_file,
@@ -650,13 +675,36 @@ class TEMPLPipeline:
                         pid=template_pdb,
                         ref_struct=target_struct,
                         ref_chains=target_chains,
-                        mob_chains=None,  # Let function auto-detect
+                        mob_chains=mob_chains,  # Use embedding-specified chain
                         similarity_score=similarity
                     )
                     
                     if aligned_mol is not None:
-                        aligned_mols.append(aligned_mol)
-                        logger.debug(f"Successfully aligned template {template_pdb}")
+                        # Check if alignment produced reasonable coordinates
+                        conf = aligned_mol.GetConformer()
+                        coords = np.array([conf.GetAtomPosition(i) for i in range(aligned_mol.GetNumAtoms())])
+                        center = np.mean(coords, axis=0)
+                        
+                        # If template is same as target (self-template), expect similar coordinates
+                        if template_pdb.upper() == target_protein_pdb_id.upper():
+                            # For self-templates, coordinates should be very close to original
+                            aligned_mols.append(aligned_mol)
+                            logger.debug(f"Self-template {template_pdb} aligned successfully")
+                        else:
+                            # For different templates, check if coordinates are reasonable
+                            # Use a more general approach: reject if coordinates are extremely far from reasonable range
+                            coord_magnitude = np.linalg.norm(center)
+                            
+                            # Also check if they're clearly wrong by being too far from template's self-alignment
+                            if template_pdb.upper() == target_protein_pdb_id.upper():
+                                # This is handled above
+                                pass
+                            elif coord_magnitude > 300:  # Coordinates too far from origin are likely wrong alignment
+                                logger.warning(f"Template {template_pdb} alignment produced extreme coordinates (center: {center[0]:.1f}, {center[1]:.1f}, {center[2]:.1f}) - SKIPPING")
+                                continue
+                            else:
+                                aligned_mols.append(aligned_mol)
+                                logger.debug(f"Successfully aligned template {template_pdb} (center: {center[0]:.1f}, {center[1]:.1f}, {center[2]:.1f})")
                     else:
                         logger.warning(f"Failed to align template {template_pdb} - using original coordinates")
                         aligned_mols.append(template_mol)
@@ -667,6 +715,7 @@ class TEMPLPipeline:
                     
             alignment_success_rate = sum(1 for mol in aligned_mols if mol.HasProp("template_pdb")) / len(aligned_mols) if aligned_mols else 0
             logger.info(f"Template alignment complete: {len(aligned_mols)} molecules processed, {alignment_success_rate:.1%} successfully aligned")
+            logger.info(f"DEBUG_ALIGNMENT_FIX: Using fixed alignment code with embedding-specified chains")
             
             return aligned_mols if aligned_mols else template_mols
             

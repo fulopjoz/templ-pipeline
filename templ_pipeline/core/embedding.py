@@ -158,19 +158,10 @@ def _get_standard_embedding_paths() -> List[Path]:
         if (current_dir.parent / "data" / "embeddings").exists():
             root_dir = current_dir.parent
 
-    # Add standard paths with correct ZENODO/v1.0.0 names
+    # ZENODO standardized paths only
     standard_paths = [
-        # Current standard path
+        # Standard ZENODO path
         root_dir / "data" / "embeddings" / "templ_protein_embeddings_v1.0.0.npz",
-        # ZENODO directory fallback
-        root_dir / "zenodo" / "data" / "templ_protein_embeddings_v1.0.0.npz",
-        # In case of direct data directory
-        root_dir / "templ_pipeline" / "data" / "embeddings" / "templ_protein_embeddings_v1.0.0.npz",
-        # Cache directory fallback
-        Path.home() / ".cache" / "templ" / "embeddings" / "templ_protein_embeddings_v1.0.0.npz",
-        # Relative to CWD
-        Path("data", "embeddings", "templ_protein_embeddings_v1.0.0.npz"),
-        Path("templ_pipeline", "data", "embeddings", "templ_protein_embeddings_v1.0.0.npz"),
     ]
     
     potential_paths.extend(standard_paths)
@@ -229,11 +220,9 @@ def _resolve_embedding_path(embedding_path=None):
     if env_path and Path(env_path).exists():
         return env_path
 
-    # Check default locations
+    # Check default location
     search_paths = [
-        Path.home() / ".cache" / "templ" / "embeddings" / "templ_protein_embeddings_v1.0.0.npz",
         Path("data/embeddings/templ_protein_embeddings_v1.0.0.npz"),
-        Path("templ_pipeline/data/embeddings/templ_protein_embeddings_v1.0.0.npz"),
     ]
 
     for path in search_paths:
