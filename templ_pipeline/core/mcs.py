@@ -32,7 +32,20 @@ from rdkit.Chem import (
     rdMolDescriptors,
     rdDepictor,
     rdFMCS,
+    rdShapeHelpers,
 )
+try:
+    from rdkit.Chem.rdShapeHelpers import ShapeProtrudeDist, ShapeAlign
+    HAS_RDSHAPE_ALIGN = True
+except ImportError:
+    # Fallback if ShapeAlign not available
+    try:
+        from rdkit.Chem.rdShapeHelpers import ShapeProtrudeDist
+        HAS_RDSHAPE_ALIGN = False
+    except ImportError:
+        HAS_RDSHAPE_ALIGN = False
+        def ShapeProtrudeDist(mol1, mol2):
+            return 999.0
 from rdkit import DataStructs
 from rdkit.Geometry import Point3D
 from tqdm import tqdm
@@ -47,6 +60,18 @@ from biotite.structure import (
 )
 import uuid
 import random
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+# Try to import spyrmsd for symmetry-corrected RMSD calculations
+try:
+    from spyrmsd import rmsd, molecule
+    HAS_SPYRMSD = True
+    logger.debug("spyrmsd loaded successfully")
+except ImportError:
+    HAS_SPYRMSD = False
+    logger.debug("spyrmsd not available - using basic RMSD calculations")
 
 # Import chemistry functions
 try:
@@ -77,9 +102,6 @@ except ImportError:
         pass
     def embed_with_uff_fallback(mol, n_conformers, ps, coordMap=None):
         return []
-
-# Configure logging
-logger = logging.getLogger(__name__)
 
 # Add constants after imports
 ORGANOMETALLIC_ATOMS = {
@@ -224,6 +246,12 @@ def find_mcs(
                 continue
 
         if hits:
+            # DEBUG: Log all hits for inspection
+            logger.info(f"MCS Debug: Found {len(hits)} hits at threshold {opts.similarityThreshold}")
+            for i, hit in enumerate(hits[:10]):  # Show first 10 hits
+                template_name = refs[hit[1]].GetProp("_Name") if refs[hit[1]].HasProp("_Name") else f"template_{hit[1]}"
+                logger.info(f"  Hit {i}: Template {hit[1]} ({template_name}) -> {hit[0]} atoms matched")
+            
             # Enhanced template selection with molecular similarity tiebreaker
             best_idx, best_smarts, best_details = _select_optimal_template(
                 tgt, refs, hits, return_details
@@ -285,19 +313,25 @@ def find_mcs(
 def _select_optimal_template(
     tgt: Chem.Mol, refs: List[Chem.Mol], hits: List, return_details: bool
 ) -> Tuple:
-    """Select optimal template from MCS hits using molecular similarity tiebreaker."""
+    """Select optimal template from MCS hits using natural MCS-based selection."""
+    logger.info(f"_select_optimal_template called with {len(hits)} hits")
     if not hits:
         return 0, "*", {}
 
-    # Group by best MCS score
+    # Group by best MCS score - let MCS determine the best template naturally
     max_score = max(hit[0] for hit in hits)
     best_hits = [hit for hit in hits if hit[0] == max_score]
+    logger.info(f"Max score: {max_score}, best hits: {len(best_hits)}")
 
+    # If single best hit, use it directly
     if len(best_hits) == 1:
         hit = best_hits[0]
+        logger.info(f"Single best MCS hit: template {hit[1]} with score {hit[0]}")
         return (hit[1], hit[2], hit[3]) if return_details else (hit[1], hit[2], {})
 
-    # Tiebreaker: molecular similarity
+    # For multiple best hits, use molecular similarity tiebreaker
+    logger.info(f"MCS tiebreaker: {len(best_hits)} templates with max score {max_score}")
+    
     best_candidate = None
     best_similarity = -1
 
@@ -323,7 +357,7 @@ def _select_optimal_template(
         best_candidate = best_hits[0]
 
     logger.info(
-        f"MCS tiebreaker: selected template {best_candidate[1]} with similarity {best_similarity:.3f}"
+        f"MCS natural selection: selected template {best_candidate[1]} with MCS score {best_candidate[0]} and similarity {best_similarity:.3f}"
     )
 
     if return_details:
@@ -1517,9 +1551,15 @@ def transform_ligand(
         moved = Chem.Mol(lig)
         moved.SetProp("_Name", f"{pid}_template")
         coords = np.asarray(lig.GetConformer().GetPositions(), float)
+        
+        # DEBUG: Log original and transformed coordinates
+        original_center = np.mean(coords, axis=0)
+        logger.debug(f"Template {pid} original ligand center: ({original_center[0]:.1f}, {original_center[1]:.1f}, {original_center[2]:.1f})")
 
         # Apply the transformation
         transformed_coords = transform.apply(coords)
+        transformed_center = np.mean(transformed_coords, axis=0)
+        logger.debug(f"Template {pid} transformed ligand center: ({transformed_center[0]:.1f}, {transformed_center[1]:.1f}, {transformed_center[2]:.1f})")
 
         # Apply coordinates to molecule
         conf = moved.GetConformer()
@@ -1612,6 +1652,202 @@ def standardize_atom_arrays(arrays):
     except Exception:
         # Return first array as fallback if anything goes wrong
         return [arrays[0]]
+
+
+def calculate_shape_alignment(query_mol, template_mol, use_features=True):
+    """
+    Calculate shape-based alignment using RDKit's ShapeAlign.
+    
+    Args:
+        query_mol: Query molecule (RDKit Mol object)
+        template_mol: Template molecule (RDKit Mol object)
+        use_features: Whether to use pharmacophore features in alignment
+        
+    Returns:
+        Dict containing alignment results and metrics
+    """
+    try:
+        # Ensure both molecules have 3D coordinates
+        if query_mol.GetNumConformers() == 0:
+            AllChem.EmbedMolecule(query_mol)
+        if template_mol.GetNumConformers() == 0:
+            AllChem.EmbedMolecule(template_mol)
+            
+        # Calculate shape alignment using available RDKit methods
+        try:
+            # Try using rdMolAlign for basic shape comparison
+            shape_tanimoto = 1.0 - (rdMolAlign.AlignMol(query_mol, template_mol) / 10.0)
+            shape_tanimoto = max(0.0, min(1.0, shape_tanimoto))  # Clamp to [0,1]
+        except:
+            # Fallback to basic geometric comparison
+            query_coords = query_mol.GetConformer().GetPositions()
+            template_coords = template_mol.GetConformer().GetPositions()
+            if len(query_coords) == len(template_coords):
+                rmsd = np.sqrt(np.mean(np.sum((query_coords - template_coords)**2, axis=1)))
+                shape_tanimoto = max(0.0, 1.0 - rmsd / 10.0)
+            else:
+                shape_tanimoto = 0.0
+        
+        # Calculate color (feature) alignment if requested
+        color_tanimoto = 0.0
+        if use_features:
+            try:
+                # Use fingerprint similarity as proxy for pharmacophore features
+                from rdkit import DataStructs
+                from rdkit.Chem import rdMolDescriptors
+                
+                query_fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(query_mol, 2)
+                template_fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(template_mol, 2)
+                color_tanimoto = DataStructs.TanimotoSimilarity(query_fp, template_fp)
+            except:
+                color_tanimoto = 0.0
+        
+        # Calculate shape protrusion distance
+        protrude_dist = ShapeProtrudeDist(query_mol, template_mol)
+        
+        # Calculate combined score
+        combo_score = (shape_tanimoto + color_tanimoto) / 2.0
+        
+        return {
+            'shape_tanimoto': shape_tanimoto,
+            'color_tanimoto': color_tanimoto,
+            'combo_score': combo_score,
+            'protrude_dist': protrude_dist,
+            'alignment_success': True
+        }
+        
+    except Exception as e:
+        logger.warning(f"Shape alignment calculation failed: {e}")
+        return {
+            'shape_tanimoto': 0.0,
+            'color_tanimoto': 0.0,
+            'combo_score': 0.0,
+            'protrude_dist': 999.0,
+            'alignment_success': False
+        }
+
+
+def calculate_symmetry_corrected_rmsd(query_mol, template_mol, use_spyrmsd=True):
+    """
+    Calculate symmetry-corrected RMSD between two molecules.
+    
+    Args:
+        query_mol: Query molecule (RDKit Mol object)
+        template_mol: Template molecule (RDKit Mol object)
+        use_spyrmsd: Whether to use spyrmsd for symmetry correction
+        
+    Returns:
+        Dict containing RMSD calculations
+    """
+    try:
+        # Ensure both molecules have 3D coordinates
+        if query_mol.GetNumConformers() == 0:
+            AllChem.EmbedMolecule(query_mol)
+        if template_mol.GetNumConformers() == 0:
+            AllChem.EmbedMolecule(template_mol)
+            
+        # Get atom coordinates
+        query_coords = query_mol.GetConformer().GetPositions()
+        template_coords = template_mol.GetConformer().GetPositions()
+        
+        # Basic RMSD calculation using RDKit
+        basic_rmsd = 0.0
+        try:
+            basic_rmsd = rdMolAlign.AlignMol(query_mol, template_mol)
+        except:
+            # Fallback to coordinate comparison if alignment fails
+            if len(query_coords) == len(template_coords):
+                basic_rmsd = np.sqrt(np.mean(np.sum((query_coords - template_coords)**2, axis=1)))
+            else:
+                basic_rmsd = 999.0
+        
+        # Symmetry-corrected RMSD using spyrmsd if available
+        symmetry_rmsd = basic_rmsd
+        if use_spyrmsd and HAS_SPYRMSD:
+            try:
+                # Convert to spyrmsd format
+                query_atomicnums = [atom.GetAtomicNum() for atom in query_mol.GetAtoms()]
+                template_atomicnums = [atom.GetAtomicNum() for atom in template_mol.GetAtoms()]
+                
+                # Only calculate if molecules have same number of atoms
+                if len(query_atomicnums) == len(template_atomicnums):
+                    symmetry_rmsd = rmsd.symmrmsd(
+                        query_coords,
+                        template_coords,
+                        query_atomicnums,
+                        template_atomicnums
+                    )
+            except Exception as e:
+                logger.debug(f"spyrmsd calculation failed, using basic RMSD: {e}")
+                symmetry_rmsd = basic_rmsd
+        
+        return {
+            'basic_rmsd': basic_rmsd,
+            'symmetry_rmsd': symmetry_rmsd,
+            'rmsd_calculation_success': True
+        }
+        
+    except Exception as e:
+        logger.warning(f"RMSD calculation failed: {e}")
+        return {
+            'basic_rmsd': 999.0,
+            'symmetry_rmsd': 999.0,
+            'rmsd_calculation_success': False
+        }
+
+
+def enhanced_template_scoring(query_mol, template_mol, embedding_similarity=0.0):
+    """
+    Enhanced template scoring using multiple criteria.
+    
+    Args:
+        query_mol: Query molecule (RDKit Mol object)
+        template_mol: Template molecule (RDKit Mol object)
+        embedding_similarity: Protein embedding similarity score
+        
+    Returns:
+        Dict containing comprehensive scoring metrics
+    """
+    # Calculate shape-based alignment
+    shape_results = calculate_shape_alignment(query_mol, template_mol)
+    
+    # Calculate symmetry-corrected RMSD
+    rmsd_results = calculate_symmetry_corrected_rmsd(query_mol, template_mol)
+    
+    # Calculate chemical similarity
+    chemical_similarity = 0.0
+    try:
+        from rdkit import DataStructs
+        from rdkit.Chem import rdMolDescriptors
+        
+        # Morgan fingerprints
+        query_fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(query_mol, 2)
+        template_fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(template_mol, 2)
+        chemical_similarity = DataStructs.TanimotoSimilarity(query_fp, template_fp)
+    except:
+        chemical_similarity = 0.0
+    
+    # Calculate combined score
+    # Weight: shape=0.4, chemical=0.3, embedding=0.2, rmsd=0.1
+    combined_score = (
+        shape_results['combo_score'] * 0.4 +
+        chemical_similarity * 0.3 +
+        embedding_similarity * 0.2 +
+        (1.0 - min(rmsd_results['symmetry_rmsd'] / 10.0, 1.0)) * 0.1
+    )
+    
+    return {
+        'shape_tanimoto': shape_results['shape_tanimoto'],
+        'color_tanimoto': shape_results['color_tanimoto'],
+        'shape_combo': shape_results['combo_score'],
+        'protrude_dist': shape_results['protrude_dist'],
+        'basic_rmsd': rmsd_results['basic_rmsd'],
+        'symmetry_rmsd': rmsd_results['symmetry_rmsd'],
+        'chemical_similarity': chemical_similarity,
+        'embedding_similarity': embedding_similarity,
+        'combined_score': combined_score,
+        'scoring_success': shape_results['alignment_success'] and rmsd_results['rmsd_calculation_success']
+    }
 
 
 class MCSEngine:

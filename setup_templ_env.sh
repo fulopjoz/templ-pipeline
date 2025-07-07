@@ -427,11 +427,14 @@ install_from_pyproject() {
 setup_data_files() {
     print_section "Data Files Setup"
     
-    # Create data directory structure
-    print_status "Creating data directory structure..."
-    mkdir -p data/embeddings
-    mkdir -p data/ligands
-    mkdir -p data/PDBBind
+    # Create data directory structure - only missing directories
+    local dirs=("data" "data/embeddings" "data/ligands" "data/PDBBind")
+    for dir in "${dirs[@]}"; do
+        if [[ ! -d "$dir" ]]; then
+            mkdir -p "$dir"
+            print_status "Created directory: $dir"
+        fi
+    done
     
     # Check if data files already exist
     if [[ -f "data/embeddings/templ_protein_embeddings_v1.0.0.npz" ]] && [[ -f "data/ligands/templ_processed_ligands_v1.0.0.sdf.gz" ]]; then
@@ -440,6 +443,14 @@ setup_data_files() {
     fi
     
     print_status "Downloading TEMPL datasets from Zenodo..."
+    
+    # Install zenodo_get if not available
+    if ! command -v zenodo_get >/dev/null 2>&1; then
+        print_status "Installing zenodo_get for data download..."
+        uv pip install zenodo_get || {
+            print_warning "Failed to install zenodo_get, will provide manual download instructions"
+        }
+    fi
     
     # Download from Zenodo using zenodo-get
     # DOI: https://doi.org/10.5281/zenodo.15813500

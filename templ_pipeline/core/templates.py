@@ -75,28 +75,9 @@ def resolve_ligands_file_path() -> Optional[str]:
         log.debug(f"Found ligands file via TEMPL_LIGANDS_PATH: {env_path}")
         return env_path
 
-    # Legacy paths with new ZENODO names first, then old names
+    # ZENODO standardized paths only
     possible_paths = [
-        # PRIORITY 1: New ZENODO names (.gz files)
-        "zenodo/data/templ_processed_ligands_v1.0.0.sdf.gz",
         "data/ligands/templ_processed_ligands_v1.0.0.sdf.gz",
-        "templ_pipeline/data/ligands/templ_processed_ligands_v1.0.0.sdf.gz",
-        # PRIORITY 2: Legacy names (.gz files) - fewer SDF format errors
-        "data/ligands/processed_ligands_new.sdf.gz",
-        "templ_pipeline/data/ligands/processed_ligands_new.sdf.gz",
-        # PRIORITY 3: Absolute paths with new names
-        "/home/ubuntu/mcs/templ_pipeline/zenodo/data/templ_processed_ligands_v1.0.0.sdf.gz",
-        "/home/ubuntu/mcs/templ_pipeline/data/ligands/templ_processed_ligands_v1.0.0.sdf.gz",
-        # PRIORITY 4: Absolute paths with legacy names
-        "/home/ubuntu/mcs/templ_pipeline/data/ligands/processed_ligands_new.sdf.gz",
-        "/home/ubuntu/mcs/mcs_bench/data/processed_ligands_new.sdf.gz",
-        "data-minimal/ligands/processed_ligands_new.sdf.gz",
-        # FALLBACK: Unzipped versions (more format errors, use only if .gz unavailable)
-        "data/ligands/processed_ligands_new_unzipped.sdf",
-        "templ_pipeline/data/ligands/processed_ligands_new_unzipped.sdf",
-        "/home/ubuntu/mcs/templ_pipeline/data/ligands/processed_ligands_new_unzipped.sdf",
-        "/home/ubuntu/mcs/mcs_bench/data/processed_ligands_new_unzipped.sdf",
-        "data-minimal/ligands/processed_ligands_new_unzipped.sdf",
     ]
 
     for path in possible_paths:
