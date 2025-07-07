@@ -186,15 +186,14 @@ DEFAULT_DATA_FILES = {
     'processed_ligands': 'templ_processed_ligands_v1.0.0.sdf.gz'
 }
 
-# Legacy file names for backward compatibility
+# Legacy file names for backward compatibility - DEPRECATED
 LEGACY_DATA_FILES = {
-    'protein_embeddings': 'protein_embeddings_base.npz',
     'processed_ligands': 'processed_ligands_new.sdf.gz'
 }
 
 
 def get_data_file_path(file_type: str, base_dir: str = None) -> Optional[str]:
-    """Get the path to a data file, supporting both new ZENODO names and legacy names.
+    """Get the path to a data file using ZENODO standardized paths.
     
     Args:
         file_type: Type of file ('protein_embeddings', 'processed_ligands')
@@ -208,14 +207,8 @@ def get_data_file_path(file_type: str, base_dir: str = None) -> Optional[str]:
     
     base_path = Path(base_dir)
     
-    # Try new ZENODO format first
+    # Use ZENODO standardized paths only
     if file_type in DEFAULT_DATA_FILES:
-        # Check in zenodo/data/ directory first
-        zenodo_path = base_path / "zenodo" / "data" / DEFAULT_DATA_FILES[file_type]
-        if zenodo_path.exists():
-            return str(zenodo_path)
-        
-        # Check in standard data directories
         if file_type == 'protein_embeddings':
             standard_path = base_path / "data" / "embeddings" / DEFAULT_DATA_FILES[file_type]
         elif file_type == 'processed_ligands':
@@ -225,19 +218,6 @@ def get_data_file_path(file_type: str, base_dir: str = None) -> Optional[str]:
             
         if standard_path.exists():
             return str(standard_path)
-    
-    # Fallback to legacy names
-    if file_type in LEGACY_DATA_FILES:
-        if file_type == 'protein_embeddings':
-            legacy_path = base_path / "data" / "embeddings" / LEGACY_DATA_FILES[file_type]
-        elif file_type == 'processed_ligands':
-            legacy_path = base_path / "data" / "ligands" / LEGACY_DATA_FILES[file_type]
-        else:
-            legacy_path = base_path / "data" / LEGACY_DATA_FILES[file_type]
-            
-        if legacy_path.exists():
-            logger.info(f"Using legacy file path for {file_type}: {legacy_path}")
-            return str(legacy_path)
     
     logger.warning(f"Data file not found for type '{file_type}' in {base_dir}")
     return None
@@ -1006,12 +986,6 @@ def find_ligand_file_paths(data_dir: Path) -> List[Path]:
     """Get possible ligand file paths."""
     return [
         data_dir / "ligands" / "templ_processed_ligands_v1.0.0.sdf.gz",
-        data_dir / "ligands" / "templ_processed_ligands_v1.0.0.sdf",
-        # Legacy fallbacks
-        data_dir / "ligands" / "processed_ligands_new.sdf.gz",
-        data_dir / "ligands" / "processed_ligands_new_unzipped.sdf",
-        data_dir / "processed_ligands_new.sdf.gz",
-        data_dir / "processed_ligands_new_unzipped.sdf",
     ]
 
 
@@ -1029,10 +1003,6 @@ def load_split_pdb_ids(split_file: Path, data_dir: Path) -> Set[str]:
     # Filter by available embeddings
     embedding_files = [
         data_dir / "embeddings" / "templ_protein_embeddings_v1.0.0.npz",
-        data_dir / "templ_protein_embeddings_v1.0.0.npz",
-        # Legacy fallbacks
-        data_dir / "protein_embeddings_base.npz",
-        data_dir / "embeddings" / "protein_embeddings_base.npz",
     ]
 
     for embedding_file in embedding_files:

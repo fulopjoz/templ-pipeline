@@ -37,6 +37,10 @@ coverage.xml
 *.cover
 *.py,cover
 .hypothesis/
+htmlcov/
+test-cache/
+test-profiles/
+coverage-analysis/
 
 # Virtual environments
 .env
@@ -59,6 +63,10 @@ venv.bak/
 .settings/
 *.sublime-workspace
 *.sublime-project
+.cursor/
+cursor-memory-bank/
+custom_modes/
+memory-bank/
 
 # ==============================================
 # PROJECT-SPECIFIC DATA & OUTPUTS
@@ -70,8 +78,16 @@ data/PDBBind/PDBbind_v2020_refined
 !data/README.md
 temp_*
 # Output and results
-output/
 output_*/
+output/
+workspace/
+web_app_results/
+template_test_*/
+benchmark_workspace_*/
+templ_benchmark_results_*/
+qa-dashboard/
+error_tracking/
+.benchmarks/
 
 # Model files and checkpoints
 *.pth
