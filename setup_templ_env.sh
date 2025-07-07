@@ -127,34 +127,44 @@ load_config() {
 
 # Parse command line arguments
 parse_args() {
+    # Store command line arguments to check for overrides later
+    local cmd_install_mode=""
+    
     while [[ $# -gt 0 ]]; do
         case $1 in
             --auto)
                 INSTALL_MODE="auto"
+                cmd_install_mode="auto"
                 shift
                 ;;
             --cpu-only)
                 INSTALL_MODE="cpu-only"
+                cmd_install_mode="cpu-only"
                 shift
                 ;;
             --gpu-force)
                 INSTALL_MODE="gpu-force"
+                cmd_install_mode="gpu-force"
                 shift
                 ;;
             --minimal)
                 INSTALL_MODE="minimal"
+                cmd_install_mode="minimal"
                 shift
                 ;;
             --web)
                 INSTALL_MODE="web"
+                cmd_install_mode="web"
                 shift
                 ;;
             --full)
                 INSTALL_MODE="full"
+                cmd_install_mode="full"
                 shift
                 ;;
             --dev)
                 INSTALL_MODE="dev"
+                cmd_install_mode="dev"
                 shift
                 ;;
             --use-requirements)
@@ -189,8 +199,13 @@ parse_args() {
         esac
     done
     
-    # Load configuration after parsing args
+    # Load configuration first
     load_config
+    
+    # Command line arguments override config file settings
+    if [[ -n "$cmd_install_mode" ]]; then
+        INSTALL_MODE="$cmd_install_mode"
+    fi
 }
 
 # Check if we're being sourced (not executed)
@@ -343,9 +358,26 @@ create_venv() {
     print_status "Activating virtual environment"
     source "$VENV_NAME/bin/activate"
     
-    # Upgrade pip
+    # Verify we're in the correct environment
+    if [[ "$VIRTUAL_ENV" != "$(pwd)/$VENV_NAME" ]]; then
+        print_error "Failed to activate virtual environment properly"
+        return 1
+    fi
+
+    # Verify Python is from the virtual environment
+    if ! which python | grep -q "$VENV_NAME"; then
+        print_error "Python is not from the virtual environment"
+        return 1
+    fi
+    
+    # Upgrade pip (this installs pip in the virtual environment)
     print_status "Upgrading pip"
     uv pip install --upgrade pip
+    
+    # Now verify pip is properly installed
+    if ! which pip | grep -q "$VENV_NAME"; then
+        print_warning "pip not found in virtual environment, but uv pip is available"
+    fi
     
     print_success "Virtual environment created and activated"
 }
