@@ -449,6 +449,30 @@ def initialize_esm_model():
     return _esm_components
 
 
+def calculate_embedding_single(sequence: str, esm_components):
+    """Calculate embedding for a single protein sequence."""
+    if not ESM_AVAILABLE:
+        logger.error("ESM model not available - torch and transformers not installed")
+        return None
+        
+    import torch
+    
+    tokenizer, model = esm_components["tokenizer"], esm_components["model"]
+    inputs = tokenizer(sequence, return_tensors="pt", truncation=True, max_length=ESM_MAX_SEQUENCE_LENGTH)
+    
+    # Move inputs to the same device as the model
+    device = next(model.parameters()).device
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+    
+    with torch.no_grad():
+        with torch.autocast(device_type=device.type, enabled=torch.cuda.is_available()):
+            outputs = model(**inputs)
+        
+    # Mean pool over sequence length dimension to get fixed-size vector
+    # This matches the approach in create_embeddings_base.py
+    return outputs.last_hidden_state.mean(dim=1).squeeze().cpu().numpy()
+
+
 def calculate_embedding(sequence: str) -> Optional[np.ndarray]:
     """Calculate embedding for a protein sequence.
 
@@ -467,90 +491,24 @@ def calculate_embedding(sequence: str) -> Optional[np.ndarray]:
         return None
 
     try:
-        import torch
-        import gc
-
-        tokenizer, model = esm_components["tokenizer"], esm_components["model"]
-        device = next(model.parameters()).device
-
-        # Step 1: Tokenize on CPU first to avoid GPU memory issues with long sequences
-        inputs = tokenizer(
-            sequence,
-            return_tensors="pt",
-            truncation=True,
-            max_length=1022,
-            padding="longest",
-        )
-
-        # Step 2: Move to appropriate device
-        inputs = {k: v.to(device) for k, v in inputs.items()}
-
-        # Step 3: Process with autocast for efficient computation
-        with torch.no_grad():
-            with torch.autocast(device_type=device.type, enabled=True):
-                outputs = model(**inputs)
-
-            # Step 4: Mean pooling and CPU transfer
-            emb = outputs.last_hidden_state.mean(dim=1).squeeze()
-            # Transfer to CPU - separate operation to avoid memory issues
-            emb_cpu = emb.cpu()
-
-            # Step 5: Convert to numpy with correct dtype
-            # Step 5: Convert to numpy with correct dtype - handle BFloat16
-            if emb_cpu.dtype == torch.bfloat16:
-                # Convert BFloat16 to Float32 first
-                emb_cpu = emb_cpu.to(torch.float32)
-
-            # Now convert to numpy
-            embedding_array = emb_cpu.numpy().astype(np.float32)
-
-            # Step 6: Clean up tensors to free GPU memory immediately
-            del outputs, emb, emb_cpu, inputs
-
-            # Force garbage collection to release memory
-            gc.collect()
-            if device.type == "cuda":
-                torch.cuda.empty_cache()
-
+        # Use the single embedding function with proper error handling
+        emb = calculate_embedding_single(sequence, esm_components)
+        
+        if emb is not None:
+            # Ensure correct dtype
+            emb = emb.astype(np.float32)
+            
         elapsed = time.time() - start_time
-        logger.info(
-            f"Embedding generated successfully in {elapsed:.2f}s, shape: {embedding_array.shape}"
-        )
-        return embedding_array
-
-    except RuntimeError as e:
-        if "out of memory" in str(e).lower():
-            logger.error(f"GPU out of memory error calculating embedding: {str(e)}")
-            logger.info("Consider using a smaller batch size or running on CPU")
+        if emb is not None:
+            logger.info(f"Embedding generated successfully in {elapsed:.2f}s, shape: {emb.shape}")
         else:
-            logger.error(f"Runtime error calculating embedding: {str(e)}")
+            logger.error(f"Failed to generate embedding after {elapsed:.2f}s")
+            
+        return emb
 
-        # Add more detailed error tracking
-        import traceback
-
-        logger.error(traceback.format_exc())
-
-        # Try to free memory in case of error
-        if "outputs" in locals():
-            del outputs
-        if "emb" in locals():
-            del emb
-        if "emb_cpu" in locals():
-            del emb_cpu
-        if "inputs" in locals():
-            del inputs
-
-        import gc
-
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
-        return None
     except Exception as e:
         logger.error(f"Error calculating embedding: {str(e)}")
         import traceback
-
         logger.error(traceback.format_exc())
         return None
 
