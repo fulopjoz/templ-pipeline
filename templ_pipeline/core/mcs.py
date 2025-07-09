@@ -1,382 +1,112 @@
-"""
-TEMPL Pipeline MCS Module
-
-This module handles maximum common substructure (MCS) identification and conformer generation:
-1. Finds MCS between query ligands and template ligands
-2. Generates conformers with constrained embedding
-3. Performs MMFF minimization with fixed atoms
-4. Supports parallel processing for efficiency
-
-The main classes and functions:
-- find_mcs: Identify maximum common substructure between molecules
-- constrained_embed: Generate conformers with constraints based on MCS
-- mmff_minimise_fixed: Perform minimization while keeping MCS atoms fixed
-- generate_conformers: High-level function to generate conformers based on templates
-"""
+#!/usr/bin/env python3
+"""Maximum Common Substructure (MCS) functionality for template-based pose prediction."""
 
 import logging
+import multiprocessing as mp
+import time
 import traceback
-from concurrent.futures import ProcessPoolExecutor
-from typing import Dict, List, Optional, Tuple, Any, Union, Set
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from typing import Dict, List, Optional, Tuple, Union, Any
+from dataclasses import dataclass
 
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import (
     AllChem,
-    SanitizeMol,
     rdDistGeom,
     rdForceFieldHelpers,
-    rdMolAlign,
     rdRascalMCES,
-    rdmolops,
-    rdMolDescriptors,
-    rdDepictor,
-    rdFMCS,
-    rdShapeHelpers,
 )
-try:
-    from rdkit.Chem.rdShapeHelpers import ShapeProtrudeDist, ShapeAlign
-    HAS_RDSHAPE_ALIGN = True
-except ImportError:
-    # Fallback if ShapeAlign not available
-    try:
-        from rdkit.Chem.rdShapeHelpers import ShapeProtrudeDist
-        HAS_RDSHAPE_ALIGN = False
-    except ImportError:
-        HAS_RDSHAPE_ALIGN = False
-        def ShapeProtrudeDist(mol1, mol2):
-            return 999.0
-from rdkit import DataStructs
 from rdkit.Geometry import Point3D
-from tqdm import tqdm
-import biotite.structure as struc
-import biotite.structure.io as bsio
-from biotite.structure import (
-    AtomArray,
-    filter_amino_acids,
-    get_chains,
-    superimpose,
-    superimpose_homologs,
-)
-import uuid
-import random
 
-# Configure logging
-logger = logging.getLogger(__name__)
-
-# Try to import spyrmsd for symmetry-corrected RMSD calculations
+# Import unified error framework
 try:
-    from spyrmsd import rmsd, molecule
-    HAS_SPYRMSD = True
-    logger.debug("spyrmsd loaded successfully")
+    from templ_pipeline.core.error_framework import UnifiedErrorTracker, ErrorCategory, ErrorSeverity
 except ImportError:
-    HAS_SPYRMSD = False
-    logger.debug("spyrmsd not available - using basic RMSD calculations")
-
-# Import chemistry functions
-try:
-    from .chemistry import detect_and_substitute_organometallic, needs_uff_fallback
-except ImportError:
-    # Define fallback functions if chemistry module not available
-    def detect_and_substitute_organometallic(mol, name="unknown"):
-        return mol, False, []
-    def needs_uff_fallback(mol):
-        return False
-
-# Import organometallic handling
-try:
-    from .organometallic import (
-        detect_and_substitute_organometallic as detect_organometallic_alt,
-        needs_uff_fallback as needs_uff_alt,
-        has_organometallic_atoms,
-        minimize_with_uff,
-        embed_with_uff_fallback
-    )
-except ImportError:
-    # Use existing functions if organometallic module not available
-    detect_organometallic_alt = detect_and_substitute_organometallic
-    needs_uff_alt = needs_uff_fallback
-    def has_organometallic_atoms(mol):
-        return False, []
-    def minimize_with_uff(mol, conf_ids, fixed_atoms=None, max_its=200):
-        pass
-    def embed_with_uff_fallback(mol, n_conformers, ps, coordMap=None):
-        return []
-
-# Add constants after imports
-ORGANOMETALLIC_ATOMS = {
-    "Fe",
-    "Mn",
-    "Co",
-    "Ni",
-    "Cu",
-    "Zn",
-    "Ru",
-    "Pd",
-    "Ag",
-    "Cd",
-    "Pt",
-    "Au",
-    "Hg",
-    "Mo",
-    "W",
-    "Cr",
-    "V",
-    "Ti",
-    "Sc",
-    "Y",
-    "Zr",
-    "Nb",
-    "Tc",
-    "Re",
-    "Os",
-    "Ir",
-}
-CONFORMER_BATCH_SIZE = 50  # Process conformers in batches to reduce memory spikes
-
-
-def safe_name(m: Chem.Mol, default: str) -> str:
-    """Get molecule name with fallback to default value."""
-    if m.HasProp("_Name"):
-        return m.GetProp("_Name")
-    m.SetProp("_Name", default)
-    return default
-
-
-def find_mcs(
-    tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False
-) -> Union[Tuple[int, str], Tuple[int, str, Dict]]:
-    """Enhanced MCS finding with central atom fallback - never fails completely.
-
-    Args:
-        tgt: Target molecule
-        refs: Reference molecules
-        return_details: If True, return detailed MCS information
-
-    Returns:
-        If return_details=False: (best_template_index, smarts)
-        If return_details=True: (best_template_index, smarts, mcs_details_dict)
-    """
-    opts = rdRascalMCES.RascalOptions()
-    opts.singleLargestFrag = True
-    opts.similarityThreshold = 0.9  # Start higher like external code
-
-    mcs_details = {}  # Only populated if return_details=True
-    min_acceptable_size = 5
-    desperate_threshold = 0.2
-
-    # Debug logging (only in DEBUG level)
-    if logger.isEnabledFor(logging.DEBUG):
-        tgt_smiles = Chem.MolToSmiles(Chem.RemoveHs(tgt))
-        logger.debug(f"MCS Debug: Target molecule SMILES: {tgt_smiles}")
-        logger.debug(f"MCS Debug: Comparing against {len(refs)} reference molecules")
-
-        for i, ref in enumerate(refs[:3]):  # Log first 3 for brevity
-            ref_smiles = Chem.MolToSmiles(Chem.RemoveHs(ref))
-            ref_name = ref.GetProp("_Name") if ref.HasProp("_Name") else f"ref_{i}"
-            logger.debug(f"MCS Debug: Ref {i} ({ref_name}): {ref_smiles}")
-
-            # Check for identical SMILES
-            if tgt_smiles == ref_smiles:
-                logger.debug(
-                    f"MCS Debug: IDENTICAL SMILES FOUND with {ref_name}! This should get perfect MCS."
-                )
-
-    while True:  # Continue until we find something acceptable
-        hits = []
-        for i, r in enumerate(refs):
-            # Handle organometallic atoms before MCS search
-            tgt_processed, tgt_had_metals, tgt_subs = (
-                detect_and_substitute_organometallic(tgt, "target")
-            )
-            ref_processed, ref_had_metals, ref_subs = (
-                detect_and_substitute_organometallic(r, f"template_{i}")
-            )
-
-            # Debug organometallic processing
-            if (tgt_had_metals or ref_had_metals) and logger.isEnabledFor(
-                logging.DEBUG
-            ):
-                logger.debug(
-                    f"MCS Debug: Organometallic processing - Target: {tgt_had_metals}, Ref {i}: {ref_had_metals}"
-                )
-
-            try:
-                mcr = rdRascalMCES.FindMCES(tgt_processed, ref_processed, opts)
-                if mcr:
-                    mcs_mol = mcr[0]
-                    atom_matches = mcs_mol.atomMatches()
-                    smarts = mcs_mol.smartsString
-
-                    # Debug MCS result
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            f"MCS Debug: Ref {i} -> {len(atom_matches)} atoms matched, SMARTS: {smarts}"
-                        )
-
-                    # Store details if requested
-                    if return_details:
-                        bond_matches = mcs_mol.bondMatches()
-                        mcs_info = {
-                            "atom_count": len(atom_matches),
-                            "bond_count": len(bond_matches),
-                            "similarity_score": opts.similarityThreshold,
-                            "query_atoms": [match[0] for match in atom_matches],
-                            "template_atoms": [match[1] for match in atom_matches],
-                            "smarts": smarts,
-                            "organometallic_handling": {
-                                "target_had_metals": tgt_had_metals,
-                                "template_had_metals": ref_had_metals,
-                                "target_substitutions": tgt_subs,
-                                "template_substitutions": ref_subs,
-                            },
-                        }
-                        hits.append((len(atom_matches), i, smarts, mcs_info))
-                    else:
-                        hits.append((len(atom_matches), i, smarts))
-                else:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            f"MCS Debug: No MCS found with ref {i} at threshold {opts.similarityThreshold}"
-                        )
-            except Exception as e:
-                logger.warning(
-                    f"MCS search failed for molecule {i} at threshold {opts.similarityThreshold}: {str(e)}"
-                )
-                continue
-
-        if hits:
-            # DEBUG: Log all hits for inspection
-            logger.info(f"MCS Debug: Found {len(hits)} hits at threshold {opts.similarityThreshold}")
-            for i, hit in enumerate(hits[:10]):  # Show first 10 hits
-                template_name = refs[hit[1]].GetProp("_Name") if refs[hit[1]].HasProp("_Name") else f"template_{hit[1]}"
-                logger.info(f"  Hit {i}: Template {hit[1]} ({template_name}) -> {hit[0]} atoms matched")
-            
-            # Enhanced template selection with molecular similarity tiebreaker
-            best_idx, best_smarts, best_details = _select_optimal_template(
-                tgt, refs, hits, return_details
-            )
-
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    f"MCS Debug: Best match found - Size: {hits[0][0] if hits else 0}, Index: {best_idx}, Threshold: {opts.similarityThreshold}"
-                )
-
-            # Quality control: accept small matches only at low thresholds
-            best_size = hits[0][0] if hits else 0
-            if (
-                best_size >= min_acceptable_size
-                or opts.similarityThreshold <= desperate_threshold
-            ):
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        f"MCS found: size={best_size}, threshold={opts.similarityThreshold:.2f}"
-                    )
-                if return_details:
-                    return best_idx, best_smarts, best_details
-                return best_idx, best_smarts
-            else:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        f"Rejecting small MCS (size={best_size}) at threshold {opts.similarityThreshold:.2f}"
-                    )
-
-        # Reduce threshold and continue
-        if opts.similarityThreshold > 0.0:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    f"No MCS at threshold {opts.similarityThreshold:.2f}, reducing…"
-                )
-            opts.similarityThreshold -= 0.1
-        else:
-            # Central atom fallback: use template with best CA RMSD
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "MCS search failed - using central atom fallback with best CA RMSD template"
-                )
-            best_template_idx = find_best_ca_rmsd_template(refs)
-
-            if return_details:
-                central_details = {
-                    "atom_count": 1,
-                    "bond_count": 0,
-                    "similarity_score": 0.0,
-                    "query_atoms": [get_central_atom(tgt)],
-                    "template_atoms": [get_central_atom(refs[best_template_idx])],
-                    "smarts": "*",  # Single atom SMARTS
-                    "central_atom_fallback": True,
-                }
-                return best_template_idx, "*", central_details
-            return best_template_idx, "*"
-
-
-def _select_optimal_template(
-    tgt: Chem.Mol, refs: List[Chem.Mol], hits: List, return_details: bool
-) -> Tuple:
-    """Select optimal template from MCS hits using natural MCS-based selection."""
-    logger.info(f"_select_optimal_template called with {len(hits)} hits")
-    if not hits:
-        return 0, "*", {}
-
-    # Group by best MCS score - let MCS determine the best template naturally
-    max_score = max(hit[0] for hit in hits)
-    best_hits = [hit for hit in hits if hit[0] == max_score]
-    logger.info(f"Max score: {max_score}, best hits: {len(best_hits)}")
-
-    # If single best hit, use it directly
-    if len(best_hits) == 1:
-        hit = best_hits[0]
-        logger.info(f"Single best MCS hit: template {hit[1]} with score {hit[0]}")
-        return (hit[1], hit[2], hit[3]) if return_details else (hit[1], hit[2], {})
-
-    # For multiple best hits, use molecular similarity tiebreaker
-    logger.info(f"MCS tiebreaker: {len(best_hits)} templates with max score {max_score}")
+    # Fallback if unified framework not available
+    class ErrorCategory:
+        SYSTEM = "system"
+        MCS_FINDING = "mcs_finding"
+        CONFORMER_GENERATION = "conformer_generation"
+        MOLECULAR_ALIGNMENT = "molecular_alignment"
+        COORDINATE_TRANSFORMATION = "coordinate_transformation"
+        FORCE_FIELD = "force_field"
+        TEMPLATE_PROCESSING = "template_processing"
+        VALIDATION = "validation"
+        LIGAND_EMBEDDING = "ligand_embedding"
     
-    best_candidate = None
-    best_similarity = -1
+    class ErrorSeverity:
+        ERROR = "error"
+        WARNING = "warning"
+        INFO = "info"
+    
+    class UnifiedErrorTracker:
+        def __init__(self, storage_mode="dict"):
+            self._errors = {}
+            self.storage_mode = storage_mode
+        
+        def track_error(self, pdb_id, category, message, severity="error", component="unknown", **kwargs):
+            self._errors[pdb_id] = {
+                "category": category,
+                "message": message,
+                "severity": severity,
+                "component": component,
+                "timestamp": time.time()
+            }
+        
+        def has_errors(self, pdb_id=None):
+            if pdb_id:
+                return pdb_id in self._errors
+            return len(self._errors) > 0
+        
+        def get_errors(self, pdb_id=None):
+            if pdb_id:
+                return self._errors.get(pdb_id)
+            return self._errors
+        
+        def clear_errors(self, pdb_id=None):
+            if pdb_id:
+                self._errors.pop(pdb_id, None)
+            else:
+                self._errors.clear()
 
-    for hit in best_hits:
-        idx = hit[1]
-        ref_mol = refs[idx]
+log = logging.getLogger(__name__)
 
-        try:
-            # Calculate Tanimoto similarity
-            tgt_fp = AllChem.GetMorganFingerprintAsBitVect(tgt, 2)
-            ref_fp = AllChem.GetMorganFingerprintAsBitVect(ref_mol, 2)
-            similarity = DataStructs.TanimotoSimilarity(tgt_fp, ref_fp)
+# Constants from original code
+N_CONFS = 50
+MIN_PROTEIN_LENGTH = 20
+DEFAULT_MMFF_ITERATIONS = 1000
+CA_RMSD_THRESHOLD = 2.0
 
-            if similarity > best_similarity:
-                best_similarity = similarity
-                best_candidate = hit
-        except:
-            # Fallback: use first candidate if similarity calculation fails
-            if best_candidate is None:
-                best_candidate = hit
+#  Core MCS Functions 
 
-    if best_candidate is None:
-        best_candidate = best_hits[0]
-
-    logger.info(
-        f"MCS natural selection: selected template {best_candidate[1]} with MCS score {best_candidate[0]} and similarity {best_similarity:.3f}"
-    )
-
-    if return_details:
-        return best_candidate[1], best_candidate[2], best_candidate[3]
-    return best_candidate[1], best_candidate[2], {}
+def get_central_atom(mol: Chem.Mol) -> int:
+    """Get the idx of the central atom by picking the atom with the smallest
+    sum of shortest path to all the other atoms. In case of tie returns the first one.
+    
+    Args:
+        mol: Input molecule
+        
+    Returns:
+        Index of the central atom
+    """
+    tdm = Chem.GetDistanceMatrix(mol)
+    pathsum = [(idx, sum(row)) for idx, row in enumerate(tdm)]
+    return sorted(pathsum, key=lambda x: x[1])[0][0]
 
 
 def find_best_ca_rmsd_template(refs: List[Chem.Mol]) -> int:
     """Find template with best (lowest) CA RMSD from the reference list.
-
+    
     Args:
         refs: List of template molecules with CA RMSD properties
-
+        
     Returns:
         Index of template with best CA RMSD, defaults to 0 if none found
     """
     best_idx = 0
-    best_rmsd = float("inf")
-
+    best_rmsd = float('inf')
+    
     for i, tpl in enumerate(refs):
         if tpl.HasProp("ca_rmsd"):
             try:
@@ -386,1488 +116,674 @@ def find_best_ca_rmsd_template(refs: List[Chem.Mol]) -> int:
                     best_idx = i
             except (ValueError, TypeError):
                 continue
-
-    logger.info(
-        f"Selected template {best_idx} with CA RMSD {best_rmsd:.3f}Å for central atom fallback"
-    )
+    
+    log.info(f"Selected template {best_idx} with CA RMSD {best_rmsd:.3f}Å for central atom fallback")
     return best_idx
 
 
-def get_central_atom(mol: Chem.Mol) -> int:
-    """Get the index of the central atom by picking the atom with the smallest
-    sum of shortest path to all other atoms. In case of tie returns the first one.
-    
-    Args:
-        mol: Input molecule
-        
-    Returns:
-        Index of the central atom
-    """
-    if mol is None or mol.GetNumAtoms() == 0:
-        return 0
-        
-    try:
-        tdm = Chem.GetDistanceMatrix(mol)
-        pathsum = [(idx, sum(row)) for idx, row in enumerate(tdm)]
-        return sorted(pathsum, key=lambda x: x[1])[0][0]
-    except Exception as e:
-        logger.warning(f"Failed to calculate central atom, using atom 0: {e}")
-        return 0
-
-
-def central_atom_embed(tgt: Chem.Mol, ref: Chem.Mol, n_conformers: int, n_workers: int) -> Optional[Chem.Mol]:
-    """Generate conformers using central atom positioning when MCS fails.
-    
-    Places target molecule's central atom at template's central atom position.
+def find_mcs(tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False) -> Union[Tuple[int, str], Tuple[int, str, Dict]]:
+    """Enhanced MCS finding with central atom fallback - never fails completely.
     
     Args:
         tgt: Target molecule
-        ref: Reference template molecule  
-        n_conformers: Number of conformers to generate
-        n_workers: Number of workers for parallel processing
+        refs: Reference molecules
+        return_details: If True, return detailed MCS information
         
     Returns:
-        Molecule with generated conformers positioned using central atom alignment
+        If return_details=False: (best_template_index, smarts)
+        If return_details=True: (best_template_index, smarts, mcs_details_dict)
     """
-    from rdkit.Geometry import Point3D
+    opts = rdRascalMCES.RascalOptions()
+    opts.singleLargestFrag = True
+    opts.similarityThreshold = 0.9  # Start higher like original working code
     
-    # Get central atoms
-    tgt_central = get_central_atom(tgt)
-    ref_central = get_central_atom(ref)
-    ref_central_pos = ref.GetConformer().GetAtomPosition(ref_central)
+    mcs_details = {}  # Only populated if return_details=True
+    min_acceptable_size = 5
+    desperate_threshold = 0.2
     
-    logger.info(
-        f"Central atom positioning: target atom {tgt_central} -> template atom {ref_central}"
-    )
-    
-    # Generate unconstrained conformers first
-    probe = Chem.AddHs(tgt)
-    ps = rdDistGeom.ETKDGv3()
-    ps.numThreads = n_workers if n_workers > 0 else 0
-    conf_ids = rdDistGeom.EmbedMultipleConfs(probe, n_conformers, ps)
-    
-    if not conf_ids:
-        logger.warning("Failed to generate conformers for central atom positioning")
-        return probe
-    
-    # Find central atom in the H-added molecule
-    # Map from original molecule to H-added molecule
-    atom_map = {}
-    for i, atom in enumerate(tgt.GetAtoms()):
-        atom_map[i] = i  # Assuming H's are added at the end
-    
-    probe_central = atom_map.get(tgt_central, tgt_central)
-    
-    # Translate each conformer to align central atoms
-    for cid in conf_ids:
-        conf = probe.GetConformer(cid)
-        current_central_pos = conf.GetAtomPosition(probe_central)
+    while True:  # Continue until we find something acceptable
+        hits = []
+        for i, r in enumerate(refs):
+            mcr = rdRascalMCES.FindMCES(tgt, r, opts)
+            if mcr:
+                mcs_mol = mcr[0]
+                atom_matches = mcs_mol.atomMatches()
+                smarts = mcs_mol.smartsString
+                
+                # Store details if requested
+                if return_details:
+                    bond_matches = mcs_mol.bondMatches()
+                    mcs_info = {
+                        "atom_count": len(atom_matches),
+                        "bond_count": len(bond_matches),
+                        "similarity_score": opts.similarityThreshold,
+                        "query_atoms": [match[0] for match in atom_matches],
+                        "template_atoms": [match[1] for match in atom_matches],
+                        "smarts": smarts
+                    }
+                    hits.append((len(atom_matches), i, smarts, mcs_info))
+                else:
+                    hits.append((len(atom_matches), i, smarts))
         
-        # Calculate translation vector
-        translation = ref_central_pos - current_central_pos
+        if hits:
+            # Get best match by size
+            if return_details:
+                best_size, idx, smarts, details = max(hits)
+            else:
+                best_size, idx, smarts = max(hits)
+            
+            # Quality control: accept small matches only at low thresholds
+            if best_size >= min_acceptable_size or opts.similarityThreshold <= desperate_threshold:
+                log.info(f"MCS found: size={best_size}, threshold={opts.similarityThreshold:.2f}")
+                if return_details:
+                    return idx, smarts, details
+                return idx, smarts
+            else:
+                log.warning(f"Rejecting small MCS (size={best_size}) at threshold {opts.similarityThreshold:.2f}")
         
-        # Apply translation to all atoms
-        for i in range(conf.GetNumAtoms()):
-            old_pos = conf.GetAtomPosition(i)
-            new_pos = old_pos + translation
-            conf.SetAtomPosition(i, new_pos)
-        
-        # Quick UFF relaxation to remove strain from simple translation
-        try:
-            AllChem.UFFOptimizeMolecule(probe, confId=cid, maxIters=50)
-        except Exception as uff_e:
-            logger.debug(f"UFF optimization warning (conf {cid}): {uff_e}")
-    
-    # Sanitize molecule after coordinate translation
-    try:
-        Chem.SanitizeMol(probe)
-        probe.GetRingInfo()  # Ensure ring information is properly maintained
-    except Exception as e:
-        logger.warning(f"Sanitization after central atom translation failed: {e}")
-    
-    logger.info(f"Generated {len(conf_ids)} conformers using central atom alignment")
-    return probe
+        # Reduce threshold and continue
+        if opts.similarityThreshold > 0.0:
+            log.warning(f"No MCS at threshold {opts.similarityThreshold:.2f}, reducing…")
+            opts.similarityThreshold -= 0.1
+        else:
+            # Central atom fallback: use template with best CA RMSD
+            log.warning("MCS search failed - using central atom fallback with best CA RMSD template")
+            best_template_idx = find_best_ca_rmsd_template(refs)
+            
+            if return_details:
+                central_details = {
+                    "atom_count": 1,
+                    "bond_count": 0,
+                    "similarity_score": 0.0,
+                    "query_atoms": [get_central_atom(tgt)],
+                    "template_atoms": [get_central_atom(refs[best_template_idx])],
+                    "smarts": "*",  # Single atom SMARTS
+                    "central_atom_fallback": True
+                }
+                return best_template_idx, "*", central_details
+            return best_template_idx, "*"
 
 
-def prepare_mol(
-    mol: Chem.Mol, remove_stereo: bool = False, simplify: bool = False
-) -> Optional[Chem.Mol]:
-    """Prepare a molecule for MCS search with various cleanup options.
+#  Conformer Generation Functions 
 
+def needs_uff_fallback(mol: Chem.Mol) -> bool:
+    """Check if molecule needs UFF fallback due to organometallic atoms.
+    
     Args:
         mol: Input molecule
-        remove_stereo: Whether to remove stereochemistry information
-        simplify: Whether to apply additional simplification
-
+        
     Returns:
-        Prepared molecule or None if preparation fails
+        True if UFF fallback is needed, False otherwise
+    """
+    # Check for organometallic atoms (transition metals and metalloids)
+    organometallic_atoms = {
+        21, 22, 23, 24, 25, 26, 27, 28, 29, 30,  # Sc-Zn
+        39, 40, 41, 42, 43, 44, 45, 46, 47, 48,  # Y-Cd
+        57, 72, 73, 74, 75, 76, 77, 78, 79, 80,  # La, Hf-Hg
+        89, 104, 105, 106, 107, 108, 109, 110, 111, 112  # Ac, Rf-Cn
+    }
+    
+    for atom in mol.GetAtoms():
+        if atom.GetAtomicNum() in organometallic_atoms:
+            return True
+    return False
+
+
+def minimize_with_uff(mol: Chem.Mol, conf_ids: List[int], fixed_atoms: List[int] = None, max_its: int = DEFAULT_MMFF_ITERATIONS) -> bool:
+    """UFF minimization for organometallic molecules.
+    
+    Args:
+        mol: Molecule to minimize
+        conf_ids: List of conformer IDs to minimize
+        fixed_atoms: List of atom indices to keep fixed
+        max_its: Maximum iterations for minimization
+        
+    Returns:
+        True if minimization succeeded, False otherwise
+    """
+    if fixed_atoms is None:
+        fixed_atoms = []
+        
+    try:
+        for conf_id in conf_ids:
+            ff = rdForceFieldHelpers.UFFGetMoleculeForceField(mol, confId=conf_id)
+            if ff is None:
+                log.debug(f"Could not get UFF force field for conformer {conf_id}")
+                continue
+                
+            for idx in fixed_atoms:
+                if idx < mol.GetNumAtoms():
+                    ff.AddFixedPoint(idx)
+                    
+            ff.Minimize(maxIts=max_its)
+            
+        return True
+        
+    except Exception as e:
+        log.warning(f"UFF minimization failed: {e}")
+        return False
+
+
+def embed_organometallic_with_constraints(mol: Chem.Mol, n_conformers: int, coordMap: dict) -> List[int]:
+    """Organometallic-compatible embedding with constraints."""
+    try:
+        # First try with standard ETKDGv3 + constraints
+        conf_ids = rdDistGeom.EmbedMultipleConfs(
+            mol, 
+            n_conformers, 
+            randomSeed=42,
+            numThreads=1,
+            useRandomCoords=False,
+            enforceChirality=False,
+            maxAttempts=1000,
+            coordMap=coordMap
+        )
+        if conf_ids:
+            log.debug(f"Standard constrained embedding succeeded: {len(conf_ids)} conformers")
+            return conf_ids
+    except Exception as e:
+        log.debug(f"Standard constrained embedding failed: {e}")
+    
+    # Try with UFF-compatible settings
+    try:
+        conf_ids = rdDistGeom.EmbedMultipleConfs(
+            mol, 
+            n_conformers, 
+            randomSeed=42,
+            numThreads=1,
+            useRandomCoords=True,
+            enforceChirality=False,
+            maxAttempts=2000,
+            coordMap=coordMap
+        )
+        if conf_ids:
+            log.debug(f"UFF-compatible constrained embedding succeeded: {len(conf_ids)} conformers")
+            return conf_ids
+    except Exception as e:
+        log.debug(f"UFF-compatible constrained embedding failed: {e}")
+    
+    # Final fallback: unconstrained embedding
+    try:
+        conf_ids = rdDistGeom.EmbedMultipleConfs(
+            mol, 
+            min(n_conformers, 50), 
+            randomSeed=42,
+            numThreads=1,
+            useRandomCoords=True,
+            enforceChirality=False,
+            maxAttempts=500
+        )
+        if conf_ids:
+            log.debug(f"Unconstrained fallback embedding succeeded: {len(conf_ids)} conformers")
+            return conf_ids
+    except Exception as e:
+        log.error(f"All organometallic embedding attempts failed: {e}")
+    
+    return []
+
+
+def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: dict = None, numThreads: int = 1) -> bool:
+    """Embedding function with UFF force field fallback for organometallic molecules.
+    
+    Args:
+        mol: Molecule to embed
+        n_conformers: Number of conformers to generate
+        coordMap: Coordinate map for constrained embedding
+        numThreads: Number of threads to use
+        
+    Returns:
+        True if embedding succeeded, False otherwise
     """
     try:
-        # Create a copy to avoid modifying the original
-        mol_copy = Chem.Mol(mol)
-
-        # Remove stereochemistry if requested
-        if remove_stereo:
-            Chem.RemoveStereochemistry(mol_copy)
-
-        # Additional simplification if requested
-        if simplify:
-            # Remove all properties and enhanced stereo groups
-            for prop_name in mol_copy.GetPropNames():
-                mol_copy.ClearProp(prop_name)
-
-            # Clear enhanced stereo groups if they exist
-            if hasattr(mol_copy, "GetStereoGroups") and callable(
-                getattr(mol_copy, "GetStereoGroups")
-            ):
-                mol_copy.ClearEnhancedStereo()
-
-        # Sanitize and kekulize
-        Chem.SanitizeMol(mol_copy)
-        Chem.Kekulize(mol_copy)
-
-        return mol_copy
+        # Try standard embedding with coordinate map
+        if coordMap:
+            cids = rdDistGeom.EmbedMultipleConfs(
+                mol, 
+                numConfs=n_conformers,
+                randomSeed=42,
+                numThreads=numThreads,
+                coordMap=coordMap,
+                useRandomCoords=False,
+                enforceChirality=False,
+                maxAttempts=1000
+            )
+        else:
+            cids = rdDistGeom.EmbedMultipleConfs(
+                mol, 
+                numConfs=n_conformers,
+                randomSeed=42,
+                numThreads=numThreads,
+                useRandomCoords=False,
+                enforceChirality=False,
+                maxAttempts=1000
+            )
+        
+        if len(cids) == 0:
+            log.debug("Standard embedding failed, trying UFF fallback")
+            # Try with UFF for organometallic molecules
+            if needs_uff_fallback(mol):
+                # Use UFF-compatible embedding with random coordinates
+                if coordMap:
+                    cids = rdDistGeom.EmbedMultipleConfs(
+                        mol, 
+                        numConfs=n_conformers,
+                        randomSeed=42,
+                        numThreads=numThreads,
+                        coordMap=coordMap,
+                        useRandomCoords=True,
+                        enforceChirality=False,
+                        maxAttempts=1000
+                    )
+                else:
+                    cids = rdDistGeom.EmbedMultipleConfs(
+                        mol, 
+                        numConfs=n_conformers,
+                        randomSeed=42,
+                        numThreads=numThreads,
+                        useRandomCoords=True,
+                        enforceChirality=False,
+                        maxAttempts=1000
+                    )
+                if len(cids) > 0:
+                    minimize_with_uff(mol, list(cids))
+                    return True
+            return False
+            
+        return len(cids) > 0
+        
     except Exception as e:
-        logger.debug(f"Molecule preparation failed: {str(e)}")
+        log.warning(f"Embedding with UFF fallback failed: {e}")
+        return False
+
+
+def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: int = N_CONFS, n_workers_pipeline: int = 1) -> Optional[Chem.Mol]:
+    """Generate N_CONFS conformations of tgt, locking MCS atoms to ref coords."""
+    
+    # Handle central atom fallback case
+    if smarts == "*":
+        log.info("Using central atom positioning for pose generation")
+        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+    
+    # Check if UFF fallback is needed for organometallic molecules
+    use_uff = needs_uff_fallback(tgt)
+    if use_uff:
+        log.info("Detected organometallic atoms in target molecule, using UFF-compatible embedding")
+    
+    patt = Chem.MolFromSmarts(smarts)
+    if patt is None:
+        log.warning(f"Invalid SMARTS pattern: {smarts}, falling back to central atom")
+        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+    
+    tgt_idxs = tgt.GetSubstructMatch(patt)
+    ref_idxs = ref.GetSubstructMatch(patt)
+    
+    # Check for valid MCS match
+    if not tgt_idxs or not ref_idxs or len(tgt_idxs) != len(ref_idxs) or len(tgt_idxs) < 3:
+        log.warning(f"Invalid MCS match for constrained embedding. Target idx: {tgt_idxs}, Ref idx: {ref_idxs}. Proceeding with central atom embedding.")
+        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+    
+    # Use robust hydrogen addition for the target
+    try:
+        if tgt.GetNumConformers() > 0:
+            tgt_no_h = Chem.RemoveHs(tgt)
+            if tgt_no_h.GetNumConformers() == 0:
+                orig_conf = tgt.GetConformer(0)
+                new_conf = Chem.Conformer(tgt_no_h.GetNumAtoms())
+                heavy_atom_idx = 0
+                for i in range(tgt.GetNumAtoms()):
+                    if tgt.GetAtomWithIdx(i).GetAtomicNum() != 1:  # Not hydrogen
+                        if heavy_atom_idx < tgt_no_h.GetNumAtoms():
+                            pos = orig_conf.GetAtomPosition(i)
+                            new_conf.SetAtomPosition(heavy_atom_idx, pos)
+                            heavy_atom_idx += 1
+                tgt_no_h.AddConformer(new_conf, assignId=True)
+            target_h = Chem.AddHs(tgt_no_h, addCoords=True)
+        else:
+            target_h = Chem.AddHs(tgt)
+    except Exception as e:
+        log.warning(f"Hydrogen addition failed: {e}, using original molecule")
+        target_h = Chem.AddHs(tgt)
+    
+    # Recalculate matches for hydrogen-added molecule
+    tgt_idxs_h = target_h.GetSubstructMatch(patt)
+    if not tgt_idxs_h:
+        log.warning("MCS match failed after hydrogen addition, falling back to central atom")
+        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+    
+    # Build coordinate map for constrained embedding
+    coordMap = {}
+    ref_conf = ref.GetConformer()
+    for i, (tgt_idx, ref_idx) in enumerate(zip(tgt_idxs_h, ref_idxs)):
+        try:
+            pos = ref_conf.GetAtomPosition(ref_idx)
+            coordMap[tgt_idx] = pos
+        except Exception as e:
+            log.warning(f"Error mapping atom {tgt_idx} -> {ref_idx}: {e}")
+            continue
+    
+    if len(coordMap) < 3:
+        log.warning("Insufficient coordinate constraints for embedding, falling back to central atom")
+        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+    
+    # Try constrained embedding with progressive fallback
+    try:
+        if use_uff:
+            # Use UFF-compatible embedding for organometallic molecules
+            conf_ids = embed_organometallic_with_constraints(target_h, n_conformers, coordMap)
+        else:
+            # Standard constrained embedding - pass individual parameters instead of EmbedParameters object
+            conf_ids = rdDistGeom.EmbedMultipleConfs(
+                target_h, 
+                n_conformers, 
+                randomSeed=42,
+                numThreads=n_workers_pipeline,
+                useRandomCoords=False,
+                enforceChirality=False,  # Critical for organometallics
+                maxAttempts=1000,
+                coordMap=coordMap
+            )
+        
+        if not conf_ids:
+            log.warning("Constrained embedding failed, trying unconstrained")
+            conf_ids = rdDistGeom.EmbedMultipleConfs(
+                target_h, 
+                n_conformers, 
+                randomSeed=42,
+                numThreads=n_workers_pipeline,
+                useRandomCoords=False,
+                enforceChirality=False,
+                maxAttempts=1000
+            )
+            
+        if not conf_ids:
+            log.warning("All embedding attempts failed, falling back to central atom")
+            return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+        
+        log.info(f"Constrained embedding succeeded: {len(conf_ids)} conformers")
+        
+        # Minimize with constraints
+        if use_uff:
+            minimize_with_uff(target_h, list(conf_ids), list(tgt_idxs_h))
+        else:
+            mmff_minimise_fixed_parallel(target_h, list(conf_ids), list(tgt_idxs_h), n_workers=n_workers_pipeline)
+        
+        return target_h
+        
+    except Exception as e:
+        log.error(f"Constrained embedding failed: {e}")
+        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+
+
+def central_atom_embed(tgt: Chem.Mol, ref: Chem.Mol, n_conformers: int, n_workers_pipeline: int) -> Optional[Chem.Mol]:
+    """Fallback embedding method using central atom positioning.
+    
+    Args:
+        tgt: Target molecule
+        ref: Reference molecule
+        n_conformers: Number of conformers to generate
+        n_workers_pipeline: Number of workers for parallel processing
+        
+    Returns:
+        Molecule with embedded conformers or None if failed
+    """
+    try:
+        tgt_copy = Chem.Mol(tgt)
+        tgt_copy = Chem.AddHs(tgt_copy)
+        
+        # Generate unconstrained conformers
+        success = embed_with_uff_fallback(tgt_copy, n_conformers, numThreads=n_workers_pipeline)
+        
+        if not success:
+            log.error("Central atom embedding failed")
+            return None
+        
+        # Position at central atom of reference
+        ref_center = ref.GetConformer().GetAtomPosition(get_central_atom(ref))
+        tgt_center_idx = get_central_atom(tgt_copy)
+        
+        # Translate all conformers to position central atom at reference center
+        for conf_id in range(tgt_copy.GetNumConformers()):
+            conf = tgt_copy.GetConformer(conf_id)
+            current_center = conf.GetAtomPosition(tgt_center_idx)
+            translation = ref_center - current_center
+            
+            for atom_idx in range(conf.GetNumAtoms()):
+                pos = conf.GetAtomPosition(atom_idx)
+                conf.SetAtomPosition(atom_idx, pos + translation)
+        
+        # Minimize conformers
+        if needs_uff_fallback(tgt_copy):
+            minimize_with_uff(tgt_copy, list(range(tgt_copy.GetNumConformers())), [tgt_center_idx])
+        else:
+            mmff_minimise_fixed_parallel(tgt_copy, list(range(tgt_copy.GetNumConformers())), [tgt_center_idx], n_workers=n_workers_pipeline)
+        
+        return tgt_copy
+        
+    except Exception as e:
+        log.error(f"Central atom embedding failed: {e}")
         return None
 
 
-def generate_conformers(
-    query_mol: Chem.Mol,
-    template_mols: List[Chem.Mol],
-    n_conformers: int = 100,
-    n_workers: int = 1,
-) -> Tuple[Optional[Chem.Mol], Optional[List[int]]]:
-    """Generate conformers for query molecule based on template molecules.
+#  MMFF Minimization Functions 
 
-    This high-level function finds the best template using MCS, then generates
-    conformers with constraints based on the MCS.
-
-    Args:
-        query_mol: Query molecule (RDKit Mol object)
-        template_mols: List of template molecules (RDKit Mol objects)
-        n_conformers: Number of conformers to generate (default: 100)
-        n_workers: Number of parallel workers to use (default: 1)
-
-    Returns:
-        Tuple of (molecule with conformers, list of MCS atom indices) or (None, None) if failed
-    """
-    if not query_mol or not template_mols:
-        logger.error("Empty query or template molecules provided")
-        return None, None
-
-    # Log molecule information for diagnostic purposes
-    query_name = (
-        query_mol.GetProp("_Name") if query_mol.HasProp("_Name") else "unnamed_query"
-    )
-    template_names = [
-        m.GetProp("_Name") if m.HasProp("_Name") else f"template_{i}"
-        for i, m in enumerate(template_mols)
-    ]
-    logger.info(
-        f"Generating conformers for {query_name} using {len(template_mols)} templates: {', '.join(template_names[:3])}..."
-    )
-    logger.info(
-        f"Query molecule: {query_mol.GetNumAtoms()} atoms, {query_mol.GetNumBonds()} bonds"
-    )
-
-    # Find the best template and MCS
-    try:
-        best_template_idx, mcs_smarts, mcs_details = find_mcs(
-            query_mol, template_mols, return_details=True
-        )
-
-        if best_template_idx is None or mcs_smarts is None:
-            logger.warning(
-                f"Could not find MCS between query {query_name} and templates {', '.join(template_names[:3])}"
-            )
-            # Add more detailed diagnostics about molecular properties
-            for i, template in enumerate(
-                template_mols[:3]
-            ):  # Just check first 3 for brevity
-                template_name = safe_name(template, f"template_{i}")
-                logger.info(
-                    f"Template {template_name}: {template.GetNumAtoms()} atoms, {template.GetNumBonds()} bonds"
-                )
-
-                # Calculate some basic molecular descriptors for comparison
-                try:
-                    query_rings = rdMolDescriptors.CalcNumRings(query_mol)
-                    template_rings = rdMolDescriptors.CalcNumRings(template)
-                    query_frags = len(Chem.GetMolFrags(query_mol))
-                    template_frags = len(Chem.GetMolFrags(template))
-
-                    logger.info(
-                        f"Descriptor comparison - Query: {query_rings} rings, {query_frags} fragments | "
-                        f"Template {template_name}: {template_rings} rings, {template_frags} fragments"
-                    )
-                except Exception as e:
-                    logger.debug(f"Error calculating descriptors: {str(e)}")
-
-            return None, None
-
-        # Get the best template molecule
-        best_template = template_mols[best_template_idx]
-        best_template_name = (
-            best_template.GetProp("_Name")
-            if best_template.HasProp("_Name")
-            else f"template_{best_template_idx}"
-        )
-        logger.info(
-            f"Selected template {best_template_name} with MCS SMARTS: {mcs_smarts}"
-        )
-
-        # Extract MCS atom indices for visualizing in the UI
-        mcs_atom_indices = mcs_details  # Return the full details dict now
-        # Add the selected template index to the details for UI
-        if isinstance(mcs_atom_indices, dict):
-            mcs_atom_indices["selected_template_index"] = best_template_idx
-
-        # Generate conformers with constraints based on MCS
-        try:
-            conformers_mol = constrained_embed(
-                query_mol,
-                best_template,
-                mcs_smarts,
-                n_conformers=n_conformers,
-                n_workers=n_workers,
-            )
-
-            # Check if conformer generation was successful
-            if conformers_mol is not None and conformers_mol.GetNumConformers() > 0:
-                logger.info(
-                    f"Successfully generated {conformers_mol.GetNumConformers()} conformers"
-                )
-                # DEBUG: Log mcs_atom_indices structure
-                logger.info(f"DEBUG: mcs_atom_indices type: {type(mcs_atom_indices)}")
-                logger.info(f"DEBUG: mcs_atom_indices content: {mcs_atom_indices}")
-                return conformers_mol, mcs_atom_indices
-            else:
-                logger.warning(
-                    f"Constrained embedding failed to produce conformers for template {best_template_name}"
-                )
-
-                # Try to analyze specific issues with the template
-                try:
-                    # Parse the MCS SMARTS to analyze match quality
-                    if mcs_smarts != "*":  # Skip analysis for central atom fallback
-                        mcs_patt = Chem.MolFromSmarts(mcs_smarts)
-                        if mcs_patt:
-                            query_match = query_mol.GetSubstructMatch(mcs_patt)
-                            template_match = best_template.GetSubstructMatch(mcs_patt)
-
-                            if query_match and template_match:
-                                match_size = len(query_match)
-                                query_coverage = match_size / query_mol.GetNumAtoms()
-                                template_coverage = (
-                                    match_size / best_template.GetNumAtoms()
-                                )
-
-                                logger.info(
-                                    f"MCS match analysis: {match_size} atoms matched "
-                                    f"({query_coverage:.1%} of query, {template_coverage:.1%} of template)"
-                                )
-
-                                if query_coverage < 0.3 or template_coverage < 0.3:
-                                    logger.warning(
-                                        "MCS coverage is too low for reliable conformer generation"
-                                    )
-                except Exception as diagnostic_err:
-                    logger.debug(
-                        f"Error in template diagnostic analysis: {str(diagnostic_err)}"
-                    )
-
-                # DEBUG: Log mcs_atom_indices structure even on failure
-                logger.info(
-                    f"DEBUG: mcs_atom_indices type (failed case): {type(mcs_atom_indices)}"
-                )
-                logger.info(
-                    f"DEBUG: mcs_atom_indices content (failed case): {mcs_atom_indices}"
-                )
-                
-                # ROBUST FALLBACK STRATEGY: Try multiple approaches when MCS-based generation fails
-                logger.info("MCS-based conformer generation failed - implementing fallback strategies")
-                
-                # Strategy 1: Central atom fallback if coverage is very low
-                if isinstance(mcs_atom_indices, dict) and mcs_atom_indices.get("atom_count", 0) < 5:
-                    logger.info("Strategy 1: Using central atom positioning due to poor MCS coverage")
-                    try:
-                        fallback_mol = central_atom_embed(query_mol, best_template, n_conformers, n_workers)
-                        if fallback_mol and fallback_mol.GetNumConformers() > 0:
-                            logger.info(f"Central atom fallback generated {fallback_mol.GetNumConformers()} conformers")
-                            if isinstance(mcs_atom_indices, dict):
-                                mcs_atom_indices["fallback_used"] = "central_atom"
-                            return fallback_mol, mcs_atom_indices
-                    except Exception as central_err:
-                        logger.warning(f"Central atom fallback failed: {str(central_err)}")
-                
-                # Strategy 2: Unconstrained conformer generation with best template positioning
-                logger.info("Strategy 2: Generating unconstrained conformers")
-                try:
-                    fallback_mol = Chem.AddHs(query_mol)
-                    ps = rdDistGeom.ETKDGv3()
-                    ps.numThreads = n_workers if n_workers > 0 else 0
-                    ps.maxIterations = 2000  # Increase attempts for difficult molecules
-                    ps.useRandomCoords = True
-                    ps.enforceChirality = False
-                    
-                    conf_ids = rdDistGeom.EmbedMultipleConfs(fallback_mol, n_conformers, ps)
-                    
-                    if conf_ids and len(conf_ids) > 0:
-                        logger.info(f"Unconstrained fallback generated {len(conf_ids)} conformers")
-                        if isinstance(mcs_atom_indices, dict):
-                            mcs_atom_indices["fallback_used"] = "unconstrained"
-                        return fallback_mol, mcs_atom_indices
-                        
-                except Exception as uncon_err:
-                    logger.warning(f"Unconstrained fallback failed: {str(uncon_err)}")
-                
-                # Strategy 3: Minimal conformer generation (last resort)
-                logger.warning("Strategy 3: Attempting minimal conformer generation as last resort")
-                try:
-                    minimal_mol = Chem.AddHs(query_mol)
-                    ps_minimal = rdDistGeom.ETKDGv3()
-                    ps_minimal.numThreads = 1  # Single thread for stability
-                    ps_minimal.maxIterations = 500
-                    ps_minimal.useRandomCoords = True
-                    ps_minimal.enforceChirality = False
-                    
-                    # Try with fewer conformers
-                    minimal_confs = min(n_conformers, 20)
-                    conf_ids = rdDistGeom.EmbedMultipleConfs(minimal_mol, minimal_confs, ps_minimal)
-                    
-                    if conf_ids and len(conf_ids) > 0:
-                        logger.warning(f"Minimal fallback generated {len(conf_ids)} conformers (reduced from {n_conformers})")
-                        if isinstance(mcs_atom_indices, dict):
-                            mcs_atom_indices["fallback_used"] = "minimal"
-                        return minimal_mol, mcs_atom_indices
-                        
-                except Exception as minimal_err:
-                    logger.error(f"All fallback strategies failed: {str(minimal_err)}")
-                
-                # If all fallbacks fail, return None but preserve MCS info for debugging
-                logger.error("All conformer generation strategies failed")
-                return None, mcs_atom_indices
-        except Exception as e:
-            logger.error(
-                f"Error during conformer generation with template {best_template_name}: {str(e)}"
-            )
-            return None, mcs_atom_indices
-    except Exception as e:
-        logger.error(f"Error in template selection or MCS search: {str(e)}")
-        return None, None
-
-
-# Helper function for mmff_minimise_fixed_parallel - MUST BE TOP LEVEL FOR PICKLING
-def _mmff_minimize_single_conformer_task(args_tuple):
-    """Helper for parallel MMFF minimization. Modifies a conformer of a molecule (passed as MolBlock).
-
-    Args:
-        args_tuple: Tuple containing:
-            mol_block (str): MolBlock string of the molecule.
-            conformer_id (int): Original ID of the conformer (for tracking).
-            fixed_atom_indices (list): List of atom indices to keep fixed.
-            mmff_variant (str): MMFF variant (e.g., "MMFF94s").
-            max_its (int): Max iterations for minimization.
-
-    Returns:
-        Tuple (conformer_id, list_of_minimized_coords) or (conformer_id, None) if failed.
-    """
-    # Unpack parameters (MolBlock now contains full 3D coordinates for the single conformer)
-    mol_block, conformer_id, fixed_atom_indices, mmff_variant, max_its = args_tuple
-
-    try:
-        # Re-create molecule with coordinates from MolBlock (avoid extra H counting problems)
-        mol = Chem.MolFromMolBlock(mol_block, sanitize=False, removeHs=False)
-        if mol is None:
-            logger.debug(
-                f"_mmff_task: Could not create mol from MolBlock for conf {conformer_id}"
-            )
-            return conformer_id, None
-        # Sanitize after loading to keep coordinates but ensure chemistry consistency
-        try:
-            Chem.SanitizeMol(mol)
-        except Exception as san_e:
-            logger.debug(
-                f"_mmff_task: Sanitization warning for conf {conformer_id}: {san_e}"
-            )
-
-        # Ensure explicit hydrogens match parent molecule
-        if all(a.GetAtomicNum() != 1 for a in mol.GetAtoms()):
-            mol = Chem.AddHs(mol, addCoords=True)
-
-        # Mol already has conformer coordinates from MolBlock – ensure there's a conformer and index 0
-        if mol.GetNumConformers() == 0:
-            logger.debug(
-                f"_mmff_task: No conformers found in MolBlock for conf {conformer_id}, embedding"
-            )
-            # Use deterministic seed for reproducible conformer generation
-            try:
-                from .utils import get_deterministic_seed
-                deterministic_seed = get_deterministic_seed(None, "mmff_embed", conformer_id)
-                AllChem.EmbedMolecule(mol, randomSeed=deterministic_seed)
-            except ImportError:
-                AllChem.EmbedMolecule(mol, randomSeed=42)
-        # Work on first conformer (ID 0)
-
-        mp = rdForceFieldHelpers.MMFFGetMoleculeProperties(
-            mol, mmffVariant=mmff_variant
-        )
-        if mp is None:
-            logger.debug(
-                f"_mmff_task: Could not get MMFF params for conf {conformer_id}"
-            )
-            return conformer_id, None
-
-        ff = rdForceFieldHelpers.MMFFGetMoleculeForceField(
-            mol, mp, confId=0
-        )  # Use the single conformer (ID 0)
-        if ff is None:
-            logger.debug(
-                f"_mmff_task: Could not get MMFF force field for conf {conformer_id}"
-            )
-            return conformer_id, None
-
-        for idx in fixed_atom_indices:
-            if idx < mol.GetNumAtoms():  # Ensure fixed index is valid
-                ff.AddFixedPoint(idx)
-            else:
-                logger.warning(
-                    f"_mmff_task: Fixed atom index {idx} out of bounds for {mol.GetNumAtoms()} atoms in conf {conformer_id}"
-                )
-
-        ff.Minimize(maxIts=max_its)
-        minimized_coords = mol.GetConformer(0).GetPositions().tolist()
-        return conformer_id, minimized_coords
-    except Exception as e:
-        logger.error(
-            f"_mmff_task: MMFF Minimization uncaught exception for conf {conformer_id}: {e} {traceback.format_exc()}"
-        )
-        return conformer_id, None
-
-
-# Sequential MMFF minimization version - kept for reference and fallback
-def mmff_minimise_fixed_sequential(
-    mol: Chem.Mol, conf_ids, fixed_idx, its: int = 200
-) -> None:
-    """Perform MMFF minimization with fixed atoms (sequential version).
-
+def mmff_minimise_fixed_sequential(mol: Chem.Mol, conf_ids, fixed_idx, its: int = DEFAULT_MMFF_ITERATIONS):
+    """Sequential MMFF minimization with fixed atom constraints.
+    
     Args:
         mol: Molecule to minimize
         conf_ids: List of conformer IDs to minimize
         fixed_idx: List of atom indices to keep fixed
-        its: Maximum number of iterations
+        its: Maximum iterations for minimization
     """
-    mp = rdForceFieldHelpers.MMFFGetMoleculeProperties(mol, mmffVariant="MMFF94s")
-    if mp is None:
-        return
+    try:
+        for conf_id in conf_ids:
+            mp = rdForceFieldHelpers.MMFFGetMoleculeProperties(mol, mmffVariant='MMFF94s')
+            if mp is None:
+                log.debug(f"Could not get MMFF params for conformer {conf_id}")
+                continue
+                
+            ff = rdForceFieldHelpers.MMFFGetMoleculeForceField(mol, mp, confId=conf_id)
+            if ff is None:
+                log.debug(f"Could not get MMFF force field for conformer {conf_id}")
+                continue
+                
+            for idx in fixed_idx:
+                if idx < mol.GetNumAtoms():
+                    ff.AddFixedPoint(idx)
+                    
+            ff.Minimize(maxIts=its)
+            
+    except Exception as e:
+        log.warning(f"Sequential MMFF minimization failed: {e}")
 
-    fixed_idx_list = list(fixed_idx)
-    for cid in conf_ids:
-        ff = rdForceFieldHelpers.MMFFGetMoleculeForceField(mol, mp, confId=cid)
-        if ff is None:
-            continue
-        for idx_fixed in fixed_idx_list:
-            ff.AddFixedPoint(idx_fixed)
-        ff.Minimize(maxIts=its)
 
-
-def mmff_minimise_fixed_parallel(
-    mol_original: Chem.Mol,
-    conf_ids: List[int],
-    fixed_idx: List[int],
-    its: int = 200,
-    n_workers: int = 1,
-):
-    """Perform MMFF minimization with fixed atoms, potentially in parallel.
-
-    This function can use multiple processes to speed up minimization when many conformers
-    are present. It automatically falls back to sequential processing for single conformers
-    or when parallel processing is not requested.
-
+def mmff_minimise_fixed_parallel(mol_original: Chem.Mol, conf_ids: List[int], fixed_idx: List[int], its: int = DEFAULT_MMFF_ITERATIONS, n_workers: int = 1):
+    """Parallel MMFF minimization with fixed atom constraints.
+    
     Args:
-        mol_original: RDKit Mol object with conformers
+        mol_original: Original molecule
         conf_ids: List of conformer IDs to minimize
         fixed_idx: List of atom indices to keep fixed
-        its: Maximum number of iterations (default: 200)
-        n_workers: Number of parallel workers to use (default: 1)
-
-    Returns:
-        None: The molecule is modified in-place
-    """
-    if not conf_ids:
-        return
-
-    fixed_idx_list = list(fixed_idx)
-
-    if n_workers > 1 and len(conf_ids) > 1:
-        logger.debug(
-            f"Running MMFF minimization in parallel for {len(conf_ids)} conformers with {n_workers} workers."
-        )
-        tasks = []
-        for cid in conf_ids:
-            # Build a single-conformer molecule to preserve the unique coordinates of each conformer
-            single_conf_mol = Chem.Mol(mol_original)
-            single_conf_mol.RemoveAllConformers()
-            single_conf_mol.AddConformer(mol_original.GetConformer(cid), assignId=True)
-            mol_block = Chem.MolToMolBlock(single_conf_mol)
-            tasks.append((mol_block, cid, fixed_idx_list, "MMFF94s", its))
-
-        minimized_conformers_data = {}
-        with ProcessPoolExecutor(max_workers=n_workers) as executor:
-            results_iterator = executor.map(_mmff_minimize_single_conformer_task, tasks)
-
-            for result in tqdm(
-                results_iterator,
-                total=len(tasks),
-                desc="MMFF Min (Parallel)",
-                disable=True,
-            ):
-                if result:
-                    cid_original, minimized_coords = result
-                    if minimized_coords is not None:
-                        minimized_conformers_data[cid_original] = minimized_coords
-                    else:
-                        logger.warning(
-                            f"MMFF minimization failed or returned no coords for conformer ID {cid_original}."
-                        )
-
-        # Update the original molecule's conformers with minimized coordinates
-        updated_count = 0
-        for cid, new_coords_list in minimized_conformers_data.items():
-            if cid < mol_original.GetNumConformers():  # Check if cid is valid
-                conformer_to_update = mol_original.GetConformer(cid)
-                if len(new_coords_list) == conformer_to_update.GetNumAtoms():
-                    for i, coords_atom in enumerate(new_coords_list):
-                        conformer_to_update.SetAtomPosition(
-                            i, Point3D(coords_atom[0], coords_atom[1], coords_atom[2])
-                        )
-                    updated_count += 1
-                else:
-                    logger.warning(
-                        f"Coordinate length mismatch for conformer {cid} after MMFF. Expected {conformer_to_update.GetNumAtoms()}, got {len(new_coords_list)}."
-                    )
-            else:
-                logger.warning(f"Conformer ID {cid} out of range after parallel MMFF.")
-        logger.debug(
-            f"Finished parallel MMFF minimization. Updated {updated_count}/{len(conf_ids)} conformers on original molecule."
-        )
-
-    else:  # Sequential execution uses the original molecule directly
-        logger.debug(
-            f"Running MMFF minimization sequentially for {len(conf_ids)} conformers."
-        )
-        mp = rdForceFieldHelpers.MMFFGetMoleculeProperties(
-            mol_original, mmffVariant="MMFF94s"
-        )
-        if mp is None:
-            logger.warning(
-                "MMFF parameters missing for sequential minimization, skipping."
-            )
-            return
-
-        for cid in tqdm(conf_ids, desc="MMFF Min (Sequential)", disable=True):
-            if cid < mol_original.GetNumConformers():
-                ff = rdForceFieldHelpers.MMFFGetMoleculeForceField(
-                    mol_original, mp, confId=cid
-                )
-                if ff is None:
-                    logger.warning(
-                        f"Could not get MMFF force field for conformer {cid} (sequential), skipping."
-                    )
-                    continue
-                for idx_fixed_seq in fixed_idx_list:
-                    ff.AddFixedPoint(idx_fixed_seq)
-                try:
-                    ff.Minimize(maxIts=its)
-                except Exception as e_seq:
-                    logger.error(
-                        f"MMFF Minimization failed for conformer {cid} (sequential): {e_seq}"
-                    )
-            else:
-                logger.warning(f"Conformer ID {cid} out of range for sequential MMFF.")
-
-
-def get_central_atom(mol: Chem.Mol) -> int:
-    """Get the idx of the central atom by picking the atom with the smallest
-    sum of shortest path to all the other atoms. In case of tie returns the first one.
-
-    Args:
-        mol: Input molecule
-
-    Returns:
-        Index of the central atom
-    """
-    tdm = Chem.GetDistanceMatrix(mol)
-    pathsum = [(idx, sum(row)) for idx, row in enumerate(tdm)]
-    return sorted(pathsum, key=lambda x: x[1])[0][0]
-
-
-def central_atom_embed(
-    tgt: Chem.Mol, ref: Chem.Mol, n_conformers: int, n_workers: int
-) -> Optional[Chem.Mol]:
-    """Generate conformers using central atom positioning when MCS fails.
-
-    Places target molecule's central atom at template's central atom position.
-
-    Args:
-        tgt: Target molecule
-        ref: Reference template molecule
-        n_conformers: Number of conformers to generate
+        its: Maximum iterations for minimization
         n_workers: Number of workers for parallel processing
-
-    Returns:
-        Molecule with generated conformers positioned using central atom alignment
     """
-    # Get central atoms
-    tgt_central = get_central_atom(tgt)
-    ref_central = get_central_atom(ref)
-    ref_central_pos = ref.GetConformer().GetAtomPosition(ref_central)
-
-    logger.info(
-        f"Central atom positioning: target atom {tgt_central} -> template atom {ref_central}"
-    )
-
-    # Generate unconstrained conformers first
-    probe = Chem.AddHs(tgt)
-    ps = rdDistGeom.ETKDGv3()
-    ps.numThreads = n_workers if n_workers > 0 else 0
-    conf_ids = rdDistGeom.EmbedMultipleConfs(probe, n_conformers, ps)
-
-    if not conf_ids:
-        logger.warning("Failed to generate conformers for central atom positioning")
-        return probe
-
-    # Find central atom in the H-added molecule
-    # Map from original molecule to H-added molecule
-    atom_map = {}
-    for i, atom in enumerate(tgt.GetAtoms()):
-        atom_map[i] = i  # Assuming H's are added at the end
-
-    probe_central = atom_map.get(tgt_central, tgt_central)
-
-    # Translate each conformer to align central atoms
-    for cid in conf_ids:
-        conf = probe.GetConformer(cid)
-        current_central_pos = conf.GetAtomPosition(probe_central)
-
-        # Calculate translation vector
-        translation = ref_central_pos - current_central_pos
-
-        # Apply translation to all atoms
-        for i in range(conf.GetNumAtoms()):
-            old_pos = conf.GetAtomPosition(i)
-            new_pos = old_pos + translation
-            conf.SetAtomPosition(i, new_pos)
-
-        # NEW: quick UFF relaxation to remove gross strain introduced by simple translation
-        try:
-            AllChem.UFFOptimizeMolecule(probe, confId=cid, maxIters=50)
-        except Exception as uff_e:
-            logger.debug(f"UFF optimisation warning (conf {cid}): {uff_e}")
-
-    # CRITICAL FIX: Sanitize molecule after coordinate translation to preserve connectivity
-    try:
-        Chem.SanitizeMol(probe)
-        # Ensure ring information is properly maintained for visualization
-        probe.GetRingInfo()
-    except Exception as e:
-        logger.warning(f"Sanitization after central atom translation failed: {e}")
-        # Continue with translated molecule even if sanitization fails
-
-    logger.info(f"Generated {len(conf_ids)} conformers using central atom alignment")
-    return probe
-
-
-def constrained_embed(
-    tgt: Chem.Mol,
-    ref: Chem.Mol,
-    smarts: str,
-    n_conformers: int = 100,
-    n_workers: int = 1,
-) -> Optional[Chem.Mol]:
-    """Generate N_CONFS conformations of tgt, locking MCS atoms to ref coords with memory optimization."""
-
-    # Handle central atom fallback case
-    if smarts == "*":
-        logger.info("Using central atom positioning for pose generation")
-        return central_atom_embed(tgt, ref, n_conformers, n_workers)
-
-    # Handle organometallic atoms before processing
-    tgt_processed, tgt_had_metals, tgt_subs = detect_and_substitute_organometallic(
-        tgt, "target"
-    )
-    ref_processed, ref_had_metals, ref_subs = detect_and_substitute_organometallic(
-        ref, "template"
-    )
-
-    patt = Chem.MolFromSmarts(smarts)
-    tgt_idxs = tgt_processed.GetSubstructMatch(patt)
-    ref_idxs = ref_processed.GetSubstructMatch(patt)
-
-    # Check for valid MCS match
-    if (
-        not tgt_idxs
-        or not ref_idxs
-        or len(tgt_idxs) != len(ref_idxs)
-        or len(tgt_idxs) < 3
-    ):
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                f"Invalid MCS match for constrained embedding. Target idx: {tgt_idxs}, Ref idx: {ref_idxs}. Proceeding with unconstrained embedding."
-            )
-        probe = Chem.AddHs(tgt_processed)
-        # Use batched generation for memory efficiency
-        return generate_conformers_batched(probe, n_conformers, n_workers)
-
-    # Create coordinate map for constrained embedding
-    pairs = list(zip(tgt_idxs, ref_idxs))
-    coord_map = {t: ref_processed.GetConformer().GetAtomPosition(r) for t, r in pairs}
-
-    # Generate conformers in batches to reduce memory spikes
-    logger.debug(
-        f"Attempting batched constrained embedding with {n_conformers} conformers"
-    )
-
-    try:
-        # Process conformers in batches
-        all_conformers = generate_conformers_batched_constrained(
-            tgt_processed, n_conformers, coord_map, n_workers
-        )
-
-        if all_conformers and all_conformers.GetNumConformers() > 0:
-            logger.debug(
-                f"Batched constrained embedding generated {all_conformers.GetNumConformers()} conformers"
-            )
-
-            # MMFF minimization with fixed atoms
-            conf_ids = list(range(all_conformers.GetNumConformers()))
-            mmff_minimise_fixed_parallel(
-                all_conformers, conf_ids, tgt_idxs, n_workers=n_workers
-            )
-
-            # Align conformers to reference
-            for cid in conf_ids:
-                rdMolAlign.AlignMol(
-                    all_conformers, ref_processed, atomMap=pairs, prbCid=cid
-                )
-
-            # CRITICAL FIX: Sanitize molecule after alignment to preserve connectivity
-            try:
-                Chem.SanitizeMol(all_conformers)
-                # Ensure ring information is properly maintained for visualization
-                all_conformers.GetRingInfo()
-            except Exception as e:
-                logger.warning(f"Sanitization after alignment failed: {e}")
-                # Continue with aligned molecule even if sanitization fails
-
-            return all_conformers
-        else:
-            logger.debug(
-                "Batched constrained embedding failed, trying unconstrained fallback"
-            )
-
-    except Exception as e:
-        logger.debug(
-            f"Batched constrained embedding exception: {str(e)}, trying unconstrained fallback"
-        )
-
-    # Fallback if embedding fails
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(
-            "Constrained embedding failed, falling back to unconstrained embedding."
-        )
-    probe = Chem.AddHs(tgt_processed)
-    return generate_conformers_batched(probe, n_conformers, n_workers)
-
-
-def generate_conformers_batched(
-    mol: Chem.Mol, n_conformers: int, n_workers: int
-) -> Optional[Chem.Mol]:
-    """Generate conformers in batches to reduce memory usage."""
-    if n_conformers <= CONFORMER_BATCH_SIZE:
-        # Small number, generate all at once
-        ps = rdDistGeom.ETKDGv3()
-        ps.numThreads = n_workers if n_workers > 0 else 0
-        if hasattr(ps, "maxAttempts"):
-            ps.maxAttempts = 1000
-        ps.useRandomCoords = True
-        rdDistGeom.EmbedMultipleConfs(mol, n_conformers, ps)
-        return mol
-
-    # Large number, use batching
-    result_mol = Chem.Mol(mol)
-    result_mol.RemoveAllConformers()
-
-    remaining = n_conformers
-    batch_count = 0
-
-    while remaining > 0:
-        batch_size = min(CONFORMER_BATCH_SIZE, remaining)
-        batch_count += 1
-
-        # Create temporary molecule for this batch
-        batch_mol = Chem.Mol(mol)
-        batch_mol.RemoveAllConformers()
-
-        ps = rdDistGeom.ETKDGv3()
-        ps.numThreads = n_workers if n_workers > 0 else 0
-        if hasattr(ps, "maxAttempts"):
-            ps.maxAttempts = 1000
-        ps.useRandomCoords = True
-
-        try:
-            conf_ids = rdDistGeom.EmbedMultipleConfs(batch_mol, batch_size, ps)
-
-            # Transfer conformers to result molecule
-            for i, conf_id in enumerate(conf_ids):
-                conf = batch_mol.GetConformer(conf_id)
-                new_conf = Chem.Conformer(conf)
-                result_mol.AddConformer(new_conf, assignId=True)
-
-            remaining -= len(conf_ids)
-            logger.debug(
-                f"Batch {batch_count}: generated {len(conf_ids)} conformers, {remaining} remaining"
-            )
-
-        except Exception as e:
-            logger.debug(f"Batch {batch_count} failed: {e}")
-            remaining -= batch_size  # Skip this batch
-
-        # Force cleanup after each batch
-        del batch_mol
-        import gc
-
-        gc.collect()
-
-    logger.debug(
-        f"Batched generation complete: {result_mol.GetNumConformers()} total conformers"
-    )
-    return result_mol if result_mol.GetNumConformers() > 0 else None
-
-
-def generate_conformers_batched_constrained(
-    mol: Chem.Mol, n_conformers: int, coord_map: Dict, n_workers: int
-) -> Optional[Chem.Mol]:
-    """Generate constrained conformers in batches to reduce memory usage."""
-    if n_conformers <= CONFORMER_BATCH_SIZE:
-        # Small number, generate all at once
-        ps = rdDistGeom.ETKDGv3()
-        ps.numThreads = n_workers if n_workers > 0 else 0
-        if hasattr(ps, "maxAttempts"):
-            ps.maxAttempts = 1000
-        ps.useRandomCoords = True
-        
-        # Set deterministic seed for reproducible conformer generation
-        try:
-            from .utils import get_deterministic_seed
-            deterministic_seed = get_deterministic_seed(None, "constrained_embed", str(mol.GetProp("_Name") if mol.HasProp("_Name") else "unnamed"))
-            ps.randomSeed = deterministic_seed
-        except ImportError:
-            ps.randomSeed = 42  # Fallback to fixed seed
-
-        conf_ids = rdDistGeom.EmbedMultipleConfs(
-            mol, n_conformers, ps, coordMap=coord_map
-        )
-        return mol if conf_ids and len(conf_ids) > 0 else None
-
-    # Large number, use batching
-    result_mol = Chem.Mol(mol)
-    result_mol.RemoveAllConformers()
-
-    remaining = n_conformers
-    batch_count = 0
-
-    while remaining > 0:
-        batch_size = min(CONFORMER_BATCH_SIZE, remaining)
-        batch_count += 1
-
-        # Create temporary molecule for this batch
-        batch_mol = Chem.Mol(mol)
-        batch_mol.RemoveAllConformers()
-
-        ps = rdDistGeom.ETKDGv3()
-        ps.numThreads = n_workers if n_workers > 0 else 0
-        if hasattr(ps, "maxAttempts"):
-            ps.maxAttempts = 1000
-        ps.useRandomCoords = True
-        
-        # Set deterministic seed for reproducible conformer generation (per batch)
-        try:
-            from .utils import get_deterministic_seed
-            deterministic_seed = get_deterministic_seed(None, "constrained_embed_batch", batch_count, str(mol.GetProp("_Name") if mol.HasProp("_Name") else "unnamed"))
-            ps.randomSeed = deterministic_seed
-        except ImportError:
-            ps.randomSeed = 42 + batch_count  # Fallback to deterministic per-batch seed
-
-        try:
-            conf_ids = rdDistGeom.EmbedMultipleConfs(
-                batch_mol, batch_size, ps, coordMap=coord_map
-            )
-
-            # Transfer conformers to result molecule
-            for i, conf_id in enumerate(conf_ids):
-                conf = batch_mol.GetConformer(conf_id)
-                new_conf = Chem.Conformer(conf)
-                result_mol.AddConformer(new_conf, assignId=True)
-
-            remaining -= len(conf_ids)
-            logger.debug(
-                f"Constrained batch {batch_count}: generated {len(conf_ids)} conformers, {remaining} remaining"
-            )
-
-        except Exception as e:
-            logger.debug(f"Constrained batch {batch_count} failed: {e}")
-            remaining -= batch_size  # Skip this batch
-
-        # Force cleanup after each batch
-        del batch_mol
-        import gc
-
-        gc.collect()
-
-    logger.debug(
-        f"Batched constrained generation complete: {result_mol.GetNumConformers()} total conformers"
-    )
-    return result_mol if result_mol.GetNumConformers() > 0 else None
-
-
-def transform_ligand(
-    mob_pdb: str,
-    lig: Chem.Mol,
-    pid: str,
-    ref_struct: AtomArray,
-    ref_chains: Optional[List[str]] = None,
-    mob_chains: Optional[List[str]] = None,
-    similarity_score: float = 0.0,
-) -> Optional[Chem.Mol]:
-    """Superimpose ligand onto protein template using biotite's superimpose_homologs.
-
-    This function performs a sequence-based alignment of protein structures and transforms
-    the ligand coordinates accordingly, prioritizing binding pocket chains.
-
-    Args:
-        mob_pdb: Path to mobile protein PDB file
-        lig: Mobile ligand molecule
-        pid: PDB ID of mobile protein
-        ref_struct: Reference protein structure
-        ref_chains: Chains to use from reference protein (should match embedding chains)
-        mob_chains: Chains to use from mobile protein (should match embedding chains)
-        similarity_score: Embedding similarity score for reference
-
-    Returns:
-        Transformed ligand molecule with alignment metrics as properties,
-        or None if alignment fails
-    """
-    try:
-        # Load mobile structure
-        mob = bsio.load_structure(mob_pdb)
-
-        # Filter to amino acids
-        ref_prot = ref_struct[filter_amino_acids(ref_struct)]
-        mob_prot = mob[filter_amino_acids(mob)]
-
-        if len(ref_prot) < 5 or len(mob_prot) < 5:
-            logger.warning(f"Too few amino acids in {pid}")
-            return None
-
-        # Get available chains
-        ref_available_chains = list(get_chains(ref_prot))
-        mob_available_chains = list(get_chains(mob_prot))
-
-        if not ref_available_chains or not mob_available_chains:
-            logger.warning(f"No chains found in reference or mobile protein {pid}")
-            return None
-
-        # PRIORITY: Use specific chains from embedding since they represent binding pockets
-        selected_ref_chains = []
-        if ref_chains:
-            for chain in ref_chains:
-                if chain in ref_available_chains:
-                    selected_ref_chains.append(chain)
-
-        if not selected_ref_chains:
-            # Fallback to first available chain
-            selected_ref_chains = [ref_available_chains[0]]
-            logger.warning(
-                f"Using fallback chain {selected_ref_chains[0]} for reference structure - may affect binding pocket alignment"
-            )
-
-        selected_mob_chains = []
-        if mob_chains:
-            # Log that we're using chains from embeddings (as DEBUG)
-            logger.debug(f"Using embedding-specified chains for {pid}: {mob_chains}")
-            for chain in mob_chains:
-                if chain in mob_available_chains:
-                    selected_mob_chains.append(chain)
-
-        if not selected_mob_chains:
-            # Fallback to first available chain
-            selected_mob_chains = [mob_available_chains[0]]
-            logger.warning(
-                f"Using fallback chain {selected_mob_chains[0]} for mobile structure - may affect binding pocket alignment"
-            )
-
-        # Extract CA atoms from selected chains - these represent backbone for alignment
-        ref_ca_atoms = []
-        for chain in selected_ref_chains:
-            chain_ca = ref_prot[
-                (ref_prot.chain_id == chain) & (ref_prot.atom_name == "CA")
-            ]
-            if len(chain_ca) > 0:
-                ref_ca_atoms.append(chain_ca)
-                logger.debug(
-                    f"Using {len(chain_ca)} CA atoms from reference chain {chain}"
-                )
-
-        mob_ca_atoms = []
-        for chain in selected_mob_chains:
-            chain_ca = mob_prot[
-                (mob_prot.chain_id == chain) & (mob_prot.atom_name == "CA")
-            ]
-            if len(chain_ca) > 0:
-                mob_ca_atoms.append(chain_ca)
-                logger.debug(
-                    f"Using {len(chain_ca)} CA atoms from mobile chain {chain}"
-                )
-
-        # Combine CA atoms from all selected chains
-        if not ref_ca_atoms or not mob_ca_atoms:
-            logger.warning(f"No CA atoms found in selected chains for {pid}")
-            return None
-
-        # Handle single vs multiple chains
-        if len(ref_ca_atoms) == 1:
-            ref_ca = ref_ca_atoms[0]
-        else:
-            try:
-                # Try to stack directly first
-                ref_ca = struc.stack(ref_ca_atoms)
-            except Exception as e:
-                logger.debug(
-                    f"Standard stacking failed for ref chains in {pid}, standardizing annotations: {str(e)}"
-                )
-                try:
-                    # If fails, standardize annotations and try again
-                    # This fixes incompatible annotation dictionaries across chains
-                    std_ref_ca_atoms = standardize_atom_arrays(ref_ca_atoms)
-                    if len(std_ref_ca_atoms) > 1:
-                        ref_ca = struc.stack(std_ref_ca_atoms)
-                    else:
-                        ref_ca = std_ref_ca_atoms[0]
-                        selected_ref_chains = [selected_ref_chains[0]]
-                        logger.warning(
-                            f"Using only first chain for reference in {pid} after standardization"
-                        )
-                except Exception as e2:
-                    # Last resort: just use the first chain
-                    logger.warning(
-                        f"Standardization failed for reference in {pid}, using only first chain: {str(e2)}"
-                    )
-                    ref_ca = ref_ca_atoms[0]
-                    # Update selected chains to match
-                    selected_ref_chains = [selected_ref_chains[0]]
-
-        if len(mob_ca_atoms) == 1:
-            mob_ca = mob_ca_atoms[0]
-        else:
-            try:
-                # Try to stack directly first
-                mob_ca = struc.stack(mob_ca_atoms)
-            except Exception as e:
-                logger.debug(
-                    f"Standard stacking failed for mobile chains in {pid}, standardizing annotations: {str(e)}"
-                )
-                try:
-                    # If fails, standardize annotations and try again
-                    std_mob_ca_atoms = standardize_atom_arrays(mob_ca_atoms)
-                    if len(std_mob_ca_atoms) > 1:
-                        mob_ca = struc.stack(std_mob_ca_atoms)
-                    else:
-                        mob_ca = std_mob_ca_atoms[0]
-                        selected_mob_chains = [selected_mob_chains[0]]
-                        logger.warning(
-                            f"Using only first chain for mobile in {pid} after standardization"
-                        )
-                except Exception as e2:
-                    # Last resort: just use the first chain
-                    logger.warning(
-                        f"Standardization failed for {pid}, using only first chain: {str(e2)}"
-                    )
-                    mob_ca = mob_ca_atoms[0]
-                    # Update selected chains to match
-                    selected_mob_chains = [selected_mob_chains[0]]
-
-        # Ensure we have enough atoms for alignment
-        if min(len(ref_ca), len(mob_ca)) < 3:
-            logger.warning(
-                f"Too few CA atoms for {pid}: ref={len(ref_ca)}, mob={len(mob_ca)}"
-            )
-            return None
-
-        # Apply homolog-based superimposition
-        try:
-            # Apply homolog-based superimposition with reasonable min_anchors
-            fitted, transform, fixed_idx, mob_idx = superimpose_homologs(
-                ref_ca,
-                mob_ca,
-                substitution_matrix="BLOSUM62",
-                gap_penalty=-10,
-                min_anchors=3,  # Minimum required for valid 3D transformation
-                terminal_penalty=True,
-            )
-
-            # Basic quality check - we need at least some aligned residues
-            if len(fixed_idx) < 3 or len(mob_idx) < 3:
-                logger.warning(f"Too few aligned residues for {pid}")
-                return None
-
-            # Log alignment details
-            logger.debug(
-                f"Aligned {len(fixed_idx)} residues for {pid} using embedding-specified chains"
-            )
-
-        except Exception as e:
-            # If homolog superimposition fails, try basic superimposition
-            import traceback
-
-            logger.warning(f"Homolog superimposition failed for {pid}: {str(e)}")
-
-            # Try direct superimposition as fallback
-            try:
-                # Use minimum length to avoid index errors
-                min_length = min(len(ref_ca), len(mob_ca))
-                fitted, transform = superimpose(
-                    ref_ca[:min_length], mob_ca[:min_length]
-                )
-                logger.debug(f"Using fallback direct superimposition for {pid}")
-            except Exception as e2:
-                logger.warning(
-                    f"Direct superimposition also failed for {pid}: {str(e2)}"
-                )
-                return None
-
-        # Apply transformation to ligand
-        moved = Chem.Mol(lig)
-        moved.SetProp("_Name", f"{pid}_template")
-        coords = np.asarray(lig.GetConformer().GetPositions(), float)
-        
-        # DEBUG: Log original and transformed coordinates
-        original_center = np.mean(coords, axis=0)
-        logger.debug(f"Template {pid} original ligand center: ({original_center[0]:.1f}, {original_center[1]:.1f}, {original_center[2]:.1f})")
-
-        # Apply the transformation
-        transformed_coords = transform.apply(coords)
-        transformed_center = np.mean(transformed_coords, axis=0)
-        logger.debug(f"Template {pid} transformed ligand center: ({transformed_center[0]:.1f}, {transformed_center[1]:.1f}, {transformed_center[2]:.1f})")
-
-        # Apply coordinates to molecule
-        conf = moved.GetConformer()
-        for i, (x, y, z) in enumerate(transformed_coords):
-            conf.SetAtomPosition(i, Point3D(float(x), float(y), float(z)))
-
-        # CRITICAL FIX: Sanitize molecule after coordinate transformation to preserve connectivity
-        try:
-            Chem.SanitizeMol(moved)
-            # Ensure ring information is properly maintained for visualization
-            moved.GetRingInfo()
-        except Exception as e:
-            logger.warning(
-                f"Sanitization after coordinate transformation failed for {pid}: {e}"
-            )
-            # If sanitization fails, create a clean copy from SMILES to preserve connectivity
-            try:
-                original_smiles = Chem.MolToSmiles(lig)
-                clean_mol = Chem.MolFromSmiles(original_smiles)
-                if clean_mol:
-                    # Copy the transformed coordinates to the clean molecule
-                    Chem.AddHs(clean_mol)
-                    AllChem.EmbedMolecule(clean_mol)
-                    # Set the transformed coordinates
-                    clean_conf = clean_mol.GetConformer()
-                    for i, (x, y, z) in enumerate(
-                        transformed_coords[: clean_mol.GetNumAtoms()]
-                    ):
-                        clean_conf.SetAtomPosition(
-                            i, Point3D(float(x), float(y), float(z))
-                        )
-                    moved = clean_mol
-            except Exception as e2:
-                logger.error(f"Failed to create clean molecule copy for {pid}: {e2}")
-
-        # Store original molecular structure for visualization
-        moved.SetProp("original_smiles", Chem.MolToSmiles(lig))
-
-        # Store alignment metadata as properties
-        moved.SetProp("template_pdb", pid)
-        moved.SetProp("ref_chains", ",".join(selected_ref_chains))
-        moved.SetProp("mob_chains", ",".join(selected_mob_chains))
-
-        # Store similarity score if provided
-        if similarity_score > 0:
-            moved.SetProp("embedding_similarity", f"{similarity_score:.3f}")
-
-        return moved
-    except Exception as e:
-        # Report errors
-        logger.error(f"Error transforming ligand for {pid}: {str(e)}")
-        return None
-
-
-def standardize_atom_arrays(arrays):
-    """Standardize annotations across multiple atom arrays to make them compatible for stacking.
-
-    This function resolves a critical issue in the protein alignment pipeline where
-    atom arrays from different chains often have incompatible annotation dictionaries.
-
-    Parameters:
-        arrays: List of AtomArray objects to standardize
-
-    Returns:
-        List of AtomArray objects with compatible annotations
-    """
-    if not arrays or len(arrays) <= 1:
-        return arrays
-
-    # Check if all arrays have annotations
-    if not all(hasattr(arr, "annotations") for arr in arrays):
-        # Return only the first array if some don't have annotations
-        return [arrays[0]]
-
-    # Get common annotation categories
-    try:
-        common_annot = set.intersection(*[set(arr.annotations) for arr in arrays])
-
-        # Create standardized arrays with only common annotations
-        std_arrays = []
-        for arr in arrays:
-            std_arr = arr.copy()
-            # Keep only common annotations
-            for annot in list(std_arr.annotations.keys()):
-                if annot not in common_annot:
-                    std_arr.annotations.pop(annot)
-            std_arrays.append(std_arr)
-
-        return std_arrays
-    except Exception:
-        # Return first array as fallback if anything goes wrong
-        return [arrays[0]]
-
-
-def calculate_shape_alignment(query_mol, template_mol, use_features=True):
-    """
-    Calculate shape-based alignment using RDKit's ShapeAlign.
+    if n_workers <= 1:
+        return mmff_minimise_fixed_sequential(mol_original, conf_ids, fixed_idx, its)
     
-    Args:
-        query_mol: Query molecule (RDKit Mol object)
-        template_mol: Template molecule (RDKit Mol object)
-        use_features: Whether to use pharmacophore features in alignment
-        
-    Returns:
-        Dict containing alignment results and metrics
-    """
     try:
-        # Ensure both molecules have 3D coordinates
-        if query_mol.GetNumConformers() == 0:
-            AllChem.EmbedMolecule(query_mol)
-        if template_mol.GetNumConformers() == 0:
-            AllChem.EmbedMolecule(template_mol)
-            
-        # Calculate shape alignment using available RDKit methods
-        try:
-            # Try using rdMolAlign for basic shape comparison
-            shape_tanimoto = 1.0 - (rdMolAlign.AlignMol(query_mol, template_mol) / 10.0)
-            shape_tanimoto = max(0.0, min(1.0, shape_tanimoto))  # Clamp to [0,1]
-        except:
-            # Fallback to basic geometric comparison
-            query_coords = query_mol.GetConformer().GetPositions()
-            template_coords = template_mol.GetConformer().GetPositions()
-            if len(query_coords) == len(template_coords):
-                rmsd = np.sqrt(np.mean(np.sum((query_coords - template_coords)**2, axis=1)))
-                shape_tanimoto = max(0.0, 1.0 - rmsd / 10.0)
+        # Prepare data for parallel processing
+        mol_smiles = Chem.MolToSmiles(mol_original)
+        tasks = []
+        
+        for conf_id in conf_ids:
+            if conf_id < mol_original.GetNumConformers():
+                conf = mol_original.GetConformer(conf_id)
+                coords = conf.GetPositions().tolist()
+                tasks.append((mol_smiles, conf_id, coords, fixed_idx, 'MMFF94s', its))
+        
+        # Process in parallel
+        with ProcessPoolExecutor(max_workers=n_workers) as executor:
+            # Check if UFF fallback is needed
+            if needs_uff_fallback(mol_original):
+                futures = [executor.submit(_mmff_minimize_single_conformer_task_uff_aware, task) for task in tasks]
             else:
-                shape_tanimoto = 0.0
-        
-        # Calculate color (feature) alignment if requested
-        color_tanimoto = 0.0
-        if use_features:
-            try:
-                # Use fingerprint similarity as proxy for pharmacophore features
-                from rdkit import DataStructs
-                from rdkit.Chem import rdMolDescriptors
-                
-                query_fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(query_mol, 2)
-                template_fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(template_mol, 2)
-                color_tanimoto = DataStructs.TanimotoSimilarity(query_fp, template_fp)
-            except:
-                color_tanimoto = 0.0
-        
-        # Calculate shape protrusion distance
-        protrude_dist = ShapeProtrudeDist(query_mol, template_mol)
-        
-        # Calculate combined score
-        combo_score = (shape_tanimoto + color_tanimoto) / 2.0
-        
-        return {
-            'shape_tanimoto': shape_tanimoto,
-            'color_tanimoto': color_tanimoto,
-            'combo_score': combo_score,
-            'protrude_dist': protrude_dist,
-            'alignment_success': True
-        }
-        
-    except Exception as e:
-        logger.warning(f"Shape alignment calculation failed: {e}")
-        return {
-            'shape_tanimoto': 0.0,
-            'color_tanimoto': 0.0,
-            'combo_score': 0.0,
-            'protrude_dist': 999.0,
-            'alignment_success': False
-        }
-
-
-def calculate_symmetry_corrected_rmsd(query_mol, template_mol, use_spyrmsd=True):
-    """
-    Calculate symmetry-corrected RMSD between two molecules.
-    
-    Args:
-        query_mol: Query molecule (RDKit Mol object)
-        template_mol: Template molecule (RDKit Mol object)
-        use_spyrmsd: Whether to use spyrmsd for symmetry correction
-        
-    Returns:
-        Dict containing RMSD calculations
-    """
-    try:
-        # Ensure both molecules have 3D coordinates
-        if query_mol.GetNumConformers() == 0:
-            AllChem.EmbedMolecule(query_mol)
-        if template_mol.GetNumConformers() == 0:
-            AllChem.EmbedMolecule(template_mol)
+                futures = [executor.submit(_mmff_minimize_single_conformer_task, task) for task in tasks]
             
-        # Get atom coordinates
-        query_coords = query_mol.GetConformer().GetPositions()
-        template_coords = template_mol.GetConformer().GetPositions()
-        
-        # Basic RMSD calculation using RDKit
-        basic_rmsd = 0.0
-        try:
-            basic_rmsd = rdMolAlign.AlignMol(query_mol, template_mol)
-        except:
-            # Fallback to coordinate comparison if alignment fails
-            if len(query_coords) == len(template_coords):
-                basic_rmsd = np.sqrt(np.mean(np.sum((query_coords - template_coords)**2, axis=1)))
-            else:
-                basic_rmsd = 999.0
-        
-        # Symmetry-corrected RMSD using spyrmsd if available
-        symmetry_rmsd = basic_rmsd
-        if use_spyrmsd and HAS_SPYRMSD:
-            try:
-                # Convert to spyrmsd format
-                query_atomicnums = [atom.GetAtomicNum() for atom in query_mol.GetAtoms()]
-                template_atomicnums = [atom.GetAtomicNum() for atom in template_mol.GetAtoms()]
-                
-                # Only calculate if molecules have same number of atoms
-                if len(query_atomicnums) == len(template_atomicnums):
-                    symmetry_rmsd = rmsd.symmrmsd(
-                        query_coords,
-                        template_coords,
-                        query_atomicnums,
-                        template_atomicnums
-                    )
-            except Exception as e:
-                logger.debug(f"spyrmsd calculation failed, using basic RMSD: {e}")
-                symmetry_rmsd = basic_rmsd
-        
-        return {
-            'basic_rmsd': basic_rmsd,
-            'symmetry_rmsd': symmetry_rmsd,
-            'rmsd_calculation_success': True
-        }
-        
+            # Collect results
+            for future in as_completed(futures):
+                try:
+                    conf_id, minimized_coords = future.result()
+                    if minimized_coords is not None and conf_id < mol_original.GetNumConformers():
+                        conf = mol_original.GetConformer(conf_id)
+                        for atom_idx, coord in enumerate(minimized_coords):
+                            if atom_idx < conf.GetNumAtoms():
+                                conf.SetAtomPosition(atom_idx, Point3D(*coord))
+                except Exception as e:
+                    log.warning(f"Parallel minimization task failed: {e}")
+                    
     except Exception as e:
-        logger.warning(f"RMSD calculation failed: {e}")
-        return {
-            'basic_rmsd': 999.0,
-            'symmetry_rmsd': 999.0,
-            'rmsd_calculation_success': False
-        }
+        log.warning(f"Parallel MMFF minimization failed, falling back to sequential: {e}")
+        mmff_minimise_fixed_sequential(mol_original, conf_ids, fixed_idx, its)
 
 
-def enhanced_template_scoring(query_mol, template_mol, embedding_similarity=0.0):
-    """
-    Enhanced template scoring using multiple criteria.
+#  Worker Functions for Parallel Processing 
+
+def _mmff_minimize_single_conformer_task(args_tuple):
+    """Helper for parallel MMFF minimization. Modifies a conformer of a molecule (passed as SMILES).
     
     Args:
-        query_mol: Query molecule (RDKit Mol object)
-        template_mol: Template molecule (RDKit Mol object)
-        embedding_similarity: Protein embedding similarity score
+        args_tuple: Tuple containing (mol_smiles, conformer_id, initial_conformer_coords, 
+                   fixed_atom_indices, mmff_variant, max_its)
+    
+    Returns:
+        Tuple (conformer_id, list_of_minimized_coords) or None if failed
+    """
+    mol_smiles, conformer_id, initial_conformer_coords, fixed_atom_indices, mmff_variant, max_its = args_tuple
+    
+    try:
+        mol = Chem.MolFromSmiles(mol_smiles)
+        if not mol:
+            return conformer_id, None
+        
+        # Add hydrogens and set up conformer
+        mol = Chem.AddHs(mol)
+        conf = Chem.Conformer(mol.GetNumAtoms())
+        
+        # Set coordinates
+        for i, coord in enumerate(initial_conformer_coords):
+            if i < mol.GetNumAtoms():
+                conf.SetAtomPosition(i, Point3D(*coord))
+        
+        mol.AddConformer(conf, assignId=True)
+        
+        # Set up MMFF
+        mp = rdForceFieldHelpers.MMFFGetMoleculeProperties(mol, mmffVariant=mmff_variant)
+        if mp is None:
+            return conformer_id, None
+            
+        ff = rdForceFieldHelpers.MMFFGetMoleculeForceField(mol, mp, confId=0)
+        if ff is None:
+            return conformer_id, None
+            
+        # Add fixed points
+        for idx in fixed_atom_indices:
+            if idx < mol.GetNumAtoms():
+                ff.AddFixedPoint(idx)
+        
+        # Minimize
+        ff.Minimize(maxIts=max_its)
+        minimized_coords = mol.GetConformer(0).GetPositions().tolist()
+        
+        return conformer_id, minimized_coords
+        
+    except Exception as e:
+        log.error(f"MMFF minimization task failed for conformer {conformer_id}: {e}")
+        return conformer_id, None
+
+
+def _mmff_minimize_single_conformer_task_uff_aware(args_tuple):
+    """UFF-aware helper for parallel MMFF minimization with automatic fallback.
+    
+    Args:
+        args_tuple: Tuple containing (mol_smiles, conformer_id, initial_conformer_coords, 
+                   fixed_atom_indices, mmff_variant, max_its)
+    
+    Returns:
+        Tuple (conformer_id, list_of_minimized_coords) or None if failed
+    """
+    mol_smiles, conformer_id, initial_conformer_coords, fixed_atom_indices, mmff_variant, max_its = args_tuple
+    
+    try:
+        mol = Chem.MolFromSmiles(mol_smiles)
+        if not mol:
+            return conformer_id, None
+        
+        # Add hydrogens and set up conformer
+        mol = Chem.AddHs(mol)
+        conf = Chem.Conformer(mol.GetNumAtoms())
+        
+        # Set coordinates
+        for i, coord in enumerate(initial_conformer_coords):
+            if i < mol.GetNumAtoms():
+                conf.SetAtomPosition(i, Point3D(*coord))
+        
+        mol.AddConformer(conf, assignId=True)
+        
+        # Check if UFF fallback is needed
+        use_uff = needs_uff_fallback(mol)
+        
+        if use_uff:
+            # Use UFF for organometallic molecules
+            ff = rdForceFieldHelpers.UFFGetMoleculeForceField(mol, confId=0)
+            if ff is None:
+                return conformer_id, None
+            
+            for idx in fixed_atom_indices:
+                if idx < mol.GetNumAtoms():
+                    ff.AddFixedPoint(idx)
+                    
+            ff.Minimize(maxIts=max_its)
+            
+        else:
+            # Use MMFF for regular molecules
+            mp = rdForceFieldHelpers.MMFFGetMoleculeProperties(mol, mmffVariant=mmff_variant)
+            if mp is None:
+                return conformer_id, None
+                
+            ff = rdForceFieldHelpers.MMFFGetMoleculeForceField(mol, mp, confId=0)
+            if ff is None:
+                return conformer_id, None
+                
+            for idx in fixed_atom_indices:
+                if idx < mol.GetNumAtoms():
+                    ff.AddFixedPoint(idx)
+                    
+            ff.Minimize(maxIts=max_its)
+        
+        minimized_coords = mol.GetConformer(0).GetPositions().tolist()
+        return conformer_id, minimized_coords
+        
+    except Exception as e:
+        log.error(f"UFF-aware minimization task failed for conformer {conformer_id}: {e}")
+        return conformer_id, None
+
+
+#  Utility Functions 
+
+def safe_name(name: str) -> str:
+    """Convert a name to a filesystem-safe version.
+    
+    Args:
+        name: Input name
         
     Returns:
-        Dict containing comprehensive scoring metrics
+        Filesystem-safe version of the name
     """
-    # Calculate shape-based alignment
-    shape_results = calculate_shape_alignment(query_mol, template_mol)
-    
-    # Calculate symmetry-corrected RMSD
-    rmsd_results = calculate_symmetry_corrected_rmsd(query_mol, template_mol)
-    
-    # Calculate chemical similarity
-    chemical_similarity = 0.0
-    try:
-        from rdkit import DataStructs
-        from rdkit.Chem import rdMolDescriptors
-        
-        # Morgan fingerprints
-        query_fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(query_mol, 2)
-        template_fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(template_mol, 2)
-        chemical_similarity = DataStructs.TanimotoSimilarity(query_fp, template_fp)
-    except:
-        chemical_similarity = 0.0
-    
-    # Calculate combined score
-    # Weight: shape=0.4, chemical=0.3, embedding=0.2, rmsd=0.1
-    combined_score = (
-        shape_results['combo_score'] * 0.4 +
-        chemical_similarity * 0.3 +
-        embedding_similarity * 0.2 +
-        (1.0 - min(rmsd_results['symmetry_rmsd'] / 10.0, 1.0)) * 0.1
-    )
-    
-    return {
-        'shape_tanimoto': shape_results['shape_tanimoto'],
-        'color_tanimoto': shape_results['color_tanimoto'],
-        'shape_combo': shape_results['combo_score'],
-        'protrude_dist': shape_results['protrude_dist'],
-        'basic_rmsd': rmsd_results['basic_rmsd'],
-        'symmetry_rmsd': rmsd_results['symmetry_rmsd'],
-        'chemical_similarity': chemical_similarity,
-        'embedding_similarity': embedding_similarity,
-        'combined_score': combined_score,
-        'scoring_success': shape_results['alignment_success'] and rmsd_results['rmsd_calculation_success']
-    }
-
-
-class MCSEngine:
-    """Object-oriented wrapper for MCS functionality."""
-
-    def __init__(self):
-        pass
-
-    def calculate_mcs(self, smiles1: str, smiles2: str) -> Dict:
-        """Calculate MCS between two SMILES strings."""
-        from rdkit import Chem
-
-        mol1 = Chem.MolFromSmiles(smiles1)
-        mol2 = Chem.MolFromSmiles(smiles2)
-
-        if mol1 is None or mol2 is None:
-            return {"score": 0.0, "mapping": []}
-
-        try:
-            _, smarts = find_mcs(mol1, [mol2])
-            return {"score": 0.8, "mapping": [], "smarts": smarts}
-        except:
-            return {"score": 0.0, "mapping": []}
+    import re
+    # Replace problematic characters with underscores
+    safe = re.sub(r'[<>:"/\\|?*]', '_', name)
+    # Remove multiple underscores
+    safe = re.sub(r'_+', '_', safe)
+    # Remove leading/trailing underscores
+    safe = safe.strip('_')
+    return safe if safe else 'unnamed'
