@@ -580,246 +580,34 @@ def validate_molecule_quality(mol: Chem.Mol) -> Tuple[bool, str]:
 
 
 def score_and_align(conf: Chem.Mol, tpl: Chem.Mol) -> Tuple[Dict[str, float], Chem.Mol]:
-    """Fixed version of score_and_align with robust conformer validation to prevent Bad Conformer Id errors."""
-
-    # Validate inputs first
-    if conf is None or tpl is None:
-        logger.error("Invalid input molecules (None)")
-        return {"shape": -1.0, "color": -1.0, "combo": -1.0}, conf or Chem.Mol()
-
-    # Early quality check to prevent expensive operations
-    conf_valid, conf_msg = validate_molecule_quality(conf)
-    if not conf_valid:
-        logger.debug(f"Skipping low-quality conformer: {conf_msg}")
-        return {"shape": -1.0, "color": -1.0, "combo": -1.0}, conf
-
-    if not FixedMolecularProcessor.validate_conformer_access(conf):
-        logger.debug("Probe molecule has invalid conformer, attempting to fix")
-        try:
-            conf_copy = Chem.Mol(conf)
-            AllChem.EmbedMolecule(conf_copy, randomSeed=42)
-            if FixedMolecularProcessor.validate_conformer_access(conf_copy):
-                conf = conf_copy
-            else:
-                logger.debug("Cannot create valid conformer for probe")
-                return {"shape": -1.0, "color": -1.0, "combo": -1.0}, conf
-        except Exception as e:
-            logger.debug(f"Failed to fix probe conformer: {e}")
-            return {"shape": -1.0, "color": -1.0, "combo": -1.0}, conf
-
-    tpl_valid, tpl_msg = validate_molecule_quality(tpl)
-    if not tpl_valid:
-        logger.debug(f"Skipping low-quality template: {tpl_msg}")
-        return {"shape": -1.0, "color": -1.0, "combo": -1.0}, conf
-
-    if not FixedMolecularProcessor.validate_conformer_access(tpl):
-        logger.debug("Template molecule has invalid conformer, attempting to fix")
-        try:
-            tpl_copy = Chem.Mol(tpl)
-            AllChem.EmbedMolecule(tpl_copy, randomSeed=42)
-            if FixedMolecularProcessor.validate_conformer_access(tpl_copy):
-                tpl = tpl_copy
-            else:
-                logger.debug("Cannot create valid conformer for template")
-                return {"shape": -1.0, "color": -1.0, "combo": -1.0}, conf
-        except Exception as e:
-            logger.debug(f"Failed to fix template conformer: {e}")
-            return {"shape": -1.0, "color": -1.0, "combo": -1.0}, conf
-
-    # Create independent copies to prevent object identity issues
-    probe_copy = FixedMolecularProcessor.create_independent_copy(conf)
-    template_copy = FixedMolecularProcessor.create_independent_copy(tpl)
-
-    # Final validation after copying
-    if not FixedMolecularProcessor.validate_conformer_access(probe_copy):
-        logger.error("Probe copy has invalid conformer after copying")
-        return {"shape": -1.0, "color": -1.0, "combo": -1.0}, conf
-
-    if not FixedMolecularProcessor.validate_conformer_access(template_copy):
-        logger.error("Template copy has invalid conformer after copying")
-        return {"shape": -1.0, "color": -1.0, "combo": -1.0}, conf
-
-    # Check if this is a self-comparison (same SMILES)
-    try:
-        probe_smiles = Chem.MolToSmiles(probe_copy)
-        template_smiles = Chem.MolToSmiles(template_copy)
-        is_self_comparison = probe_smiles == template_smiles
-    except Exception as e:
-        logger.warning(f"Failed to generate SMILES for comparison: {e}")
-        is_self_comparison = False
-
-    # For self-comparisons, add tiny perturbations to one molecule
-    if is_self_comparison:
-        logger.debug("Self-comparison detected, adding perturbation to break identity")
-        probe_copy = ScoringFixer.add_tiny_perturbation(probe_copy, noise_level=1e-5)
-
+    """Compute shape/color scores and return the aligned conformer with organometallic handling."""
+    prb = Chem.Mol(conf)
+    
     # Handle organometallic atoms before sanitization
+    tpl_processed, tpl_had_metals, tpl_subs = detect_and_substitute_organometallic(tpl, "template")
+    prb_processed, prb_had_metals, prb_subs = detect_and_substitute_organometallic(prb, "probe")
+    
     try:
-        tpl_processed, tpl_had_metals, tpl_subs = detect_and_substitute_organometallic(
-            template_copy, "template"
-        )
-        prb_processed, prb_had_metals, prb_subs = detect_and_substitute_organometallic(
-            probe_copy, "probe"
-        )
+        SanitizeMol(tpl_processed)
+        SanitizeMol(prb_processed)
     except Exception as e:
-        logger.warning(
-            f"Organometallic processing failed: {e}, using original molecules"
-        )
-        tpl_processed = template_copy
-        prb_processed = probe_copy
-
-    # Validate after organometallic processing
-    if not FixedMolecularProcessor.validate_conformer_access(prb_processed):
-        logger.error("Probe invalid after organometallic processing")
-        return {"shape": -1.0, "color": -1.0, "combo": -1.0}, conf
-
-    if not FixedMolecularProcessor.validate_conformer_access(tpl_processed):
-        logger.error("Template invalid after organometallic processing")
-        return {"shape": -1.0, "color": -1.0, "combo": -1.0}, conf
-
-    # Heavy-atom-only alignment to prevent hydrogen corruption
+        log.warning(f"Sanitization failed even after organometallic handling: {e}")
+        # Continue with original molecules as fallback
+        try:
+            SanitizeMol(tpl)
+            SanitizeMol(prb)
+            tpl_processed, prb_processed = tpl, prb
+        except Exception as e2:
+            log.error(f"Both organometallic handling and fallback sanitization failed: {e2}")
+            # Return default scores to avoid complete failure
+            return ({"shape": 0.0, "color": 0.0, "combo": 0.0}, prb)
+    
     try:
-        # Step 1: Remove hydrogens for alignment (preserves heavy atom geometry)
-        prb_heavy_only = Chem.RemoveHs(prb_processed)
-        tpl_heavy_only = Chem.RemoveHs(tpl_processed)
-
-        # Validate heavy-only molecules
-        if prb_heavy_only.GetNumAtoms() == 0 or tpl_heavy_only.GetNumAtoms() == 0:
-            logger.warning("No heavy atoms found after RemoveHs")
-            return {"shape": -1.0, "color": -1.0, "combo": -1.0}, conf
-
-        # Step 2: Add hydrogens for scoring computation
-        prb_with_h_for_scoring = FixedMolecularProcessor.safe_add_hydrogens(
-            prb_heavy_only, preserve_coords=True
-        )
-        tpl_with_h_for_scoring = FixedMolecularProcessor.safe_add_hydrogens(
-            tpl_heavy_only, preserve_coords=True
-        )
-
-        # Validate molecules after hydrogen addition
-        if not FixedMolecularProcessor.validate_conformer_access(
-            prb_with_h_for_scoring
-        ):
-            logger.warning("Probe invalid after hydrogen addition")
-            prb_with_h_for_scoring = prb_processed
-
-        if not FixedMolecularProcessor.validate_conformer_access(
-            tpl_with_h_for_scoring
-        ):
-            logger.warning("Template invalid after hydrogen addition")
-            tpl_with_h_for_scoring = tpl_processed
-
-        # Step 3: Sanitize molecules
-        try:
-            SanitizeMol(tpl_with_h_for_scoring)
-            SanitizeMol(prb_with_h_for_scoring)
-        except Exception as e:
-            logger.warning(f"Sanitization failed: {e}")
-            return {"shape": -1.0, "color": -1.0, "combo": -1.0}, prb_with_h_for_scoring
-
-        # Step 4: Perform alignment and scoring with validation
-        try:
-            # Validate conformers one more time before alignment
-            if not FixedMolecularProcessor.validate_conformer_access(
-                tpl_with_h_for_scoring
-            ):
-                raise Exception("Template conformer invalid before alignment")
-            if not FixedMolecularProcessor.validate_conformer_access(
-                prb_with_h_for_scoring
-            ):
-                raise Exception("Probe conformer invalid before alignment")
-
-            # Perform alignment
-            alignment_result = rdShapeAlign.AlignMol(
-                tpl_with_h_for_scoring,
-                prb_with_h_for_scoring,
-                refConfId=0,  # Explicitly specify conformer IDs
-                probeConfId=0,
-                useColors=True,
-            )
-
-            # Validate and extract scores properly
-            if alignment_result is None:
-                raise Exception("Alignment returned None")
-
-            # Handle different return types from AlignMol
-            if isinstance(alignment_result, tuple) and len(alignment_result) == 2:
-                shape_score, color_score = alignment_result
-            elif isinstance(alignment_result, (int, float)):
-                # Fallback if only one score returned
-                shape_score = color_score = float(alignment_result)
-            else:
-                raise Exception(
-                    f"Unexpected alignment result type: {type(alignment_result)}"
-                )
-
-            # Validate individual scores
-            if shape_score is None or color_score is None:
-                raise Exception("Alignment returned None scores")
-
-            # Ensure scores are numeric
-            try:
-                shape_score = float(shape_score)
-                color_score = float(color_score)
-            except (ValueError, TypeError) as e:
-                raise Exception(
-                    f"Alignment returned non-numeric scores: {shape_score}, {color_score} - {e}"
-                )
-
-        except Exception as e:
-            logger.warning(
-                f"Heavy-atom alignment failed: {e}, falling back to original method"
-            )
-            return _fallback_alignment(prb_processed, tpl_processed)
-
-        # Step 5: Extract aligned heavy atom coordinates and create clean molecule
-        try:
-            # Remove hydrogens from the aligned molecule to get clean heavy atom positions
-            aligned_heavy_only = Chem.RemoveHs(prb_with_h_for_scoring)
-
-            # Regenerate hydrogens with proper geometry based on aligned heavy atom positions
-            final_aligned_mol = FixedMolecularProcessor.safe_add_hydrogens(
-                aligned_heavy_only, preserve_coords=False
-            )
-
-            # Calculate combo score as the average of shape and color scores
-            combo_score = 0.5 * (shape_score + color_score)
-
-            scores = {
-                "shape": float(shape_score),
-                "color": float(color_score),
-                "combo": float(combo_score),
-            }
-
-            logger.debug(
-                f"Heavy-atom alignment completed: shape={shape_score:.3f}, color={color_score:.3f}, combo={combo_score:.3f}"
-            )
-
-            # Validate the final aligned molecule geometry
-            is_valid, validation_msg = validate_molecular_geometry(
-                final_aligned_mol, "aligned_probe"
-            )
-            if not is_valid:
-                logger.warning(f"Geometry validation failed: {validation_msg}")
-            else:
-                logger.debug(f"Geometry validation: {validation_msg}")
-
-            # Remove hydrogens before returning so atom count matches original heavy-atom molecule
-            return scores, Chem.RemoveHs(final_aligned_mol)
-
-        except Exception as e:
-            logger.warning(f"Final processing failed: {e}")
-            return {
-                "shape": float(shape_score),
-                "color": float(color_score),
-                "combo": 0.5 * (float(shape_score) + float(color_score)),
-            }, prb_heavy_only
-
+        sT, cT = rdShapeAlign.AlignMol(tpl_processed, prb_processed, useColors=True)
+        return ({"shape": sT, "color": cT, "combo": 0.5*(sT+cT)}, prb_processed)
     except Exception as e:
-        logger.warning(
-            f"Heavy-atom alignment pipeline failed: {e}, falling back to original method"
-        )
-        return _fallback_alignment(prb_processed, tpl_processed)
+        log.warning(f"Shape alignment failed: {e}")
+        return ({"shape": 0.0, "color": 0.0, "combo": 0.0}, prb_processed)
 
 
 def _fallback_alignment(
@@ -982,7 +770,7 @@ def _get_executor_for_context(n_workers: int):
     try:
         # Import ThreadResourceManager with fallback handling
         try:
-            from .thread_manager import get_safe_worker_count, log_thread_status
+            from .execution_manager import get_safe_worker_count, log_thread_status, create_robust_process_pool
             
             # Get safe worker count for scoring tasks
             safe_workers = get_safe_worker_count(n_workers, task_type="scoring")
@@ -1001,9 +789,9 @@ def _get_executor_for_context(n_workers: int):
             logger.debug(f"Using ThreadPoolExecutor with {safe_workers} workers (daemon process detected, requested: {n_workers})")
             return ThreadPoolExecutor(max_workers=safe_workers)
         else:
-            # Not in daemon process, use processes
-            logger.debug(f"Using ProcessPoolExecutor with {safe_workers} workers (requested: {n_workers})")
-            return ProcessPoolExecutor(max_workers=safe_workers)
+            # Not in daemon process, use robust process pool like true_mcs.py
+            logger.debug(f"Using robust process pool with {safe_workers} workers (requested: {n_workers})")
+            return create_robust_process_pool(safe_workers, task_type="scoring")
     except Exception as e:
         # Fallback to threads if there's any issue with process detection
         logger.warning(f"Process detection failed, using ThreadPoolExecutor: {e}")
