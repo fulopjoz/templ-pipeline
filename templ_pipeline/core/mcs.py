@@ -16,6 +16,7 @@ from rdkit.Chem import (
     rdDistGeom,
     rdForceFieldHelpers,
     rdRascalMCES,
+    rdMolAlign,
 )
 from rdkit.Geometry import Point3D
 
@@ -77,6 +78,106 @@ N_CONFS = 50
 MIN_PROTEIN_LENGTH = 20
 DEFAULT_MMFF_ITERATIONS = 1000
 CA_RMSD_THRESHOLD = 2.0
+
+#  Molecular Geometry Validation 
+
+def validate_molecular_geometry(mol: Chem.Mol, step_name: str = "unknown", log_level: str = "warning") -> bool:
+    """Validate molecular geometry by checking bond lengths and connectivity.
+    
+    Args:
+        mol: RDKit molecule to validate
+        step_name: Name of the processing step for logging
+        log_level: Logging level (warning, info, debug)
+        
+    Returns:
+        True if geometry is valid, False if distorted
+    """
+    if mol is None or mol.GetNumConformers() == 0:
+        return True
+        
+    try:
+        conf = mol.GetConformer(0)
+        bond_lengths = []
+        suspicious_bonds = []
+        
+        for bond in mol.GetBonds():
+            atom1_idx = bond.GetBeginAtomIdx()
+            atom2_idx = bond.GetEndAtomIdx()
+            
+            pos1 = conf.GetAtomPosition(atom1_idx)
+            pos2 = conf.GetAtomPosition(atom2_idx)
+            
+            distance = ((pos1.x - pos2.x)**2 + (pos1.y - pos2.y)**2 + (pos1.z - pos2.z)**2)**0.5
+            bond_lengths.append(distance)
+            
+            # Flag suspicious bond lengths
+            if distance < 0.5 or distance > 3.0:
+                suspicious_bonds.append((atom1_idx, atom2_idx, distance))
+        
+        if bond_lengths:
+            min_length = min(bond_lengths)
+            max_length = max(bond_lengths)
+            avg_length = sum(bond_lengths) / len(bond_lengths)
+            
+            log_msg = f"Geometry validation at {step_name}: bonds={len(bond_lengths)}, min={min_length:.3f}Å, max={max_length:.3f}Å, avg={avg_length:.3f}Å"
+            
+            if suspicious_bonds:
+                log_msg += f", suspicious_bonds={len(suspicious_bonds)}"
+                log.warning(f"{log_msg}")
+                for atom1, atom2, dist in suspicious_bonds:
+                    log.warning(f"  Suspicious bond {atom1}-{atom2}: {dist:.3f}Å")
+                return False
+            else:
+                if log_level == "info":
+                    log.info(log_msg)
+                elif log_level == "debug":
+                    log.debug(log_msg)
+                return True
+                
+    except Exception as e:
+        log.error(f"Geometry validation failed at {step_name}: {e}")
+        return False
+    
+    return True
+
+
+def log_coordinate_map(coord_map: dict, step_name: str = "unknown"):
+    """Log coordinate map details for debugging.
+    
+    Args:
+        coord_map: Dictionary mapping atom indices to coordinates
+        step_name: Name of the processing step
+    """
+    if not coord_map:
+        log.warning(f"Empty coordinate map at {step_name}")
+        return
+        
+    log.info(f"Coordinate map at {step_name}: {len(coord_map)} constraints")
+    
+    # Check for unreasonable constraint distances
+    constraint_distances = []
+    coord_list = list(coord_map.values())
+    
+    for i in range(len(coord_list)):
+        for j in range(i + 1, len(coord_list)):
+            pos1 = coord_list[i]
+            pos2 = coord_list[j]
+            dist = ((pos1.x - pos2.x)**2 + (pos1.y - pos2.y)**2 + (pos1.z - pos2.z)**2)**0.5
+            constraint_distances.append(dist)
+    
+    if constraint_distances:
+        min_dist = min(constraint_distances)
+        max_dist = max(constraint_distances)
+        avg_dist = sum(constraint_distances) / len(constraint_distances)
+        
+        log.info(f"Constraint distances: min={min_dist:.3f}Å, max={max_dist:.3f}Å, avg={avg_dist:.3f}Å")
+        
+        # Flag problematic constraints
+        if min_dist < 1.0:
+            log.warning(f"Very close constraints detected: min_distance={min_dist:.3f}Å")
+        if max_dist > 20.0:
+            log.warning(f"Very distant constraints detected: max_distance={max_dist:.3f}Å")
+
 
 #  Core MCS Functions 
 
@@ -465,47 +566,80 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
         log.warning("Insufficient coordinate constraints for embedding, falling back to central atom")
         return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
     
-    # Try constrained embedding with progressive fallback
+    # Log coordinate map details for debugging
+    log_coordinate_map(coordMap, "initial_coordinate_map")
+    
+    # Use proven working pattern from reference code
     try:
-        if use_uff:
-            # Use UFF-compatible embedding for organometallic molecules
-            conf_ids = embed_organometallic_with_constraints(target_h, n_conformers, coordMap)
-        else:
-            # Standard constrained embedding - pass individual parameters instead of EmbedParameters object
-            conf_ids = rdDistGeom.EmbedMultipleConfs(
-                target_h, 
-                n_conformers, 
-                randomSeed=42,
-                numThreads=n_workers_pipeline,
-                useRandomCoords=False,
-                enforceChirality=False,  # Critical for organometallics
-                maxAttempts=1000,
-                coordMap=coordMap
-            )
+        ps = rdDistGeom.ETKDGv3()
+        ps.randomSeed = 42
+        ps.enforceChirality = False
+        ps.numThreads = n_workers_pipeline
         
-        if not conf_ids:
-            log.warning("Constrained embedding failed, trying unconstrained")
-            conf_ids = rdDistGeom.EmbedMultipleConfs(
-                target_h, 
-                n_conformers, 
-                randomSeed=42,
-                numThreads=n_workers_pipeline,
-                useRandomCoords=False,
-                enforceChirality=False,
-                maxAttempts=1000
-            )
+        # Progressive coordinate mapping - reduce constraints until embedding succeeds
+        r = -1
+        lrm = 0
+        while r == -1:
+            cmap = {}
+            for i, t in enumerate(tgt_idxs_h[lrm:]):
+                if i < len(ref_idxs):
+                    cmap[t] = ref_conf.GetAtomPosition(ref_idxs[i])
             
-        if not conf_ids:
-            log.warning("All embedding attempts failed, falling back to central atom")
+            log.info(f"Progressive embedding attempt {lrm + 1}: using {len(cmap)} constraints")
+            log_coordinate_map(cmap, f"progressive_attempt_{lrm + 1}")
+            
+            ps.SetCoordMap(cmap)
+            r = rdDistGeom.EmbedMultipleConfs(target_h, n_conformers, ps)
+            
+            if r == -1:
+                log.warning(f"Embedding attempt {lrm + 1} failed with {len(cmap)} constraints")
+            else:
+                log.info(f"Embedding succeeded at attempt {lrm + 1} with {len(cmap)} constraints, generated {len(r)} conformers")
+            
+            lrm += 1
+            if lrm >= len(tgt_idxs_h):
+                break
+        
+        if r == -1:
+            log.warning("Progressive embedding failed, falling back to central atom")
             return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+        
+        conf_ids = r
         
         log.info(f"Constrained embedding succeeded: {len(conf_ids)} conformers")
         
-        # Minimize with constraints
-        if use_uff:
-            minimize_with_uff(target_h, list(conf_ids), list(tgt_idxs_h))
+        # Validate geometry after embedding
+        is_valid_after_embedding = validate_molecular_geometry(target_h, "after_embedding", "info")
+        if not is_valid_after_embedding:
+            log.warning("Molecular distortion detected after embedding")
+        
+        # Post-embedding alignment to correct any distortion
+        for i in range(len(conf_ids)):
+            rdMolAlign.AlignMol(target_h, ref, atomMap=list(zip(tgt_idxs_h, ref_idxs)), prbCid=i)
+        
+        # Validate geometry after alignment
+        is_valid_after_alignment = validate_molecular_geometry(target_h, "after_alignment", "info")
+        if not is_valid_after_alignment:
+            log.warning("Molecular distortion detected after alignment")
+        
+        # Skip minimization with constraints to prevent molecular distortion
+        # The ETKDGv3 embedding with alignment already provides good geometry
+        skip_minimization = len(tgt_idxs_h) > 0  # Skip if we have MCS constraints
+        
+        if skip_minimization:
+            log.info("Skipping force field minimization to prevent constraint-induced distortion")
+            log.info("ETKDGv3 embedding + alignment provides sufficient geometry optimization")
         else:
-            mmff_minimise_fixed_parallel(target_h, list(conf_ids), list(tgt_idxs_h), n_workers=n_workers_pipeline)
+            # Minimize with constraints (only when no MCS constraints)
+            if use_uff:
+                minimize_with_uff(target_h, list(conf_ids), list(tgt_idxs_h))
+            else:
+                mmff_minimise_fixed_parallel(target_h, list(conf_ids), list(tgt_idxs_h), n_workers=n_workers_pipeline)
+            
+            # Validate geometry after minimization
+            is_valid_after_minimization = validate_molecular_geometry(target_h, "after_minimization", "info")
+            if not is_valid_after_minimization:
+                log.warning("Molecular distortion detected after minimization")
         
         return target_h
         
@@ -551,11 +685,10 @@ def central_atom_embed(tgt: Chem.Mol, ref: Chem.Mol, n_conformers: int, n_worker
                 pos = conf.GetAtomPosition(atom_idx)
                 conf.SetAtomPosition(atom_idx, pos + translation)
         
-        # Minimize conformers
-        if needs_uff_fallback(tgt_copy):
-            minimize_with_uff(tgt_copy, list(range(tgt_copy.GetNumConformers())), [tgt_center_idx])
-        else:
-            mmff_minimise_fixed_parallel(tgt_copy, list(range(tgt_copy.GetNumConformers())), [tgt_center_idx], n_workers=n_workers_pipeline)
+        # Skip minimization for central atom fallback to prevent distortion
+        # The unconstrained embedding provides good geometry
+        log.info("Skipping force field minimization for central atom fallback to prevent distortion")
+        log.info("Unconstrained embedding provides sufficient geometry optimization")
         
         return tgt_copy
         
