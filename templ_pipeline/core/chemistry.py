@@ -1,49 +1,80 @@
 """
-Chemical processing utilities for complex molecules.
+Chemical processing utilities for TEMPL pipeline.
+
+This module provides comprehensive chemical processing functionality including:
+- Molecule validation and filtering
+- Organometallic detection and handling
+- Molecule standardization
+- Force field compatibility checking
+- Peptide detection and validation
 """
 
-from rdkit import Chem
-from rdkit.Chem import AllChem
 import logging
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Set
+from rdkit import Chem, RDLogger
+from rdkit.Chem import AllChem
+
+# Disable RDKit logging noise
+RDLogger.DisableLog("rdApp.*")
+
+logger = logging.getLogger(__name__)
+
+# Constants
+ORGANOMETALLIC_ELEMENTS = {
+    75: "Re",  # Rhenium
+    26: "Fe",  # Iron  
+    29: "Cu",  # Copper
+    30: "Zn",  # Zinc
+    25: "Mn",  # Manganese
+    24: "Cr",  # Chromium
+    23: "V",   # Vanadium
+    22: "Ti",  # Titanium
+    27: "Co",  # Cobalt
+    28: "Ni",  # Nickel
+    42: "Mo",  # Molybdenum
+    74: "W",   # Tungsten
+    44: "Ru",  # Ruthenium
+    45: "Rh",  # Rhodium
+    46: "Pd",  # Palladium
+    47: "Ag",  # Silver
+    48: "Cd",  # Cadmium
+    77: "Ir",  # Iridium
+    78: "Pt",  # Platinum
+    79: "Au",  # Gold
+    80: "Hg",  # Mercury
+    76: "Os",  # Osmium
+    21: "Sc",  # Scandium
+    39: "Y",   # Yttrium
+    40: "Zr",  # Zirconium
+    41: "Nb",  # Niobium
+    43: "Tc",  # Technetium
+}
+
+ORGANOMETALLIC_SYMBOLS = {
+    'Fe', 'Mn', 'Co', 'Ni', 'Cu', 'Zn', 'Ru', 'Pd', 'Ag', 'Cd', 'Pt', 'Au', 'Hg',
+    'Mo', 'W', 'Cr', 'V', 'Ti', 'Sc', 'Y', 'Zr', 'Nb', 'Tc', 'Re', 'Os', 'Ir'
+}
 
 
+# Organometallic detection and handling
 def detect_and_substitute_organometallic(
     mol: Chem.Mol, molecule_name: str = "unknown"
 ) -> Tuple[Chem.Mol, bool, List[str]]:
     """
     Detect and substitute organometallic atoms with carbon for conformer generation.
+    
+    This enables processing of molecules containing metal atoms that would otherwise fail
+    in RDKit sanitization and downstream operations.
+
+    Args:
+        mol: RDKit molecule object
+        molecule_name: Name/identifier for the molecule (for logging)
 
     Returns:
         Tuple[Mol, bool, List[str]]: (modified_mol, was_modified, substitution_log)
     """
     if mol is None:
         return None, False, ["Input molecule is None"]
-
-    # Common organometallic elements that cause issues
-    organometallic_elements = {
-        75: "Re",  # Rhenium
-        26: "Fe",  # Iron
-        29: "Cu",  # Copper
-        30: "Zn",  # Zinc
-        25: "Mn",  # Manganese
-        24: "Cr",  # Chromium
-        23: "V",  # Vanadium
-        22: "Ti",  # Titanium
-        27: "Co",  # Cobalt
-        28: "Ni",  # Nickel
-        42: "Mo",  # Molybdenum
-        74: "W",  # Tungsten
-        44: "Ru",  # Ruthenium
-        45: "Rh",  # Rhodium
-        46: "Pd",  # Palladium
-        47: "Ag",  # Silver
-        48: "Cd",  # Cadmium
-        77: "Ir",  # Iridium
-        78: "Pt",  # Platinum
-        79: "Au",  # Gold
-        80: "Hg",  # Mercury
-    }
 
     substitution_log = []
     modified = False
@@ -55,9 +86,9 @@ def detect_and_substitute_organometallic(
         # Find organometallic atoms
         organometallic_atoms = []
         for atom in mol_copy.GetAtoms():
-            if atom.GetAtomicNum() in organometallic_elements:
+            if atom.GetAtomicNum() in ORGANOMETALLIC_ELEMENTS:
                 organometallic_atoms.append(atom.GetIdx())
-                element_symbol = organometallic_elements[atom.GetAtomicNum()]
+                element_symbol = ORGANOMETALLIC_ELEMENTS[atom.GetAtomicNum()]
                 substitution_log.append(
                     f"Found {element_symbol} at atom index {atom.GetIdx()}"
                 )
@@ -68,7 +99,7 @@ def detect_and_substitute_organometallic(
         # Substitute with carbon (atomic number 6)
         for atom_idx in organometallic_atoms:
             atom = mol_copy.GetAtomWithIdx(atom_idx)
-            old_element = organometallic_elements[atom.GetAtomicNum()]
+            old_element = ORGANOMETALLIC_ELEMENTS[atom.GetAtomicNum()]
             atom.SetAtomicNum(6)  # Carbon
             atom.SetFormalCharge(0)  # Reset charge
             substitution_log.append(
@@ -83,15 +114,45 @@ def detect_and_substitute_organometallic(
                 substitution_log.append("Successfully sanitized modified molecule")
             except Exception as e:
                 substitution_log.append(f"Sanitization failed: {e}")
-                # Try without sanitization
-                pass
+                # Continue without sanitization
 
         return mol_copy, modified, substitution_log
 
     except Exception as e:
         error_msg = f"Organometallic substitution failed for {molecule_name}: {e}"
-        logging.warning(error_msg)
+        logger.warning(error_msg)
         return mol, False, [error_msg]
+
+
+def has_problematic_organometallics(mol: Chem.Mol) -> Tuple[bool, str]:
+    """
+    Check if molecule contains problematic organometallic atoms.
+    
+    Args:
+        mol: RDKit molecule object
+        
+    Returns:
+        Tuple[bool, str]: (has_problematic_metals, warning_message)
+    """
+    if mol is None:
+        return False, ""
+    
+    problematic_atoms = []
+    
+    for atom in mol.GetAtoms():
+        symbol = atom.GetSymbol()
+        if symbol in ORGANOMETALLIC_SYMBOLS:
+            problematic_atoms.append(f"{symbol}(idx:{atom.GetIdx()})")
+    
+    if problematic_atoms:
+        warning_msg = (
+            f"Target contains organometallic atoms: {', '.join(problematic_atoms)}. "
+            "These may cause issues with force field calculations. "
+            "Consider using organometallic substitution or UFF fallback."
+        )
+        return True, warning_msg
+    
+    return False, ""
 
 
 def needs_uff_fallback(mol: Chem.Mol) -> bool:
@@ -99,37 +160,19 @@ def needs_uff_fallback(mol: Chem.Mol) -> bool:
     Determine if a molecule needs UFF fallback for force field calculations.
 
     Returns True if MMFF is likely to fail and UFF should be used instead.
+    
+    Args:
+        mol: RDKit molecule object
+        
+    Returns:
+        bool: True if UFF should be used instead of MMFF
     """
     if mol is None:
         return True
 
     # Check for elements that MMFF doesn't handle well
-    problematic_elements = {
-        75,  # Rhenium
-        26,  # Iron
-        29,  # Copper
-        30,  # Zinc
-        25,  # Manganese
-        24,  # Chromium
-        23,  # Vanadium
-        22,  # Titanium
-        27,  # Cobalt
-        28,  # Nickel
-        42,  # Molybdenum
-        74,  # Tungsten
-        44,  # Ruthenium
-        45,  # Rhodium
-        46,  # Palladium
-        47,  # Silver
-        48,  # Cadmium
-        77,  # Iridium
-        78,  # Platinum
-        79,  # Gold
-        80,  # Mercury
-    }
-
     for atom in mol.GetAtoms():
-        if atom.GetAtomicNum() in problematic_elements:
+        if atom.GetAtomicNum() in ORGANOMETALLIC_ELEMENTS:
             return True
 
     # Check for unusual bonding patterns that might cause MMFF issues
@@ -144,10 +187,15 @@ def needs_uff_fallback(mol: Chem.Mol) -> bool:
     return False
 
 
+# Molecule validation functions
 def has_rhenium_complex(mol: Chem.Mol, pdb_id: str = "") -> Tuple[bool, str]:
     """
     Check if molecule contains rhenium complexes that cannot be processed.
     Special handling for 3rj7 (incorrect oxidation state in PDBbind).
+
+    Args:
+        mol: RDKit molecule object
+        pdb_id: PDB ID for special case handling
 
     Returns:
         Tuple[bool, str]: (has_rhenium, warning_message)
@@ -159,7 +207,7 @@ def has_rhenium_complex(mol: Chem.Mol, pdb_id: str = "") -> Tuple[bool, str]:
     if pdb_id.lower() == "3rj7":
         for atom in mol.GetAtoms():
             if atom.GetAtomicNum() == 75:  # Rhenium
-                logging.info(
+                logger.info(
                     f"3rj7: Allowing rhenium processing with substitution (PDBbind oxidation state issue)"
                 )
                 return False, ""
@@ -179,6 +227,10 @@ def has_rhenium_complex(mol: Chem.Mol, pdb_id: str = "") -> Tuple[bool, str]:
 def is_large_peptide(mol: Chem.Mol, residue_threshold: int = 8) -> Tuple[bool, str]:
     """
     Check if molecule is a large peptide that should not be processed.
+
+    Args:
+        mol: RDKit molecule object
+        residue_threshold: Maximum number of peptide residues allowed
 
     Returns:
         Tuple[bool, str]: (is_large_peptide, warning_message)
@@ -207,7 +259,7 @@ def is_large_peptide(mol: Chem.Mol, residue_threshold: int = 8) -> Tuple[bool, s
 
     except Exception as e:
         # Fallback to atom counting if SMARTS fails
-        logging.debug(
+        logger.debug(
             f"SMARTS pattern matching failed, falling back to atom count estimation: {e}"
         )
         non_h_atoms = sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() != 1)
@@ -256,3 +308,205 @@ def validate_target_molecule(
         return False, f"{mol_name}: {peptide_msg}"
 
     return True, ""
+
+
+# Molecule standardization functions
+def standardize_molecule_smiles(mol: Chem.Mol, method: str = "canonical") -> Chem.Mol:
+    """
+    Standardize molecule SMILES representation to ensure consistent comparisons.
+
+    Args:
+        mol: RDKit molecule object
+        method: Standardization method (canonical, isomeric, kekule)
+
+    Returns:
+        Molecule with standardized SMILES representation
+    """
+    try:
+        if method == "canonical":
+            smiles = Chem.MolToSmiles(mol, canonical=True)
+        elif method == "isomeric":
+            smiles = Chem.MolToSmiles(mol, isomericSmiles=True)
+        elif method == "kekule":
+            Chem.Kekulize(mol)
+            smiles = Chem.MolToSmiles(mol, kekuleSmiles=True)
+        else:
+            smiles = Chem.MolToSmiles(mol)
+
+        # Recreate molecule from standardized SMILES
+        standardized_mol = Chem.MolFromSmiles(smiles)
+
+        if standardized_mol is None:
+            logger.warning(
+                f"Failed to recreate molecule from standardized SMILES: {smiles}"
+            )
+            return mol
+
+        # Copy coordinates if available and atoms match
+        if (
+            mol.GetNumConformers() > 0
+            and standardized_mol.GetNumAtoms() == mol.GetNumAtoms()
+        ):
+            try:
+                conf = mol.GetConformer(0)
+                new_conf = Chem.Conformer(standardized_mol.GetNumAtoms())
+                for i in range(standardized_mol.GetNumAtoms()):
+                    pos = conf.GetAtomPosition(i)
+                    new_conf.SetAtomPosition(i, pos)
+                standardized_mol.AddConformer(new_conf)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to copy coordinates during standardization: {e}"
+                )
+                # Continue without coordinates
+
+        return standardized_mol
+
+    except Exception as e:
+        logger.warning(f"SMILES standardization failed: {e}")
+        return mol
+
+
+def standardize_molecule_list(
+    molecules: List[Chem.Mol], method: str = "canonical"
+) -> List[Chem.Mol]:
+    """
+    Standardize a list of molecules.
+
+    Args:
+        molecules: List of RDKit molecule objects
+        method: Standardization method
+
+    Returns:
+        List of standardized molecules
+    """
+    standardized = []
+
+    for i, mol in enumerate(molecules):
+        if mol is None:
+            logger.warning(f"Skipping None molecule at index {i}")
+            continue
+
+        try:
+            std_mol = standardize_molecule_smiles(mol, method)
+            standardized.append(std_mol)
+        except Exception as e:
+            logger.error(f"Failed to standardize molecule at index {i}: {e}")
+            # Include original molecule as fallback
+            standardized.append(mol)
+
+    return standardized
+
+
+def remove_problematic_molecules(
+    molecules: List[Chem.Mol], 
+    strict: bool = False
+) -> Tuple[List[Chem.Mol], List[str]]:
+    """
+    Remove molecules that cannot be processed by the pipeline.
+    
+    Args:
+        molecules: List of RDKit molecule objects
+        strict: If True, remove molecules with any organometallic atoms
+        
+    Returns:
+        Tuple[List[Chem.Mol], List[str]]: (filtered_molecules, removal_reasons)
+    """
+    filtered = []
+    removal_reasons = []
+    
+    for i, mol in enumerate(molecules):
+        if mol is None:
+            removal_reasons.append(f"Molecule {i}: None object")
+            continue
+            
+        # Check for validation issues
+        is_valid, error_msg = validate_target_molecule(mol, f"molecule_{i}")
+        if not is_valid:
+            removal_reasons.append(f"Molecule {i}: {error_msg}")
+            continue
+            
+        # Check for problematic organometallics if strict mode
+        if strict:
+            has_problems, problem_msg = has_problematic_organometallics(mol)
+            if has_problems:
+                removal_reasons.append(f"Molecule {i}: {problem_msg}")
+                continue
+        
+        filtered.append(mol)
+    
+    return filtered, removal_reasons
+
+
+def sanitize_molecule_safe(mol: Chem.Mol) -> Tuple[Chem.Mol, bool, str]:
+    """
+    Safely sanitize a molecule with fallback handling.
+    
+    Args:
+        mol: RDKit molecule object
+        
+    Returns:
+        Tuple[Chem.Mol, bool, str]: (sanitized_mol, success, message)
+    """
+    if mol is None:
+        return None, False, "Input molecule is None"
+    
+    try:
+        # Try normal sanitization first
+        mol_copy = Chem.Mol(mol)
+        Chem.SanitizeMol(mol_copy)
+        return mol_copy, True, "Successfully sanitized"
+        
+    except Exception as e:
+        # Try with organometallic substitution
+        try:
+            substituted_mol, was_modified, sub_log = detect_and_substitute_organometallic(mol)
+            if was_modified:
+                return substituted_mol, True, f"Sanitized after organometallic substitution: {'; '.join(sub_log)}"
+            else:
+                return mol, False, f"Sanitization failed: {e}"
+                
+        except Exception as e2:
+            return mol, False, f"Sanitization failed even with organometallic substitution: {e2}"
+
+
+def get_molecule_properties(mol: Chem.Mol) -> dict:
+    """
+    Get basic properties of a molecule for validation and debugging.
+    
+    Args:
+        mol: RDKit molecule object
+        
+    Returns:
+        Dictionary of molecule properties
+    """
+    if mol is None:
+        return {"valid": False, "error": "None molecule"}
+    
+    try:
+        props = {
+            "valid": True,
+            "num_atoms": mol.GetNumAtoms(),
+            "num_heavy_atoms": mol.GetNumHeavyAtoms(),
+            "num_conformers": mol.GetNumConformers(),
+            "molecular_weight": Chem.Descriptors.MolWt(mol),
+            "smiles": Chem.MolToSmiles(mol),
+        }
+        
+        # Check for special cases
+        has_re, _ = has_rhenium_complex(mol)
+        is_peptide, _ = is_large_peptide(mol)
+        has_metals, _ = has_problematic_organometallics(mol)
+        needs_uff = needs_uff_fallback(mol)
+        
+        props.update({
+            "has_rhenium": has_re,
+            "is_large_peptide": is_peptide,
+            "has_organometallics": has_metals,
+            "needs_uff_fallback": needs_uff,
+        })
+        
+        return props
+        
+    except Exception as e:
+        return {"valid": False, "error": str(e)}
