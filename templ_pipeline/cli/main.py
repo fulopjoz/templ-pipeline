@@ -39,6 +39,7 @@ import logging
 import os
 import sys
 import time
+import traceback
 from pathlib import Path
 
 # Import UX enhancements
@@ -68,7 +69,7 @@ logger = logging.getLogger("templ-cli")
 def _get_hardware_config():
     """Lazy load hardware configuration to avoid heavy imports on startup"""
     try:
-        from templ_pipeline.core.hardware_utils import get_suggested_worker_config
+        from templ_pipeline.core.hardware import get_suggested_worker_config
 
         return get_suggested_worker_config()
     except ImportError:
@@ -801,6 +802,8 @@ def run_command(args):
         if not hasattr(args, "workers") or args.workers is None:
             hardware_config = _get_hardware_config()
             args.workers = hardware_config["n_workers"]
+            
+        logger.info(f"Using {args.workers} workers for parallel processing")
 
         # Initialize pipeline
         pipeline = TEMPLPipeline(
@@ -817,7 +820,7 @@ def run_command(args):
             ligand_file=getattr(args, "ligand_file", None),
             num_templates=getattr(args, "num_templates", 100),
             num_conformers=getattr(args, "num_conformers", 100),
-            n_workers=getattr(args, "workers", 4),
+            n_workers=args.workers,
             similarity_threshold=getattr(args, "similarity_threshold", None),
         )
 
@@ -831,6 +834,7 @@ def run_command(args):
 
     except Exception as e:
         logger.error(f"Pipeline failed: {str(e)}")
+        logger.debug(f"Full traceback: {traceback.format_exc()}")
         return 1
 
 
