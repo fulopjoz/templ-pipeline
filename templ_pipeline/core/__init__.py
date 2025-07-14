@@ -100,6 +100,7 @@ __all__ = [
     "get_basic_hardware_info",
     "get_hardware_info",
     "get_optimized_worker_config",
+    "get_suggested_worker_config",
     "detect_optimal_configuration",
     # Data Management
     "DatasetSplits",
@@ -197,6 +198,7 @@ _MODULE_MAP = {
     "get_basic_hardware_info": "hardware",
     "get_hardware_info": "hardware",
     "get_optimized_worker_config": "hardware",
+    "get_suggested_worker_config": "hardware",
     "detect_optimal_configuration": "hardware",
     # Data Management
     "DatasetSplits": "data",
