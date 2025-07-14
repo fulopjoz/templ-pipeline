@@ -177,26 +177,26 @@ def get_optimized_worker_config(
     total_cpus = hardware_info.cpu_count  # Use all available CPUs
     memory_info = get_memory_info()
 
-    # Base configuration based on workload type
+    # Base configuration based on workload type - OPTIMIZED FOR MAXIMUM HARDWARE UTILIZATION
     if workload_type == "cpu_intensive":
-        # Fewer parallel targets, more cores per target for heavy computation
-        n_workers = max(1, total_cpus // 2)
-        internal_pipeline_workers = min(4, total_cpus // n_workers)
+        # Use all CPUs with optimal internal workers for heavy computation
+        n_workers = max(1, total_cpus // 2)  # Still use half for CPU-intensive to prevent oversubscription
+        internal_pipeline_workers = min(8, total_cpus // n_workers)  # Increased from 4 to 8
 
     elif workload_type == "io_intensive":
-        # More parallel targets, single core per target, cap to prevent I/O thrashing
-        n_workers = min(total_cpus, 16)
+        # Maximize parallel targets for I/O-bound tasks - remove artificial caps
+        n_workers = total_cpus  # Use all CPUs instead of capping at 16
         internal_pipeline_workers = 1
 
     elif workload_type == "memory_intensive":
-        # Very conservative allocation for molecular tasks
-        # Use 8GB per worker for molecular processing
-        max_workers_by_memory = max(1, int(memory_info["available_gb"] * 0.8 // 8))
-        n_workers = min(total_cpus, max_workers_by_memory, 3)  # Cap at 3
+        # Optimized allocation for molecular tasks with higher memory utilization
+        # Use 6GB per worker instead of 8GB for better utilization
+        max_workers_by_memory = max(1, int(memory_info["available_gb"] * 0.9 // 6))  # 90% instead of 80%, 6GB instead of 8GB
+        n_workers = min(total_cpus, max_workers_by_memory)  # Remove cap at 3
         internal_pipeline_workers = 1
 
     else:  # balanced
-        # Default: maximize parallelization for most benchmarks
+        # Default: maximize parallelization using all available hardware
         n_workers = total_cpus
         internal_pipeline_workers = 1
 
@@ -206,13 +206,14 @@ def get_optimized_worker_config(
         n_workers = min(n_workers * 2, total_cpus)
         internal_pipeline_workers = 1
 
-    # Apply hardware-specific optimizations
+    # Apply hardware-specific optimizations - MAXIMIZE UTILIZATION
     if hardware_info.gpu_available and hardware_info.gpu_memory_gb > 4.0:
-        # GPU available - can handle more parallel work
-        n_workers = min(n_workers + 2, total_cpus)
+        # GPU available - significantly boost parallel work capacity
+        n_workers = min(n_workers + 4, total_cpus * 2)  # Allow oversubscription with GPU
+        internal_pipeline_workers = min(internal_pipeline_workers + 1, 4)  # Boost internal workers too
     elif hardware_info.total_ram_gb < 8.0:
-        # Limited RAM - be more conservative
-        n_workers = min(n_workers, 2)
+        # Limited RAM - still optimize but be slightly more conservative
+        n_workers = min(n_workers, max(2, total_cpus // 2))  # Use at least half CPUs instead of capping at 2
 
     config = {
         "n_workers": n_workers,
