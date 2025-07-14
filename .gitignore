@@ -200,3 +200,9 @@ CLAUDE.md
 
 data/embeddings/
 data/ligands/
+
+
+# GEMINI
+GEMINI.md
+true_mcs.py
+shift_molvis_fix.md
