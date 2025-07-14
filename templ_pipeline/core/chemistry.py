@@ -226,29 +226,34 @@ def has_rhenium_complex(mol: Chem.Mol, pdb_id: str = "") -> Tuple[bool, str]:
 
 def is_large_peptide(mol: Chem.Mol, residue_threshold: int = 8) -> Tuple[bool, str]:
     """
-    Check if molecule is a large peptide that should not be processed.
-
+    Check if molecule is a large peptide (>8 amino acid residues).
+    
+    This function follows the exact implementation from true_mcs.py to ensure
+    consistent peptide detection across the pipeline.
+    
     Args:
         mol: RDKit molecule object
-        residue_threshold: Maximum number of peptide residues allowed
-
+        residue_threshold: Number of amino acid residues above which to consider "large"
+        
     Returns:
-        Tuple[bool, str]: (is_large_peptide, warning_message)
+        Tuple[bool, str]: (True if large peptide, warning message)
     """
     if mol is None:
         return False, ""
-
+    
+    # SMARTS pattern for amino acid backbone (amide bond pattern)
+    # [NX3][CX3](=O)[CX4] matches N-C(=O)-C typical of peptide bonds
+    peptide_backbone_pattern = "[NX3][CX3](=O)[CX4]"
+    
     try:
-        # SMARTS pattern for peptide bonds
-        peptide_pattern = Chem.MolFromSmarts("[NX3][CX3](=[OX1])[CX4]")
-
-        if peptide_pattern is not None:
-            matches = mol.GetSubstructMatches(peptide_pattern)
-            num_peptide_bonds = len(matches)
-
-            if num_peptide_bonds > residue_threshold:
+        pattern = Chem.MolFromSmarts(peptide_backbone_pattern)
+        if pattern is not None:
+            matches = mol.GetSubstructMatches(pattern)
+            residue_count = len(matches)
+            
+            if residue_count > residue_threshold:
                 warning_msg = (
-                    f"ERROR: Target appears to be a large peptide ({num_peptide_bonds} peptide bonds > {residue_threshold} threshold) - cannot be processed. "
+                    f" Target is a large peptide ({residue_count} residues > {residue_threshold} threshold) - cannot be processed. "
                     "This pipeline is designed for drug-like small molecules only. "
                     "Large peptides require specialized conformational sampling methods."
                 )
@@ -256,23 +261,21 @@ def is_large_peptide(mol: Chem.Mol, residue_threshold: int = 8) -> Tuple[bool, s
         else:
             # Pattern compilation failed, fall back to conservative estimation
             raise Exception("SMARTS pattern compilation failed")
-
+            
     except Exception as e:
         # Fallback to atom counting if SMARTS fails
-        logger.debug(
-            f"SMARTS pattern matching failed, falling back to atom count estimation: {e}"
-        )
+        logger.debug(f"SMARTS pattern matching failed, falling back to atom count estimation: {e}")
         non_h_atoms = sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() != 1)
         # Conservative conversion: ~6-8 atoms per residue average
         estimated_residues = non_h_atoms // 6
         if estimated_residues > residue_threshold:
             warning_msg = (
-                f"ERROR: Target appears to be a large peptide (estimated {estimated_residues} residues > {residue_threshold} threshold) - cannot be processed. "
+                f" Target appears to be a large peptide (estimated {estimated_residues} residues > {residue_threshold} threshold) - cannot be processed. "
                 "This pipeline is designed for drug-like small molecules only. "
                 "Large peptides require specialized conformational sampling methods."
             )
             return True, warning_msg
-
+    
     return False, ""
 
 
