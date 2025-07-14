@@ -492,6 +492,12 @@ def setup_parser():
         action="store_true", 
         help="Disable automatic worker scaling based on system load",
     )
+    benchmark_parser.add_argument(
+        "--peptide-threshold",
+        type=int,
+        default=8,
+        help="Maximum number of amino acid residues before considering a molecule a large peptide to skip (default: 8)",
+    )
     benchmark_parser.set_defaults(func=benchmark_command)
 
     return parser, help_system
@@ -865,28 +871,52 @@ def _generate_unified_summary(workspace_dir, benchmark_type):
         # Find result files based on benchmark type
         result_files = []
         if benchmark_type == "polaris":
-            # Look for Polaris JSON results
-            polaris_dir = Path("templ_benchmark_results_polaris")
-            if polaris_dir.exists():
-                result_files.extend(list(polaris_dir.glob("*.json")))
+            # Look for Polaris JSON results in workspace directory first, then fallback to old location
+            polaris_workspace_dir = raw_results_dir / "polaris"
+            polaris_fallback_dir = Path("templ_benchmark_results_polaris")
+            
+            logger.info(f"Searching for Polaris results in: {polaris_workspace_dir}")
+            if polaris_workspace_dir.exists():
+                json_files = list(polaris_workspace_dir.glob("*.json"))
+                result_files.extend(json_files)
+                logger.info(f"Found {len(json_files)} JSON files in workspace directory")
+            else:
+                logger.info(f"Workspace directory {polaris_workspace_dir} does not exist")
+                
+            if not result_files and polaris_fallback_dir.exists():
+                fallback_files = list(polaris_fallback_dir.glob("*.json"))
+                result_files.extend(fallback_files)
+                logger.info(f"Found {len(fallback_files)} JSON files in fallback directory: {polaris_fallback_dir}")
+            
+            # Additional search in raw_results_dir root
+            if not result_files and raw_results_dir.exists():
+                root_files = list(raw_results_dir.glob("*.json"))
+                result_files.extend(root_files)
+                logger.info(f"Found {len(root_files)} JSON files in raw results root directory")
         elif benchmark_type == "timesplit":
             # Look for Timesplit JSONL results - check multiple locations
             jsonl_locations = [
                 raw_results_dir / "timesplit" / "results_stream.jsonl",
                 raw_results_dir / "results_stream.jsonl", 
-                workspace_dir / "raw_results" / "timesplit" / "results_stream.jsonl"
+                workspace_dir / "raw_results" / "timesplit" / "results_stream.jsonl",
+                workspace_dir / "timesplit_stream_results" / "results_stream.jsonl"
             ]
             
+            logger.info(f"Searching for Timesplit results in {len(jsonl_locations)} locations")
             for jsonl_path in jsonl_locations:
+                logger.info(f"Checking: {jsonl_path}")
                 if jsonl_path.exists():
                     result_files.append(jsonl_path)
                     logger.info(f"Found timesplit results: {jsonl_path}")
                     break
             
             # Also look for any other JSON/JSONL files as fallback
-            if raw_results_dir.exists():
-                result_files.extend(list(raw_results_dir.glob("**/*.jsonl")))
-                result_files.extend(list(raw_results_dir.glob("**/*.json")))
+            if not result_files and raw_results_dir.exists():
+                jsonl_files = list(raw_results_dir.glob("**/*.jsonl"))
+                json_files = list(raw_results_dir.glob("**/*.json"))
+                result_files.extend(jsonl_files)
+                result_files.extend(json_files)
+                logger.info(f"Fallback search found {len(jsonl_files)} JSONL and {len(json_files)} JSON files")
         
         if not result_files:
             logger.warning(f"No result files found for {benchmark_type} benchmark summary")
@@ -1071,7 +1101,12 @@ def benchmark_command(args):
     # Create subdirectories for organization
     (workspace_dir / "raw_results").mkdir(exist_ok=True)
     (workspace_dir / "summaries").mkdir(exist_ok=True)
-    (workspace_dir / "logs").mkdir(exist_ok=True)
+    logs_dir = workspace_dir / "logs"
+    logs_dir.mkdir(exist_ok=True)
+    
+    # Setup structured log files
+    main_log_file = logs_dir / "benchmark.log"
+    error_log_file = logs_dir / "errors.log"
 
     if args.suite == "polaris":
         try:
@@ -1079,17 +1114,27 @@ def benchmark_command(args):
                 main as benchmark_main,
             )
 
+            # Setup logging with files
+            verbosity = ux_config.get_verbosity_level()
+            if hasattr(args, "verbose") and args.verbose:
+                verbosity = VerbosityLevel.DETAILED
+            configure_logging_for_verbosity(verbosity, "templ-cli", str(main_log_file))
+            
             logger.info(f"Starting Polaris benchmark with {args.n_workers} workers")
             logger.info(f"Workspace directory: {workspace_dir}/")
+            logger.info(f"Logs will be written to: {logs_dir}")
 
-            # Setup quiet logging for benchmark unless verbose requested
-            if not hasattr(args, "verbose") or not args.verbose:
-                # Use WARNING level to minimize output, benchmark has its own progress system
-                original_level = logging.getLogger().level
-                logging.getLogger().setLevel(logging.WARNING)
+            # Setup quiet mode for terminal output only
+            quiet_mode = not (hasattr(args, "verbose") and args.verbose)
 
             # Convert CLI args to benchmark args with workspace integration
             benchmark_args = []
+            
+            # Set output directory to workspace raw_results
+            polaris_output_dir = workspace_dir / "raw_results" / "polaris"
+            polaris_output_dir.mkdir(parents=True, exist_ok=True)
+            benchmark_args.extend(["--output-dir", str(polaris_output_dir)])
+            
             if hasattr(args, "n_workers") and args.n_workers:
                 benchmark_args.extend(["--n-workers", str(args.n_workers)])
             if hasattr(args, "n_conformers") and args.n_conformers:
@@ -1113,10 +1158,6 @@ def benchmark_command(args):
                     benchmark_args.extend(["--poses-dir", str(default_poses_dir)])
 
             result = benchmark_main(benchmark_args)
-
-            # Restore original logging level
-            if not hasattr(args, "verbose") or not args.verbose:
-                logging.getLogger().setLevel(original_level)
 
             # Generate unified summary for Polaris results
             _generate_unified_summary(workspace_dir, "polaris")
@@ -1142,16 +1183,19 @@ def benchmark_command(args):
             else:
                 splits_to_run = ["train", "val", "test"]
 
+            # Setup logging with files
+            verbosity = ux_config.get_verbosity_level()
+            if hasattr(args, "verbose") and args.verbose:
+                verbosity = VerbosityLevel.DETAILED
+            configure_logging_for_verbosity(verbosity, "templ-cli", str(main_log_file))
+            
             logger.info(f"Starting Timesplit benchmark for splits: {', '.join(splits_to_run)}")
             logger.info(f"Using {args.n_workers} workers, {args.n_conformers} conformers")
             logger.info(f"Workspace directory: {workspace_dir}/")
+            logger.info(f"Logs will be written to: {logs_dir}")
 
-            # Setup quiet logging for benchmark unless verbose requested
+            # Setup quiet mode for terminal output only  
             quiet_mode = not (hasattr(args, "verbose") and args.verbose)
-            if quiet_mode:
-                # Use WARNING level to minimize output, benchmark has its own progress system
-                original_level = logging.getLogger().level
-                logging.getLogger().setLevel(logging.WARNING)
 
             # Use workspace subdirectory for timesplit results
             timesplit_results_dir = workspace_dir / "raw_results" / "timesplit"
@@ -1175,12 +1219,10 @@ def benchmark_command(args):
                 kwargs["max_ram_gb"] = args.max_ram_gb
             if hasattr(args, "per_worker_ram_gb") and args.per_worker_ram_gb:
                 kwargs["per_worker_ram_gb"] = args.per_worker_ram_gb
+            if hasattr(args, "peptide_threshold") and args.peptide_threshold:
+                kwargs["peptide_threshold"] = args.peptide_threshold
 
             result = run_timesplit_benchmark(**kwargs)
-
-            # Restore original logging level
-            if quiet_mode:
-                logging.getLogger().setLevel(original_level)
 
             # Generate unified summary for Timesplit results
             if result.get("success", False):
