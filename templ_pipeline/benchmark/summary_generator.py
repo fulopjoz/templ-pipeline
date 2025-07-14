@@ -99,9 +99,13 @@ class BenchmarkSummaryGenerator:
             ("MERS_test_cross", "MERS", "Test", "MERS+SARS-aligned"),
         ]
         
+        # Look for results in the nested structure
+        results_section = results_data.get("results", results_data)
+        logger.debug(f"Polaris results keys: {list(results_section.keys())}")
+        
         for result_key, virus_type, dataset, template_source in result_configs:
-            if result_key in results_data:
-                result_entry = results_data[result_key]
+            if result_key in results_section:
+                result_entry = results_section[result_key]
                 metrics = self._calculate_polaris_metrics(result_entry)
                 
                 # Get query and template counts
@@ -148,6 +152,12 @@ class BenchmarkSummaryGenerator:
     def _generate_timesplit_summary(self, results_data: Union[Dict, List[Dict]], output_format: str) -> Union[Dict, "pd.DataFrame"]:
         """Generate summary for Timesplit benchmark results."""
         
+        logger.debug(f"Timesplit data type: {type(results_data)}")
+        if isinstance(results_data, list):
+            logger.debug(f"List length: {len(results_data)}")
+        elif isinstance(results_data, dict):
+            logger.debug(f"Dict keys: {list(results_data.keys())}")
+        
         # Handle both dictionary and list formats
         if isinstance(results_data, list):
             # JSONL format - list of individual results
@@ -158,16 +168,29 @@ class BenchmarkSummaryGenerator:
             for key, value in results_data.items():
                 if isinstance(value, dict) and "pdb_id" in value:
                     individual_results.append(value)
+                elif isinstance(value, list):
+                    # Handle case where results are in a list within the dict
+                    individual_results.extend(value)
         else:
             logger.error(f"Unsupported results format: {type(results_data)}")
             return self._format_output([], output_format)
         
-        # Group results by split
+        logger.debug(f"Found {len(individual_results)} individual results")
+        
+        # Handle empty results gracefully
+        if not individual_results:
+            logger.warning("No individual results found for timesplit summary")
+            return self._format_output([], output_format)
+        
+        # Group results by split (include both successful and failed for statistics)
         split_groups = defaultdict(list)
+        successful_groups = defaultdict(list)
+        
         for result in individual_results:
+            split = result.get("target_split", "unknown")
+            split_groups[split].append(result)
             if result.get("success", False):
-                split = result.get("target_split", "unknown")
-                split_groups[split].append(result)
+                successful_groups[split].append(result)
         
         table_data = []
         
@@ -176,33 +199,53 @@ class BenchmarkSummaryGenerator:
             if not split_results:
                 continue
                 
-            metrics = self._calculate_timesplit_metrics(split_results)
+            successful_results = successful_groups.get(split_name, [])
+            logger.debug(f"Split {split_name}: {len(successful_results)} successful out of {len(split_results)} total")
+                
+            # Use successful results for metrics calculation
+            metrics = self._calculate_timesplit_metrics(successful_results)
             
             # Count successful results
-            successful_count = len([r for r in split_results if r.get("success", False)])
+            successful_count = len(successful_results)
             total_processed = len(split_results)
             
             # Calculate average exclusions and runtime
             avg_exclusions = np.mean([r.get("exclusions_count", 0) for r in split_results])
             avg_runtime = np.mean([r.get("runtime_total", 0) for r in split_results])
             
-            # Add entry for each scoring metric
-            for metric in ["shape", "color", "combo"]:
-                if metric in metrics:
-                    metric_data = metrics[metric]
-                    table_data.append({
-                        "Benchmark": "Timesplit",
-                        "Split": split_name.title(),
-                        "Metric": metric.title(),
-                        "Total_Targets": total_processed,
-                        "Successful_Poses": successful_count,
-                        "Success_Rate_2A": f"{metric_data.get('rate_2A', 0):.1f}%",
-                        "Success_Rate_5A": f"{metric_data.get('rate_5A', 0):.1f}%",
-                        "Mean_RMSD": f"{metric_data.get('mean_rmsd', 0):.2f}",
-                        "Median_RMSD": f"{metric_data.get('median_rmsd', 0):.2f}",
-                        "Avg_Exclusions": f"{avg_exclusions:.0f}",
-                        "Avg_Runtime": f"{avg_runtime:.1f}s"
-                    })
+            # Add entry for each scoring metric or summary if no successful results
+            if metrics and successful_count > 0:
+                for metric in ["shape", "color", "combo"]:
+                    if metric in metrics:
+                        metric_data = metrics[metric]
+                        table_data.append({
+                            "Benchmark": "Timesplit",
+                            "Split": split_name.title(),
+                            "Metric": metric.title(),
+                            "Total_Targets": total_processed,
+                            "Successful_Poses": successful_count,
+                            "Success_Rate_2A": f"{metric_data.get('rate_2A', 0):.1f}%",
+                            "Success_Rate_5A": f"{metric_data.get('rate_5A', 0):.1f}%",
+                            "Mean_RMSD": f"{metric_data.get('mean_rmsd', 0):.2f}",
+                            "Median_RMSD": f"{metric_data.get('median_rmsd', 0):.2f}",
+                            "Avg_Exclusions": f"{avg_exclusions:.0f}",
+                            "Avg_Runtime": f"{avg_runtime:.1f}s"
+                        })
+            else:
+                # No successful results - add summary entry
+                table_data.append({
+                    "Benchmark": "Timesplit",
+                    "Split": split_name.title(),
+                    "Metric": "Summary",
+                    "Total_Targets": total_processed,
+                    "Successful_Poses": successful_count,
+                    "Success_Rate_2A": "0.0%",
+                    "Success_Rate_5A": "0.0%",
+                    "Mean_RMSD": "N/A",
+                    "Median_RMSD": "N/A",
+                    "Avg_Exclusions": f"{avg_exclusions:.0f}",
+                    "Avg_Runtime": f"{avg_runtime:.1f}s"
+                })
         
         return self._format_output(table_data, output_format)
     
