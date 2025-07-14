@@ -35,6 +35,7 @@ except ImportError:  # pragma: no cover – psutil is optional
     psutil = None  # type: ignore
 
 from templ_pipeline.benchmark.runner import run_templ_pipeline_for_benchmark
+from templ_pipeline.core.hardware import get_optimized_worker_config
 
 # Public symbols for 'from ... import *' users
 __all__: List[str] = []
@@ -69,6 +70,8 @@ class TimesplitConfig:
     # Shared cache files for workers
     shared_cache_file: Optional[str] = None
     shared_embedding_cache: Optional[str] = None
+    # Peptide filtering threshold
+    peptide_threshold: int = 8
 
     def ensure_dirs(self) -> None:
         Path(self.results_dir).mkdir(parents=True, exist_ok=True)
@@ -204,6 +207,7 @@ def run_timesplit_streaming(
     max_ram_gb: float | None = None,
     memory_per_worker_gb: float = 1.5,
     per_worker_ram_gb: float = 4.0,
+    peptide_threshold: int = 8,
     quiet: bool = False,
 ) -> None:
     """Run streaming benchmark over ``target_pdbs``.
@@ -217,10 +221,18 @@ def run_timesplit_streaming(
 
     results_dir = results_dir or os.path.join(os.getcwd(), "timesplit_stream_results")
 
-    # Calculate optimal internal workers if not specified or if default value
-    effective_max_workers = max_workers or os.cpu_count() or 2
-    if internal_workers == 1:  # Default value, optimize it
-        internal_workers = _calculate_optimal_internal_workers(effective_max_workers)
+    # Use hardware detection for optimal worker configuration
+    if max_workers is None or internal_workers == 1:
+        # Get hardware-optimized configuration for CPU-intensive benchmark workload
+        hw_config = get_optimized_worker_config(
+            workload_type="cpu_intensive", 
+            dataset_size=len(target_pdbs)
+        )
+        effective_max_workers = max_workers or hw_config["n_workers"]
+        if internal_workers == 1:  # Default value, use hardware-optimized setting
+            internal_workers = hw_config["internal_pipeline_workers"]
+    else:
+        effective_max_workers = max_workers or os.cpu_count() or 2
 
     cfg = TimesplitConfig(
         data_dir=data_dir,
@@ -236,13 +248,17 @@ def run_timesplit_streaming(
         max_ram_gb=max_ram_gb,
         memory_per_worker_gb=memory_per_worker_gb,
         per_worker_ram_gb=per_worker_ram_gb,
+        peptide_threshold=peptide_threshold,
     )
     cfg.ensure_dirs()
 
     output_jsonl = Path(cfg.results_dir) / "results_stream.jsonl"
-    # Truncate previous file if exists to avoid mixing runs
+    progress_jsonl = Path(cfg.results_dir) / "progress.jsonl" 
+    # Truncate previous files if they exist to avoid mixing runs
     if output_jsonl.exists():
         output_jsonl.unlink()
+    if progress_jsonl.exists():
+        progress_jsonl.unlink()
 
     # Pandas is optional
     try:
@@ -353,6 +369,8 @@ def run_timesplit_streaming(
         processed_count = 0
         success_count = 0
         failed_count = 0
+        skip_statistics = {}
+        start_time = time.time()
 
         if not quiet:
             # Show initial status
@@ -399,6 +417,39 @@ def run_timesplit_streaming(
                 success_count += 1
             else:
                 failed_count += 1
+                # Track skip reasons for better statistics
+                error_msg = result.get("error", "Unknown error")
+                skip_reason = "general_error"
+                if "No poses generated" in error_msg:
+                    skip_reason = "no_poses_generated"
+                elif "RMSD calculation failed" in error_msg:
+                    skip_reason = "rmsd_calculation_failed"
+                elif "zip() argument" in error_msg:
+                    skip_reason = "index_mismatch"
+                elif "EmbedMultipleConfs failed" in error_msg:
+                    skip_reason = "conformer_generation_failed"
+                elif "timeout" in error_msg.lower():
+                    skip_reason = "timeout"
+                
+                skip_statistics[skip_reason] = skip_statistics.get(skip_reason, 0) + 1
+
+            # Write progress to file
+            current_time = time.time()
+            progress_data = {
+                "timestamp": current_time,
+                "elapsed_time": current_time - start_time,
+                "processed": processed_count,
+                "total": total_targets,
+                "success": success_count,
+                "failed": failed_count,
+                "percentage": (processed_count / total_targets) * 100,
+                "rate": processed_count / (current_time - start_time) if current_time > start_time else 0,
+                "skip_statistics": skip_statistics
+            }
+            
+            with progress_jsonl.open("a", encoding="utf-8") as fh:
+                json.dump(progress_data, fh)
+                fh.write("\n")
 
             # Update progress display
             if not quiet:
@@ -422,14 +473,20 @@ def run_timesplit_streaming(
             if use_progress_bar and progress_bar:
                 progress_bar.close()
 
-            # Show final summary
+            # Show final summary with skip statistics
+            total_time = time.time() - start_time
+            print(f"\nBenchmark completed in {total_time:.1f}s")
             print(f"Completed: {success_count} successful, {failed_count} failed")
-            if failed_count > 0:
-                print(f"Results saved to: {cfg.results_dir}")
-            else:
-                print(
-                    f"All targets processed successfully. Results saved to: {cfg.results_dir}"
-                )
+            
+            if failed_count > 0 and skip_statistics:
+                print("\nFailure breakdown:")
+                for reason, count in sorted(skip_statistics.items(), key=lambda x: x[1], reverse=True):
+                    print(f"  {reason}: {count} targets ({count/failed_count*100:.1f}%)")
+            
+            print(f"Results saved to: {cfg.results_dir}")
+            print(f"Progress log: {progress_jsonl}")
+            if failed_count == 0:
+                print("All targets processed successfully!")
 
     # Generate error summary report at the end (only if not quiet)
     if not quiet:
@@ -558,8 +615,8 @@ def _generate_error_summary_report(cfg: TimesplitConfig, quiet: bool = False) ->
 def _calculate_optimal_internal_workers(n_workers: int) -> int:
     """Calculate optimal internal workers for scoring performance.
 
-    Strategy: Use fewer benchmark workers with more internal workers each
-    to optimize scoring performance while preventing CPU oversubscription.
+    Strategy: Maximize parallel processing while maintaining system stability.
+    Optimized for maximum hardware utilization.
 
     Args:
         n_workers: Number of benchmark workers (concurrent PDB targets)
@@ -567,17 +624,19 @@ def _calculate_optimal_internal_workers(n_workers: int) -> int:
     Returns:
         Optimal number of internal workers for scoring
     """
-    # For high worker counts, reduce benchmark workers but increase internal workers
-    if n_workers >= 16:
-        return 3  # 16 benchmark workers × 3 internal = 48 total (may oversubscribe but scoring is I/O bound)
+    # Aggressive optimization - use more internal workers for better performance
+    if n_workers >= 32:
+        return 4  # High worker count: moderate internal workers to prevent oversubscription
+    elif n_workers >= 16:
+        return 4  # Increased from 3 to 4 for better utilization
     elif n_workers >= 8:
-        return 2  # 8 benchmark workers × 2 internal = 16 total (balanced)
+        return 3  # Increased from 2 to 3 for better utilization
     elif n_workers >= 4:
-        return 2  # 4 benchmark workers × 2 internal = 8 total (conservative)
+        return 3  # Increased from 2 to 3 for better utilization
     else:
         return max(
-            1, min(3, 6 // n_workers)
-        )  # For low worker counts, allow more internal workers
+            1, min(4, 8 // n_workers)
+        )  # For low worker counts, allow even more internal workers
 
 
 def _maybe_throttle(pool: mp.pool.Pool, cfg: TimesplitConfig) -> None:
@@ -734,6 +793,7 @@ def run_timesplit_benchmark(
     max_ram_gb: Optional[float] = None,
     memory_per_worker_gb: float = 1.5,
     per_worker_ram_gb: float = 4.0,
+    peptide_threshold: int = 8,
 ) -> Dict:
     """Compatibility wrapper for the old timesplit API using streaming implementation."""
 
@@ -844,6 +904,7 @@ def run_timesplit_benchmark(
             internal_workers=_calculate_optimal_internal_workers(
                 n_workers or 2
             ),  # Balanced workers for scoring performance
+            peptide_threshold=peptide_threshold,
             quiet=quiet,
         )
 
