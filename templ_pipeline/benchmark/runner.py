@@ -16,6 +16,7 @@ import numpy as np
 from templ_pipeline.core.pipeline import TEMPLPipeline
 from templ_pipeline.core.utils import (
     load_molecules_with_shared_cache,
+    load_sdf_molecules_cached,
     find_ligand_by_pdb_id,
     calculate_rmsd,
     get_protein_file_paths,
@@ -119,7 +120,7 @@ def cleanup_memory():
 class BenchmarkRunner:
     """Memory-optimized TEMPL pipeline runner for benchmarks."""
 
-    def __init__(self, data_dir: str, poses_output_dir: Optional[str] = None, enable_error_tracking: bool = True, shared_cache_file: Optional[str] = None, shared_embedding_cache: Optional[str] = None):
+    def __init__(self, data_dir: str, poses_output_dir: Optional[str] = None, enable_error_tracking: bool = True, shared_cache_file: Optional[str] = None, shared_embedding_cache: Optional[str] = None, peptide_threshold: int = 8):
         self.data_dir = Path(data_dir)
         self.poses_output_dir = Path(poses_output_dir) if poses_output_dir else None
         self.pipeline = None
@@ -127,6 +128,7 @@ class BenchmarkRunner:
         self._molecule_cache = None  # Will use shared cache
         self._shared_cache_file = shared_cache_file
         self._shared_embedding_cache = shared_embedding_cache
+        self.peptide_threshold = peptide_threshold
         
         # Initialize error tracking if enabled
         self.error_tracker = None
@@ -138,6 +140,17 @@ class BenchmarkRunner:
                 self.log.info("Error tracking enabled")
             except ImportError:
                 self.log.warning("Error tracking module not available")
+        
+        # Initialize skip tracking
+        self.skip_tracker = None
+        try:
+            from .skip_tracker import BenchmarkSkipTracker
+            workspace_dir = self.poses_output_dir.parent if self.poses_output_dir else Path.cwd()
+            self.skip_tracker = BenchmarkSkipTracker(workspace_dir)
+            self.skip_tracker.load_existing_skips()  # Load any existing skip records
+            self.log.info("Skip tracking enabled")
+        except ImportError:
+            self.log.warning("Skip tracking module not available")
         
         self._setup_components()
 
@@ -194,32 +207,35 @@ class BenchmarkRunner:
     def _load_ligand_data_from_sdf(
         self, pdb_id: str
     ) -> Tuple[Optional[str], Optional["Chem.Mol"]]:
-        """Load ligand SMILES and crystal molecule using shared cache."""
+        """Load ligand SMILES and crystal molecule using direct loading to avoid cache corruption."""
 
-        # Use shared cache if available, fallback to optimized loading
+        # IMPORTANT: Use direct loading instead of shared cache to avoid pickle corruption
+        # of RDKit molecule objects which lose properties during serialization/deserialization
         if self._molecule_cache is None:
             try:
-                # First try to get from global cache in utils
-                global_cache = get_global_molecule_cache()
-                if global_cache and "molecules" in global_cache:
-                    self._molecule_cache = global_cache["molecules"]
-                    self.log.info(
-                        f"Using global molecule cache: {len(self._molecule_cache)} molecules"
-                    )
-                else:
-                    # Check for shared cache file from multiprocessing
-                    shared_cache_file = getattr(self, '_shared_cache_file', None)
-                    # Fallback to original loading method
-                    self._molecule_cache = load_molecules_with_shared_cache(
-                        self.data_dir, shared_cache_file=shared_cache_file
-                    )
-                    if not self._molecule_cache:
-                        self.log.error("Failed to load molecule cache")
-                        return None, None
-                    else:
-                        self.log.info(
-                            f"Loaded {len(self._molecule_cache)} molecules into cache"
-                        )
+                self.log.info("Loading molecules directly from SDF to avoid cache corruption")
+                # Force direct loading without shared cache to preserve molecule properties
+                ligand_file_paths = find_ligand_file_paths(self.data_dir)
+                
+                for path in ligand_file_paths:
+                    if path.exists():
+                        try:
+                            self._molecule_cache = load_sdf_molecules_cached(
+                                path, memory_limit_gb=6.0
+                            )
+                            if self._molecule_cache:
+                                self.log.info(
+                                    f"Loaded {len(self._molecule_cache)} molecules directly from {path.name}"
+                                )
+                                break
+                        except Exception as e:
+                            self.log.warning(f"Failed to load ligands from {path}: {e}")
+                            continue
+                
+                if not self._molecule_cache:
+                    self.log.error("Failed to load molecules from any ligand file")
+                    return None, None
+                    
             except Exception as e:
                 self.log.error(f"Failed to load molecules: {e}")
                 return None, None
@@ -373,42 +389,86 @@ class BenchmarkRunner:
                 )
 
             except Exception as pipeline_error:
-                # Handle skip exceptions gracefully
-                from ..core.skip_manager import MoleculeSkipException, skip_molecule, SkipReason
+                # Handle molecule validation exceptions and other skip cases
+                from ..core.pipeline import MoleculeValidationException
                 
-                if isinstance(pipeline_error, MoleculeSkipException):
-                    # Record the skip and return gracefully
-                    skip_molecule(
-                        params.target_pdb, 
-                        pipeline_error.reason, 
-                        pipeline_error.message, 
-                        pipeline_error.details
-                    )
-                    self.log.info(f"Molecule {params.target_pdb} skipped: {pipeline_error.message}")
+                # Check for molecule validation exception
+                if hasattr(pipeline_error, 'reason') and hasattr(pipeline_error, 'details'):
+                    # This is a validation exception
+                    if self.skip_tracker:
+                        self.skip_tracker.track_skip(
+                            params.target_pdb,
+                            pipeline_error.reason,
+                            str(pipeline_error),
+                            getattr(pipeline_error, 'molecule_info', None)
+                        )
+                    
+                    self.log.info(f"Molecule {params.target_pdb} skipped: {pipeline_error}")
                     
                     # Return a special skip result that can be handled by benchmark
                     return BenchmarkResult(
                         success=False,
                         rmsd_values={},
                         runtime=time.time() - start_time,
-                        error=f"SKIPPED ({pipeline_error.reason.value}): {pipeline_error.message}",
+                        error=f"SKIPPED ({pipeline_error.reason}): {pipeline_error}",
                         metadata={
                             "target_pdb": params.target_pdb,
-                            "status": "skipped",
-                            "skip_reason": pipeline_error.reason.value,
-                            "skip_message": pipeline_error.message,
+                            "status": "skipped", 
+                            "skip_reason": pipeline_error.reason,
+                            "skip_message": str(pipeline_error),
                         }
                     )
                 else:
-                    # Handle regular errors as before
+                    # Enhanced error handling for pipeline failures
+                    error_msg = str(pipeline_error)
+                    error_type = type(pipeline_error).__name__
+                    
+                    # Categorize different types of pipeline failures
+                    if "No poses generated" in error_msg or "RMSD calculation failed" in error_msg:
+                        error_category = "pose_generation_failed"
+                        detailed_msg = f"Pose generation or RMSD calculation failed: {error_msg}"
+                    elif "EmbedMultipleConfs failed" in error_msg:
+                        error_category = "conformer_generation_failed" 
+                        detailed_msg = f"RDKit conformer generation failed: {error_msg}"
+                    elif "AlignMol failed" in error_msg:
+                        error_category = "alignment_failed"
+                        detailed_msg = f"RDKit molecular alignment failed: {error_msg}"
+                    elif "zip() argument" in error_msg and "is longer than argument" in error_msg:
+                        error_category = "index_mismatch_error"
+                        detailed_msg = f"MCS index length mismatch during alignment: {error_msg}"
+                    elif "MCS" in error_msg or "match" in error_msg.lower():
+                        error_category = "mcs_calculation_failed"
+                        detailed_msg = f"Maximum Common Substructure calculation failed: {error_msg}"
+                    elif "embedding" in error_msg.lower():
+                        error_category = "embedding_failed"
+                        detailed_msg = f"Molecular embedding failed: {error_msg}"
+                    else:
+                        error_category = "pipeline_general_error"
+                        detailed_msg = f"General pipeline error: {error_msg}"
+                    
                     self.log.error(
-                        f"Pipeline execution failed for {params.target_pdb}: {pipeline_error}"
+                        f"Pipeline execution failed for {params.target_pdb}: {detailed_msg}"
                     )
-                    self.log.error(f"Error type: {type(pipeline_error).__name__}")
+                    self.log.error(f"Error type: {error_type}, Category: {error_category}")
+                    
+                    # Log additional context for debugging
                     import traceback
-
-                    self.log.error(f"Traceback: {traceback.format_exc()}")
-                    raise RuntimeError(f"Pipeline execution failed: {str(pipeline_error)}")
+                    self.log.error(f"Full traceback: {traceback.format_exc()}")
+                    
+                    # Record error in tracker if available
+                    if error_tracker:
+                        error_tracker.record_target_failure(
+                            params.target_pdb, 
+                            detailed_msg,
+                            context={
+                                "error_type": error_type,
+                                "error_category": error_category,
+                                "target_pdb": params.target_pdb,
+                                "ligand_smiles": ligand_smiles[:100] if ligand_smiles else None,
+                            }
+                        )
+                    
+                    raise RuntimeError(f"Pipeline execution failed ({error_category}): {detailed_msg}")
 
             # Validate pipeline result structure
             if not isinstance(pipeline_result, dict):
@@ -432,24 +492,44 @@ class BenchmarkRunner:
                         f"  {metric}: RMSD={values.get('rmsd', 'N/A'):.3f}, Score={values.get('score', 'N/A'):.3f}"
                     )
             else:
-                self.log.warning(
-                    f"No RMSD values calculated for {params.target_pdb} - checking pipeline result structure"
+                # Enhanced logging for cases where no RMSD values were calculated
+                self.log.error(
+                    f"No RMSD values calculated for {params.target_pdb} - indicates pose generation or scoring failure"
                 )
-                self.log.debug(f"Pipeline result type: {type(pipeline_result)}")
+                self.log.error(f"Pipeline result type: {type(pipeline_result)}")
+                
                 if isinstance(pipeline_result, dict):
-                    self.log.debug(
+                    self.log.error(
                         f"Pipeline result keys: {list(pipeline_result.keys())}"
                     )
                     if "poses" in pipeline_result:
                         poses = pipeline_result["poses"]
-                        self.log.debug(
+                        self.log.error(
                             f"Poses type: {type(poses)}, length: {len(poses) if poses else 0}"
                         )
                         if poses:
                             for k, v in poses.items():
-                                self.log.debug(
+                                self.log.error(
                                     f"  Pose {k}: type={type(v)}, valid={v is not None}"
                                 )
+                        else:
+                            self.log.error("Poses dictionary is empty - pose generation failed")
+                    else:
+                        self.log.error("No 'poses' key in pipeline result - pipeline structure error")
+                        
+                # Record this as an error in tracking
+                if error_tracker:
+                    error_tracker.record_target_failure(
+                        params.target_pdb, 
+                        "No poses generated or RMSD calculation failed",
+                        context={
+                            "error_type": "target_processing_failed",
+                            "component": "pipeline",
+                            "target_pdb": params.target_pdb,
+                            "pipeline_result_type": str(type(pipeline_result)),
+                            "has_poses_key": "poses" in pipeline_result if isinstance(pipeline_result, dict) else False,
+                        }
+                    )
 
             runtime = time.time() - start_time
 
