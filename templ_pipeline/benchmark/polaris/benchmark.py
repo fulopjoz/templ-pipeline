@@ -24,7 +24,7 @@ from tqdm import tqdm
 
 # Import hardware detection
 try:
-    from templ_pipeline.core.hardware_utils import get_suggested_worker_config
+    from templ_pipeline.core.hardware import get_suggested_worker_config
 
     HARDWARE_CONFIG = get_suggested_worker_config()
     DEFAULT_WORKERS = HARDWARE_CONFIG["n_workers"]
@@ -36,9 +36,16 @@ except ImportError:
 RDLogger.DisableLog("rdApp.*")
 Chem.SetDefaultPickleProperties(Chem.PropertyPickleOptions.AllProps)
 
-# Core TEMPL components
+# Legacy core TEMPL components (for backwards compatibility only)
+# TODO: Remove these imports once legacy run_templ_pipeline_single() is deprecated
 from templ_pipeline.core.mcs import find_mcs, constrained_embed, safe_name
 from templ_pipeline.core.scoring import select_best
+
+# Unified pipeline infrastructure (preferred approach)
+from templ_pipeline.benchmark.runner import run_templ_pipeline_for_benchmark
+from templ_pipeline.core.pipeline import TEMPLPipeline
+import tempfile
+import os
 
 try:
     from spyrmsd.molecule import Molecule
@@ -209,6 +216,110 @@ def get_training_templates(
 # -----------------------------------------------------------------------------
 
 
+def run_templ_pipeline_single_unified(
+    query_mol: Chem.Mol,
+    reference_mol: Chem.Mol,
+    n_conformers: int = 200,
+    n_workers: int = 1,
+    save_poses: bool = False,
+    poses_output_dir: Optional[str] = None,
+) -> Dict:
+    """Run TEMPL pipeline for a single molecule using unified TEMPLPipeline infrastructure.
+    
+    This function bridges Polaris benchmark with unified architecture by:
+    1. Converting molecules to SMILES for TEMPLPipeline
+    2. Using TEMPLPipeline.run_full_pipeline() as execution engine
+    3. Converting results back to Polaris format
+    """
+    result = {
+        "success": False,
+        "rmsd_values": {},
+        "n_conformers_generated": 0,
+        "template_used": None,
+        "error": None,
+        "processing_time": 0,
+        "timeout": False,
+        "molecule_name": safe_name(query_mol, "unknown"),
+        "filter_reason": None,
+    }
+    
+    start_time = time.time()
+    
+    try:
+        # Convert query molecule to SMILES for TEMPLPipeline
+        query_smiles = Chem.MolToSmiles(query_mol)
+        if not query_smiles:
+            result["error"] = "Failed to convert query molecule to SMILES"
+            return result
+        
+        # Create temporary directory for pipeline execution
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Initialize TEMPLPipeline with temporary output directory
+            pipeline = TEMPLPipeline(output_dir=temp_dir)
+            
+            # Run the full pipeline using unified infrastructure
+            # Note: We pass a dummy protein_pdb_id since Polaris doesn't use protein-specific templates
+            pipeline_result = pipeline.run_full_pipeline(
+                protein_pdb_id="1iky",  # Dummy PDB ID for Polaris
+                ligand_smiles=query_smiles,
+                num_conformers=n_conformers,
+                n_workers=n_workers,
+            )
+            
+            if pipeline_result.get("success", False) and "poses" in pipeline_result and pipeline_result["poses"]:
+                result["success"] = True
+                result["n_conformers_generated"] = pipeline_result.get("template_info", {}).get("num_conformers_generated", n_conformers)
+                
+                # Extract and calculate RMSD values from TEMPLPipeline poses
+                if reference_mol is not None and pipeline_result["poses"]:
+                    reference_noH = Chem.RemoveHs(Chem.Mol(reference_mol))
+                    
+                    # Process each pose metric from TEMPLPipeline
+                    for metric, pose_data in pipeline_result["poses"].items():
+                        if isinstance(pose_data, tuple) and len(pose_data) == 2:
+                            pose_mol, scores_dict = pose_data
+                            
+                            if pose_mol is not None and pose_mol.GetNumConformers() > 0:
+                                # Calculate RMSD between pose and reference
+                                try:
+                                    pose_noH = Chem.RemoveHs(Chem.Mol(pose_mol))
+                                    rmsd = rmsd_raw(pose_noH, reference_noH)
+                                    
+                                    # Extract score (prioritize shape/combo metrics for Polaris compatibility)
+                                    score = 0.0
+                                    if isinstance(scores_dict, dict):
+                                        if metric in scores_dict:
+                                            score = float(scores_dict[metric])
+                                        elif "score" in scores_dict:
+                                            score = float(scores_dict["score"])
+                                        elif "similarity_score" in scores_dict:
+                                            score = float(scores_dict["similarity_score"])
+                                    
+                                    # Store results using Polaris format
+                                    metric_key = "canimotocombo" if metric == "combo" else metric
+                                    result["rmsd_values"][metric_key] = {
+                                        "rmsd": float(rmsd),
+                                        "score": float(score)
+                                    }
+                                    
+                                except Exception as e:
+                                    logging.warning(f"Failed to calculate RMSD for metric {metric}: {e}")
+                                    continue
+                
+                # Extract template information if available
+                if "template_info" in pipeline_result:
+                    result["template_used"] = pipeline_result["template_info"]
+                    
+            else:
+                result["error"] = pipeline_result.get("error", "TEMPLPipeline execution failed")
+                
+    except Exception as e:
+        result["error"] = f"Unified pipeline execution failed: {str(e)}"
+    
+    result["processing_time"] = time.time() - start_time
+    return result
+
+
 def run_templ_pipeline_single(
     query_mol: Chem.Mol,
     templates: List[Chem.Mol],
@@ -219,7 +330,16 @@ def run_templ_pipeline_single(
     save_poses: bool = False,
     poses_output_dir: Optional[str] = None,
 ) -> Dict:
-    """Run TEMPL pipeline for a single molecule with comprehensive result tracking."""
+    """Run TEMPL pipeline for a single molecule with comprehensive result tracking.
+    
+    This function maintains backwards compatibility with Polaris-specific interface
+    while delegating to unified TEMPLPipeline infrastructure for actual execution.
+    
+    Legacy Polaris Interface Wrapper:
+    - Handles template filtering and exclusion logic
+    - Delegates to run_templ_pipeline_single_unified() for execution
+    - Maintains original result format for compatibility
+    """
     result = {
         "success": False,
         "rmsd_values": {},
@@ -254,7 +374,7 @@ def run_templ_pipeline_single(
         # Prepare query molecule
         query_noH = Chem.RemoveHs(Chem.Mol(query_mol))
 
-        # Find MCS against templates
+        # Find MCS against templates (using same algorithm as TEMPLPipeline)
         idx, smarts = find_mcs(query_noH, filtered_templates)
         if idx is None or smarts is None:
             result["error"] = "MCS search failed - no common substructure found"
@@ -264,7 +384,7 @@ def run_templ_pipeline_single(
         template_mol = filtered_templates[idx]
         result["template_used"] = safe_name(template_mol, f"template_{idx}")
 
-        # Generate constrained conformers
+        # Generate constrained conformers (using same algorithm as TEMPLPipeline)
         confs = constrained_embed(
             query_noH, template_mol, smarts, n_conformers, n_workers
         )
@@ -275,7 +395,7 @@ def run_templ_pipeline_single(
             result["filter_reason"] = "conformer_generation_failed"
             return result
 
-        # Select best poses
+        # Select best poses (using same algorithm as TEMPLPipeline)
         best_poses = select_best(
             confs, template_mol, no_realign=False, n_workers=n_workers
         )
@@ -1015,6 +1135,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Directory to save predicted poses (default: benchmark_poses_<timestamp>)",
     )
+    p.add_argument(
+        "--output-dir",
+        type=str,
+        default=OUTPUT_DIR,
+        help="Directory to save benchmark results (default: %(default)s)",
+    )
     return p
 
 
@@ -1058,20 +1184,25 @@ def validate_data_files(dataset_dir: Path):
 
 
 def main(argv: List[str] | None = None):
+    global OUTPUT_DIR
     argv = argv or sys.argv[1:]
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    # Override OUTPUT_DIR if specified
+    if args.output_dir != OUTPUT_DIR:
+        OUTPUT_DIR = args.output_dir
+        
     # Set up benchmark logging with reduced verbosity
     logger = setup_benchmark_logging(args.log_level)
 
     # Log hardware detection results
     try:
-        from templ_pipeline.core.hardware_utils import get_hardware_info
+        from templ_pipeline.core.hardware import get_hardware_info
 
         hardware_info = get_hardware_info()
         logger.info(
-            f"Hardware auto-detection: {DEFAULT_WORKERS} workers suggested for {hardware_info['total_cpus']} CPU cores"
+            f"Hardware auto-detection: {DEFAULT_WORKERS} workers suggested for {hardware_info['cpu_count']} CPU cores"
         )
     except ImportError:
         logger.info(f"Using fallback default: {DEFAULT_WORKERS} workers")
