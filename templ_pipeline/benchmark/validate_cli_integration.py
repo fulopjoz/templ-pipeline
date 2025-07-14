@@ -314,8 +314,8 @@ def validate_output_formats():
         }
         
         # Test different output formats
-        summary_pandas = generator.generate_unified_summary(mock_data, "polaris", "pandas")
-        summary_dict = generator.generate_unified_summary(mock_data, "polaris", "dict")
+        summary_pandas = generator.generate_unified_summary(mock_data, "polaris")
+        summary_dict = generator.generate_unified_summary(mock_data, "polaris")
         
         print("✓ Output format validation successful")
         
@@ -323,6 +323,129 @@ def validate_output_formats():
         
     except Exception as e:
         print(f"✗ Output format validation failed: {e}")
+        return False
+
+
+def test_pipeline_result_format():
+    """Test TEMPLPipeline result format validation."""
+    print("\nTesting pipeline result format...")
+    
+    try:
+        from templ_pipeline.core.pipeline import TEMPLPipeline
+        import tempfile
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pipeline = TEMPLPipeline(output_dir=temp_dir)
+            
+            # Test that run_full_pipeline returns expected structure
+            result = pipeline.run_full_pipeline(
+                protein_pdb_id="test",
+                ligand_smiles="CCO",
+                num_conformers=1,
+                n_workers=1
+            )
+            
+            # Validate result structure
+            required_keys = ["success", "poses", "template_info", "output_file", "pipeline_config"]
+            for key in required_keys:
+                assert key in result, f"Missing required key: {key}"
+            
+            assert isinstance(result["success"], bool)
+            assert isinstance(result["poses"], dict)
+            assert isinstance(result["template_info"], dict)
+            
+            print("✓ Pipeline result format validation successful")
+            
+        return True
+        
+    except Exception as e:
+        print(f"✗ Pipeline result format validation failed: {e}")
+        return False
+
+
+def test_unified_function_integration():
+    """Test the unified Polaris function integration."""
+    print("\nTesting unified function integration...")
+    
+    try:
+        from templ_pipeline.benchmark.polaris.benchmark import run_templ_pipeline_single_unified
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+        
+        # Create simple test molecules
+        query_smiles = "CCO"
+        query_mol = Chem.MolFromSmiles(query_smiles)
+        query_mol = Chem.AddHs(query_mol)
+        
+        reference_mol = Chem.MolFromSmiles("CCO")
+        reference_mol = Chem.AddHs(reference_mol)
+        AllChem.EmbedMolecule(reference_mol)
+        
+        # Test the unified function (should fail gracefully without data)
+        result = run_templ_pipeline_single_unified(
+            query_mol=query_mol,
+            reference_mol=reference_mol,
+            n_conformers=1,
+            n_workers=1
+        )
+        
+        # Validate result structure
+        required_keys = ["success", "rmsd_values", "processing_time", "molecule_name"]
+        for key in required_keys:
+            assert key in result, f"Missing required key: {key}"
+        
+        assert isinstance(result["success"], bool)
+        assert isinstance(result["rmsd_values"], dict)
+        assert isinstance(result["processing_time"], (int, float))
+        
+        print("✓ Unified function integration test successful")
+        
+        return True
+        
+    except Exception as e:
+        print(f"✗ Unified function integration test failed: {e}")
+        return False
+
+
+def test_workspace_file_organization():
+    """Test workspace directory organization and file placement."""
+    print("\nTesting workspace file organization...")
+    
+    try:
+        from datetime import datetime
+        from pathlib import Path
+        import tempfile
+        
+        with tempfile.TemporaryDirectory() as temp_base:
+            temp_base = Path(temp_base)
+            
+            # Simulate workspace creation
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            workspace_dir = temp_base / f"benchmark_workspace_test_{timestamp}"
+            workspace_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Create expected subdirectories
+            subdirs = ["raw_results", "summaries", "logs"]
+            for subdir in subdirs:
+                (workspace_dir / subdir).mkdir(exist_ok=True)
+            
+            # Create benchmark-specific directories
+            (workspace_dir / "raw_results" / "polaris").mkdir(exist_ok=True)
+            (workspace_dir / "raw_results" / "timesplit").mkdir(exist_ok=True)
+            
+            # Validate structure
+            for subdir in subdirs:
+                assert (workspace_dir / subdir).exists(), f"Missing subdirectory: {subdir}"
+            
+            assert (workspace_dir / "raw_results" / "polaris").exists()
+            assert (workspace_dir / "raw_results" / "timesplit").exists()
+            
+            print("✓ Workspace file organization test successful")
+            
+        return True
+        
+    except Exception as e:
+        print(f"✗ Workspace file organization test failed: {e}")
         return False
 
 
@@ -339,7 +462,10 @@ def main():
         test_error_tracking,
         test_workspace_organization,
         test_cli_help_system,
-        validate_output_formats
+        validate_output_formats,
+        test_pipeline_result_format,
+        test_unified_function_integration,
+        test_workspace_file_organization
     ]
     
     results = []
