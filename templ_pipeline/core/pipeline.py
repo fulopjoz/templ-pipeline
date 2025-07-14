@@ -99,7 +99,7 @@ class PipelineConfig:
 class TEMPLPipeline:
     """Main TEMPL pipeline for template-based pose prediction."""
     
-    def __init__(self, embedding_path: str = None, output_dir: str = "output", run_id: str = None):
+    def __init__(self, embedding_path: str = None, output_dir: str = "output", run_id: str = None, shared_embedding_cache: str = None):
         """Initialize the pipeline with CLI interface."""
         # Use default embedding path if none provided
         if embedding_path is None:
@@ -108,6 +108,7 @@ class TEMPLPipeline:
         self.embedding_path = embedding_path
         self.output_dir = output_dir
         self.run_id = run_id
+        self.shared_embedding_cache = shared_embedding_cache
         self.embedding_manager = None
         self.reference_protein = None
         self.target_mol = None
@@ -122,7 +123,10 @@ class TEMPLPipeline:
     def _init_embedding_manager(self):
         """Initialize the embedding manager."""
         try:
-            self.embedding_manager = EmbeddingManager(self.embedding_path)
+            self.embedding_manager = EmbeddingManager(
+                self.embedding_path, 
+                shared_embedding_cache=self.shared_embedding_cache
+            )
             log.info("Embedding manager initialized successfully")
         except Exception as e:
             log.error(f"Failed to initialize embedding manager: {e}")
@@ -155,6 +159,53 @@ class TEMPLPipeline:
                     log.error(f"Failed to create target molecule from SMILES: {target_smiles}")
                     return False
                 log.info(f"Created target molecule from SMILES: {target_smiles}")
+                
+                # Validate target molecule for peptides and other issues
+                pdb_id = getattr(self.config, 'protein_pdb_id', 'unknown')
+                peptide_threshold = getattr(self.config, 'peptide_threshold', 8)
+                
+                is_valid, validation_msg = validate_target_molecule(
+                    self.target_mol, 
+                    mol_name=target_smiles[:50], 
+                    pdb_id=pdb_id, 
+                    peptide_threshold=peptide_threshold
+                )
+                
+                if not is_valid:
+                    # Import skip tracker if available for benchmarking
+                    try:
+                        from ..benchmark.skip_tracker import create_molecule_info
+                        mol_info = create_molecule_info(self.target_mol, target_smiles)
+                        
+                        # Determine skip reason from validation message
+                        if "peptide" in validation_msg.lower():
+                            skip_reason = "large_peptide"
+                        elif "rhenium" in validation_msg.lower():
+                            skip_reason = "rhenium_complex"
+                        else:
+                            skip_reason = "validation_failed"
+                        
+                        log.warning(f"Molecule validation failed for {pdb_id}: {validation_msg}")
+                        
+                        # Create a custom exception that can be caught by benchmark runner
+                        class MoleculeValidationException(Exception):
+                            def __init__(self, message, reason, details, molecule_info=None):
+                                super().__init__(message)
+                                self.reason = reason
+                                self.details = details
+                                self.molecule_info = molecule_info
+                        
+                        raise MoleculeValidationException(
+                            validation_msg, 
+                            skip_reason, 
+                            f"PDB: {pdb_id}, SMILES: {target_smiles[:100]}",
+                            mol_info
+                        )
+                        
+                    except ImportError:
+                        # Skip tracker not available, just log and fail
+                        log.error(f"Target molecule validation failed: {validation_msg}")
+                        return False
             
             return True
             
@@ -219,7 +270,7 @@ class TEMPLPipeline:
             log.error(f"Failed to get protein embedding for {pdb_id}: {e}", exc_info=True)
             return None, None
 
-    def find_similar_templates(self, query_embedding: np.ndarray, k: int = 100) -> List[str]:
+    def find_similar_templates(self, query_embedding: np.ndarray, k: int = 100, exclude_pdb_ids: set = None) -> List[str]:
         """Find similar templates using embedding similarity."""
         try:
             if self.embedding_manager is None:
@@ -231,6 +282,7 @@ class TEMPLPipeline:
                 query_pdb_id="query",
                 query_embedding=query_embedding,
                 k=k,
+                exclude_pdb_ids=exclude_pdb_ids,
                 return_similarities=False
             )
             
@@ -437,14 +489,18 @@ class TEMPLPipeline:
     def run_full_pipeline(self, protein_file: str = None, protein_pdb_id: str = None, 
                          ligand_smiles: str = None, ligand_file: str = None,
                          num_templates: int = 100, num_conformers: int = 50,
-                         n_workers: int = 4, similarity_threshold: float = 0.9) -> dict:
+                         n_workers: int = 4, similarity_threshold: float = 0.9,
+                         exclude_pdb_ids: set = None, output_dir: str = None) -> dict:
         """Run the full pipeline with CLI interface."""
+        # Use provided output_dir or fall back to instance output_dir
+        effective_output_dir = output_dir or self.output_dir
+        
         config = PipelineConfig(
             target_pdb=protein_file or "",
             target_smiles=ligand_smiles or "",
             protein_pdb_id=protein_pdb_id,
             ligand_smiles=ligand_smiles,
-            output_dir=self.output_dir,
+            output_dir=effective_output_dir,
             n_confs=num_conformers,
             n_workers=n_workers,
             sim_threshold=similarity_threshold,
@@ -452,12 +508,19 @@ class TEMPLPipeline:
         )
         
         self.config = config
+        self.exclude_pdb_ids = exclude_pdb_ids or set()
+        
+        # Store poses during pipeline execution
+        self.pipeline_poses = {}
+        self.pipeline_template_info = {}
+        
         success = self.run()
         
         return {
             "success": success,
             "templates": getattr(self, "templates", []),
-            "poses": {},
+            "poses": getattr(self, "pipeline_poses", {}),
+            "template_info": getattr(self, "pipeline_template_info", {}),
             "output_file": self.output_dir,
             "pipeline_config": config
         }
@@ -484,7 +547,8 @@ class TEMPLPipeline:
                 return False
 
             num_templates = getattr(self.config, 'num_templates', 100)
-            similar_template_ids = self.find_similar_templates(query_embedding, k=num_templates)
+            exclude_pdb_ids = getattr(self, 'exclude_pdb_ids', set())
+            similar_template_ids = self.find_similar_templates(query_embedding, k=num_templates, exclude_pdb_ids=exclude_pdb_ids)
             if not similar_template_ids:
                 log.error("No similar templates found.")
                 return False
@@ -560,6 +624,20 @@ class TEMPLPipeline:
             if not top_poses:
                 log.error("Failed to rank and select poses.")
                 return False
+
+            # Store poses for CLI interface
+            if hasattr(self, 'pipeline_poses'):
+                self.pipeline_poses = top_poses.copy()
+            
+            # Store template information for CLI interface  
+            if hasattr(self, 'pipeline_template_info'):
+                self.pipeline_template_info = {
+                    "best_template_pdb": best_template.GetProp('template_pid') if best_template.HasProp('template_pid') else 'unknown',
+                    "mcs_smarts": mcs_smarts,
+                    "num_conformers_generated": target_with_conformers.GetNumConformers(),
+                    "ca_rmsd": best_template.GetProp('ca_rmsd') if best_template.HasProp('ca_rmsd') else 'unknown',
+                    "similarity_score": best_template.GetProp('similarity_score') if best_template.HasProp('similarity_score') else 'unknown'
+                }
 
             output_name = safe_name(getattr(self.config, 'target_smiles', 'output'))
             output_file = self.save_results(top_poses, f"{output_name}_top3_poses")
