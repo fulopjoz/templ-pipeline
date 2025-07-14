@@ -179,6 +179,61 @@ def log_coordinate_map(coord_map: dict, step_name: str = "unknown"):
             log.warning(f"Very distant constraints detected: max_distance={max_dist:.3f}Å")
 
 
+def relax_close_constraints(coord_map: dict, min_distance: float = 1.0) -> dict:
+    """Relax constraints that are too close together.
+    
+    Args:
+        coord_map: Dictionary mapping atom indices to coordinates
+        min_distance: Minimum allowed distance between constraints
+        
+    Returns:
+        Dictionary with relaxed constraints
+    """
+    if not coord_map or len(coord_map) < 2:
+        return coord_map
+    
+    from rdkit.Geometry import Point3D
+    
+    # Convert to list for easier manipulation
+    atom_indices = list(coord_map.keys())
+    coordinates = list(coord_map.values())
+    
+    # Find pairs that are too close
+    close_pairs = []
+    for i in range(len(coordinates)):
+        for j in range(i + 1, len(coordinates)):
+            pos1 = coordinates[i]
+            pos2 = coordinates[j]
+            dist = ((pos1.x - pos2.x)**2 + (pos1.y - pos2.y)**2 + (pos1.z - pos2.z)**2)**0.5
+            if dist < min_distance:
+                close_pairs.append((i, j, dist))
+    
+    if not close_pairs:
+        return coord_map
+    
+    log.info(f"Found {len(close_pairs)} constraint pairs closer than {min_distance:.3f}Å")
+    
+    # Remove constraints that are too close, keeping the one with lower atom index
+    indices_to_remove = set()
+    for i, j, dist in close_pairs:
+        # Keep the constraint with lower atom index (more central)
+        if atom_indices[i] < atom_indices[j]:
+            indices_to_remove.add(j)
+            log.debug(f"Removing constraint {atom_indices[j]} (too close to {atom_indices[i]}: {dist:.3f}Å)")
+        else:
+            indices_to_remove.add(i)
+            log.debug(f"Removing constraint {atom_indices[i]} (too close to {atom_indices[j]}: {dist:.3f}Å)")
+    
+    # Build relaxed coordinate map
+    relaxed_coord_map = {}
+    for i, atom_idx in enumerate(atom_indices):
+        if i not in indices_to_remove:
+            relaxed_coord_map[atom_idx] = coordinates[i]
+    
+    log.info(f"Relaxed constraints: {len(coord_map)} -> {len(relaxed_coord_map)} constraints")
+    return relaxed_coord_map
+
+
 #  Core MCS Functions 
 
 def get_central_atom(mol: Chem.Mol) -> int:
@@ -223,7 +278,11 @@ def find_best_ca_rmsd_template(refs: List[Chem.Mol]) -> int:
 
 
 def find_mcs(tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False) -> Union[Tuple[int, str], Tuple[int, str, Dict]]:
-    """Enhanced MCS finding with central atom fallback - never fails completely.
+    """RascalMCES-only MCS finding with progressive fallback strategy.
+    
+    This function now uses RascalMCES exclusively for all molecule sizes to avoid
+    timeout issues in benchmarking. The rdFMCS path has been disabled but kept
+    for potential future implementation.
     
     Args:
         tgt: Target molecule
@@ -234,37 +293,61 @@ def find_mcs(tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False) 
         If return_details=False: (best_template_index, smarts)
         If return_details=True: (best_template_index, smarts, mcs_details_dict)
     """
-    opts = rdRascalMCES.RascalOptions()
-    opts.singleLargestFrag = True
-    opts.similarityThreshold = 0.9  # Start higher like original working code
+    # TODO: Future implementation - rdFMCS for very large molecules (>200 atoms)
+    # Currently disabled due to timeout issues in benchmarking.
+    # The rdFMCS path can be re-enabled by uncommenting the following lines:
+    # 
+    # from rdkit.Chem import rdFMCS
+    # target_atoms = tgt.GetNumAtoms()
+    # max_template_atoms = max(mol.GetNumAtoms() for mol in refs)
+    # if target_atoms > 200 or max_template_atoms > 200:
+    #     log.info(f"Very large molecules detected (target: {target_atoms}, max template: {max_template_atoms}), using rdFMCS with timeout")
+    #     return _find_mcs_with_fmcs(tgt, refs, return_details)
     
     mcs_details = {}  # Only populated if return_details=True
     min_acceptable_size = 5
-    desperate_threshold = 0.2
     
-    while True:  # Continue until we find something acceptable
+    # Log molecule sizes for monitoring
+    target_atoms = tgt.GetNumAtoms()
+    max_template_atoms = max(mol.GetNumAtoms() for mol in refs)
+    log.debug(f"Using RascalMCES for molecules (target: {target_atoms}, max template: {max_template_atoms})")
+    
+    # Progressive similarity thresholds following true_mcs.py pattern
+    similarity_thresholds = [0.9, 0.7, 0.5, 0.3, 0.2]
+    
+    opts = rdRascalMCES.RascalOptions()
+    opts.singleLargestFrag = True
+    
+    # Try each similarity threshold progressively
+    for threshold in similarity_thresholds:
+        opts.similarityThreshold = threshold
         hits = []
+        
         for i, r in enumerate(refs):
-            mcr = rdRascalMCES.FindMCES(tgt, r, opts)
-            if mcr:
-                mcs_mol = mcr[0]
-                atom_matches = mcs_mol.atomMatches()
-                smarts = mcs_mol.smartsString
-                
-                # Store details if requested
-                if return_details:
-                    bond_matches = mcs_mol.bondMatches()
-                    mcs_info = {
-                        "atom_count": len(atom_matches),
-                        "bond_count": len(bond_matches),
-                        "similarity_score": opts.similarityThreshold,
-                        "query_atoms": [match[0] for match in atom_matches],
-                        "template_atoms": [match[1] for match in atom_matches],
-                        "smarts": smarts
-                    }
-                    hits.append((len(atom_matches), i, smarts, mcs_info))
-                else:
-                    hits.append((len(atom_matches), i, smarts))
+            try:
+                mcr = rdRascalMCES.FindMCES(tgt, r, opts)
+                if mcr:
+                    mcs_mol = mcr[0]
+                    atom_matches = mcs_mol.atomMatches()
+                    smarts = mcs_mol.smartsString
+                    
+                    # Store details if requested
+                    if return_details:
+                        bond_matches = mcs_mol.bondMatches()
+                        mcs_info = {
+                            "atom_count": len(atom_matches),
+                            "bond_count": len(bond_matches),
+                            "similarity_score": opts.similarityThreshold,
+                            "query_atoms": [match[0] for match in atom_matches],
+                            "template_atoms": [match[1] for match in atom_matches],
+                            "smarts": smarts
+                        }
+                        hits.append((len(atom_matches), i, smarts, mcs_info))
+                    else:
+                        hits.append((len(atom_matches), i, smarts))
+            except (MemoryError, RuntimeError) as e:
+                log.warning(f"RascalMCES failed for template {i} at threshold {threshold:.2f}: {e}")
+                continue
         
         if hits:
             # Get best match by size
@@ -274,35 +357,133 @@ def find_mcs(tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False) 
                 best_size, idx, smarts = max(hits)
             
             # Quality control: accept small matches only at low thresholds
-            if best_size >= min_acceptable_size or opts.similarityThreshold <= desperate_threshold:
-                log.info(f"MCS found: size={best_size}, threshold={opts.similarityThreshold:.2f}")
+            if best_size >= min_acceptable_size or threshold <= 0.2:
+                log.info(f"MCS found: size={best_size}, threshold={threshold:.2f}")
                 if return_details:
                     return idx, smarts, details
                 return idx, smarts
             else:
-                log.warning(f"Rejecting small MCS (size={best_size}) at threshold {opts.similarityThreshold:.2f}")
+                log.warning(f"Rejecting small MCS (size={best_size}) at threshold {threshold:.2f}")
+        else:
+            log.warning(f"No MCS found at threshold {threshold:.2f}, trying next threshold")
+    
+    # Central atom fallback: use template with best CA RMSD
+    log.warning("RascalMCS search failed at all thresholds - using central atom fallback with best CA RMSD template")
+    best_template_idx = find_best_ca_rmsd_template(refs)
+    
+    if return_details:
+        central_details = {
+            "atom_count": 1,
+            "bond_count": 0,
+            "similarity_score": 0.0,
+            "query_atoms": [get_central_atom(tgt)],
+            "template_atoms": [get_central_atom(refs[best_template_idx])],
+            "smarts": "*",  # Single atom SMARTS
+            "central_atom_fallback": True
+        }
+        return best_template_idx, "*", central_details
+    return best_template_idx, "*"
+
+
+def _find_mcs_with_fmcs(tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False) -> Union[Tuple[int, str], Tuple[int, str, Dict]]:
+    """Memory-efficient MCS finding using rdFMCS with timeout.
+    
+    Args:
+        tgt: Target molecule
+        refs: Reference molecules
+        return_details: If True, return detailed MCS information
+        
+    Returns:
+        If return_details=False: (best_template_index, smarts)
+        If return_details=True: (best_template_index, smarts, mcs_details_dict)
+    """
+    from rdkit.Chem import rdFMCS
+    
+    min_acceptable_size = 5
+    threshold = 0.9
+    timeout = 10  # seconds
+    
+    while threshold > 0.0:
+        hits = []
+        for i, r in enumerate(refs):
+            try:
+                # Use rdFMCS with timeout for memory safety
+                result = rdFMCS.FindMCS(
+                    [tgt, r],
+                    threshold=threshold,
+                    timeout=timeout,
+                    atomCompare=rdFMCS.AtomCompare.CompareElements,
+                    bondCompare=rdFMCS.BondCompare.CompareOrder,
+                    completeRingsOnly=True
+                )
+                
+                if result.smartsString and not result.canceled:
+                    atom_count = result.numAtoms
+                    bond_count = result.numBonds
+                    smarts = result.smartsString
+                    
+                    # Store details if requested
+                    if return_details:
+                        # Get atom matches for detailed info
+                        pattern = Chem.MolFromSmarts(smarts)
+                        if pattern:
+                            tgt_matches = tgt.GetSubstructMatch(pattern)
+                            ref_matches = r.GetSubstructMatch(pattern)
+                            
+                            mcs_info = {
+                                "atom_count": atom_count,
+                                "bond_count": bond_count,
+                                "similarity_score": threshold,
+                                "query_atoms": list(tgt_matches),
+                                "template_atoms": list(ref_matches),
+                                "smarts": smarts
+                            }
+                            hits.append((atom_count, i, smarts, mcs_info))
+                        else:
+                            hits.append((atom_count, i, smarts))
+                    else:
+                        hits.append((atom_count, i, smarts))
+                        
+            except (MemoryError, RuntimeError) as e:
+                log.warning(f"rdFMCS failed for template {i}: {e}")
+                continue
+        
+        if hits:
+            # Get best match by size
+            if return_details:
+                best_size, idx, smarts, details = max(hits)
+            else:
+                best_size, idx, smarts = max(hits)
+            
+            # Accept matches based on size and threshold
+            if best_size >= min_acceptable_size or threshold <= 0.3:
+                log.info(f"rdFMCS found: size={best_size}, threshold={threshold:.2f}")
+                if return_details:
+                    return idx, smarts, details
+                return idx, smarts
+            else:
+                log.warning(f"Rejecting small rdFMCS (size={best_size}) at threshold {threshold:.2f}")
         
         # Reduce threshold and continue
-        if opts.similarityThreshold > 0.0:
-            log.warning(f"No MCS at threshold {opts.similarityThreshold:.2f}, reducing…")
-            opts.similarityThreshold -= 0.1
-        else:
-            # Central atom fallback: use template with best CA RMSD
-            log.warning("MCS search failed - using central atom fallback with best CA RMSD template")
-            best_template_idx = find_best_ca_rmsd_template(refs)
-            
-            if return_details:
-                central_details = {
-                    "atom_count": 1,
-                    "bond_count": 0,
-                    "similarity_score": 0.0,
-                    "query_atoms": [get_central_atom(tgt)],
-                    "template_atoms": [get_central_atom(refs[best_template_idx])],
-                    "smarts": "*",  # Single atom SMARTS
-                    "central_atom_fallback": True
-                }
-                return best_template_idx, "*", central_details
-            return best_template_idx, "*"
+        log.warning(f"No rdFMCS at threshold {threshold:.2f}, reducing…")
+        threshold -= 0.1
+    
+    # Final fallback to central atom
+    log.warning("rdFMCS search failed - using central atom fallback with best CA RMSD template")
+    best_template_idx = find_best_ca_rmsd_template(refs)
+    
+    if return_details:
+        central_details = {
+            "atom_count": 1,
+            "bond_count": 0,
+            "similarity_score": 0.0,
+            "query_atoms": [get_central_atom(tgt)],
+            "template_atoms": [get_central_atom(refs[best_template_idx])],
+            "smarts": "*",
+            "central_atom_fallback": True
+        }
+        return best_template_idx, "*", central_details
+    return best_template_idx, "*"
 
 
 #  Conformer Generation Functions 
@@ -423,7 +604,7 @@ def embed_organometallic_with_constraints(mol: Chem.Mol, n_conformers: int, coor
     return []
 
 
-def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: dict = None, numThreads: int = 1) -> bool:
+def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: dict = None, numThreads: int = 0) -> bool:
     """Embedding function with UFF force field fallback for organometallic molecules.
     
     Args:
@@ -493,11 +674,15 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: dict = N
         return len(cids) > 0
         
     except Exception as e:
-        log.warning(f"Embedding with UFF fallback failed: {e}")
+        log.error(f"Embedding with UFF fallback failed: {e}")
+        log.error(f"Molecule info: atoms={mol.GetNumAtoms()}, heavy_atoms={mol.GetNumHeavyAtoms()}")
+        if coordMap:
+            log.error(f"Coordinate map size: {len(coordMap)} constraints")
+        log.error(f"Target conformers: {n_conformers}, numThreads: {numThreads}")
         return False
 
 
-def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: int = N_CONFS, n_workers_pipeline: int = 1) -> Optional[Chem.Mol]:
+def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: int = N_CONFS, n_workers_pipeline: int = 0) -> Optional[Chem.Mol]:
     """Generate N_CONFS conformations of tgt, locking MCS atoms to ref coords."""
     
     # Handle central atom fallback case
@@ -551,6 +736,14 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
         log.warning("MCS match failed after hydrogen addition, falling back to central atom")
         return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
     
+    # Validate index lengths before zip operation to prevent "zip() argument 2 is longer than argument 1" error
+    if len(tgt_idxs_h) != len(ref_idxs):
+        log.warning(f"Index length mismatch after hydrogen addition: target={len(tgt_idxs_h)} vs ref={len(ref_idxs)}")
+        log.warning(f"Target indices: {tgt_idxs_h}")
+        log.warning(f"Reference indices: {ref_idxs}")
+        log.warning("This indicates MCS matching inconsistency, falling back to central atom")
+        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+    
     # Build coordinate map for constrained embedding
     coordMap = {}
     ref_conf = ref.GetConformer()
@@ -569,42 +762,77 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
     # Log coordinate map details for debugging
     log_coordinate_map(coordMap, "initial_coordinate_map")
     
+    # Relax constraints that are too close
+    coordMap = relax_close_constraints(coordMap, min_distance=1.0)
+    
+    if len(coordMap) < 3:
+        log.warning("Insufficient constraints after relaxation, falling back to central atom")
+        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+    
     # Use proven working pattern from reference code
     try:
         ps = rdDistGeom.ETKDGv3()
         ps.randomSeed = 42
         ps.enforceChirality = False
-        ps.numThreads = n_workers_pipeline
+        # Use all available threads (0 = auto-detect) or specified number
+        ps.numThreads = n_workers_pipeline if n_workers_pipeline > 0 else 0
         
         # Progressive coordinate mapping - reduce constraints until embedding succeeds
         r = -1
         lrm = 0
-        while r == -1:
-            cmap = {}
-            for i, t in enumerate(tgt_idxs_h[lrm:]):
-                if i < len(ref_idxs):
-                    cmap[t] = ref_conf.GetAtomPosition(ref_idxs[i])
-            
-            log.info(f"Progressive embedding attempt {lrm + 1}: using {len(cmap)} constraints")
-            log_coordinate_map(cmap, f"progressive_attempt_{lrm + 1}")
-            
-            ps.SetCoordMap(cmap)
+        
+        # Try with relaxed constraints first
+        log.info("Attempting embedding with relaxed constraints")
+        log_coordinate_map(coordMap, "relaxed_coordinate_map")
+        ps.SetCoordMap(coordMap)
+        
+        # Enhanced error handling for conformer generation
+        try:
             r = rdDistGeom.EmbedMultipleConfs(target_h, n_conformers, ps)
+        except Exception as e:
+            log.error(f"RDKit EmbedMultipleConfs failed: {e}")
+            log.error(f"Target molecule info: atoms={target_h.GetNumAtoms()}, heavy_atoms={target_h.GetNumHeavyAtoms()}")
+            log.error(f"Coordinate map size: {len(coordMap)} constraints")
+            log.error("Falling back to central atom embedding")
+            return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+        
+        if r != -1:
+            log.info(f"Embedding succeeded with relaxed constraints, generated {len(r)} conformers")
+        else:
+            log.warning("Embedding failed with relaxed constraints, trying progressive reduction")
             
-            if r == -1:
-                log.warning(f"Embedding attempt {lrm + 1} failed with {len(cmap)} constraints")
-            else:
-                log.info(f"Embedding succeeded at attempt {lrm + 1} with {len(cmap)} constraints, generated {len(r)} conformers")
-            
-            lrm += 1
-            if lrm >= len(tgt_idxs_h):
-                break
+            # Progressive coordinate mapping - reduce constraints until embedding succeeds
+            while r == -1:
+                cmap = {}
+                for i, t in enumerate(tgt_idxs_h[lrm:]):
+                    if i < len(ref_idxs):
+                        cmap[t] = ref_conf.GetAtomPosition(ref_idxs[i])
+                
+                log.info(f"Progressive embedding attempt {lrm + 1}: using {len(cmap)} constraints")
+                log_coordinate_map(cmap, f"progressive_attempt_{lrm + 1}")
+                
+                ps.SetCoordMap(cmap)
+                r = rdDistGeom.EmbedMultipleConfs(target_h, n_conformers, ps)
+                
+                if r == -1:
+                    log.warning(f"Embedding attempt {lrm + 1} failed with {len(cmap)} constraints")
+                else:
+                    log.info(f"Embedding succeeded at attempt {lrm + 1} with {len(cmap)} constraints, generated {len(r)} conformers")
+                
+                lrm += 1
+                if lrm >= len(tgt_idxs_h):
+                    break
         
         if r == -1:
             log.warning("Progressive embedding failed, falling back to central atom")
             return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
         
         conf_ids = r
+        
+        # Check if we actually generated conformers
+        if len(conf_ids) == 0:
+            log.warning("Embedding succeeded but generated 0 conformers, falling back to central atom")
+            return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
         
         log.info(f"Constrained embedding succeeded: {len(conf_ids)} conformers")
         
@@ -614,8 +842,20 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
             log.warning("Molecular distortion detected after embedding")
         
         # Post-embedding alignment to correct any distortion
-        for i in range(len(conf_ids)):
-            rdMolAlign.AlignMol(target_h, ref, atomMap=list(zip(tgt_idxs_h, ref_idxs)), prbCid=i)
+        # Validate index lengths again before alignment (safety check)
+        if len(tgt_idxs_h) != len(ref_idxs):
+            log.error(f"Index length mismatch during alignment: target={len(tgt_idxs_h)} vs ref={len(ref_idxs)}")
+            log.error("This should not happen after earlier validation - indicates code logic error")
+            return None
+        
+        try:
+            for i in range(len(conf_ids)):
+                rdMolAlign.AlignMol(target_h, ref, atomMap=list(zip(tgt_idxs_h, ref_idxs)), prbCid=i)
+        except Exception as e:
+            log.error(f"RDKit AlignMol failed: {e}")
+            log.error(f"Target conformer {i}, indices: target={tgt_idxs_h}, ref={ref_idxs}")
+            # Continue without alignment rather than failing completely
+            log.warning("Continuing without post-embedding alignment")
         
         # Validate geometry after alignment
         is_valid_after_alignment = validate_molecular_geometry(target_h, "after_alignment", "info")
@@ -648,7 +888,7 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
         return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
 
 
-def central_atom_embed(tgt: Chem.Mol, ref: Chem.Mol, n_conformers: int, n_workers_pipeline: int) -> Optional[Chem.Mol]:
+def central_atom_embed(tgt: Chem.Mol, ref: Chem.Mol, n_conformers: int, n_workers_pipeline: int = 0) -> Optional[Chem.Mol]:
     """Fallback embedding method using central atom positioning.
     
     Args:
@@ -730,7 +970,7 @@ def mmff_minimise_fixed_sequential(mol: Chem.Mol, conf_ids, fixed_idx, its: int 
         log.warning(f"Sequential MMFF minimization failed: {e}")
 
 
-def mmff_minimise_fixed_parallel(mol_original: Chem.Mol, conf_ids: List[int], fixed_idx: List[int], its: int = DEFAULT_MMFF_ITERATIONS, n_workers: int = 1):
+def mmff_minimise_fixed_parallel(mol_original: Chem.Mol, conf_ids: List[int], fixed_idx: List[int], its: int = DEFAULT_MMFF_ITERATIONS, n_workers: int = 0):
     """Parallel MMFF minimization with fixed atom constraints.
     
     Args:
@@ -740,7 +980,10 @@ def mmff_minimise_fixed_parallel(mol_original: Chem.Mol, conf_ids: List[int], fi
         its: Maximum iterations for minimization
         n_workers: Number of workers for parallel processing
     """
-    if n_workers <= 1:
+    # Handle n_workers = 0 (use all CPUs) or n_workers = 1 (sequential)
+    if n_workers == 0:
+        n_workers = mp.cpu_count() or 4  # Use all CPUs, fallback to 4
+    elif n_workers == 1:
         return mmff_minimise_fixed_sequential(mol_original, conf_ids, fixed_idx, its)
     
     try:
@@ -903,20 +1146,33 @@ def _mmff_minimize_single_conformer_task_uff_aware(args_tuple):
 
 #  Utility Functions 
 
-def safe_name(name: str) -> str:
-    """Convert a name to a filesystem-safe version.
+def safe_name(mol_or_name: Union[Chem.Mol, str], fallback: str = "unnamed") -> str:
+    """Convert a molecule name or string to a filesystem-safe version.
     
     Args:
-        name: Input name
+        mol_or_name: RDKit molecule object or string name
+        fallback: Fallback name if extraction fails
         
     Returns:
         Filesystem-safe version of the name
     """
     import re
+    
+    # Extract name from molecule or use provided string
+    if isinstance(mol_or_name, Chem.Mol):
+        if mol_or_name.HasProp('_Name'):
+            name = mol_or_name.GetProp('_Name')
+        elif mol_or_name.HasProp('name'):
+            name = mol_or_name.GetProp('name')
+        else:
+            name = fallback
+    else:
+        name = str(mol_or_name) if mol_or_name else fallback
+    
     # Replace problematic characters with underscores
     safe = re.sub(r'[<>:"/\\|?*]', '_', name)
     # Remove multiple underscores
     safe = re.sub(r'_+', '_', safe)
     # Remove leading/trailing underscores
     safe = safe.strip('_')
-    return safe if safe else 'unnamed'
+    return safe if safe else fallback
