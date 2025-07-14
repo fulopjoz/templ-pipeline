@@ -173,16 +173,36 @@ def transform_ligand(mob_pdb: str, lig: Chem.Mol, pid: str, ref_struct: AtomArra
         transformed_lig = Chem.Mol(lig)
         conf = transformed_lig.GetConformer()
         
+        # Extract all coordinates at once for efficient transformation
+        coords = conf.GetPositions()
+        
+        # Apply transformation matrix to all coordinates simultaneously
+        transformed_coords = transformation.apply(coords)
+        
+        # Set all transformed coordinates back to conformer
+        from rdkit.Geometry import Point3D
         for i in range(conf.GetNumAtoms()):
-            pos = conf.GetAtomPosition(i)
-            coord = np.array([pos.x, pos.y, pos.z])
-            # Apply transformation matrix to coordinates
-            transformed_coord = transformation.apply(coord.reshape(1, -1))[0]
-            # Convert to Point3D for RDKit
-            from rdkit.Geometry import Point3D
-            conf.SetAtomPosition(i, Point3D(float(transformed_coord[0]), 
-                                           float(transformed_coord[1]), 
-                                           float(transformed_coord[2])))
+            conf.SetAtomPosition(i, Point3D(float(transformed_coords[i][0]), 
+                                           float(transformed_coords[i][1]), 
+                                           float(transformed_coords[i][2])))
+        
+        # Validate bond lengths to ensure reasonable molecular geometry
+        try:
+            from rdkit.Chem import Descriptors
+            bond_lengths = []
+            for bond in transformed_lig.GetBonds():
+                atom1_idx = bond.GetBeginAtomIdx()
+                atom2_idx = bond.GetEndAtomIdx()
+                pos1 = conf.GetAtomPosition(atom1_idx)
+                pos2 = conf.GetAtomPosition(atom2_idx)
+                distance = ((pos1.x - pos2.x)**2 + (pos1.y - pos2.y)**2 + (pos1.z - pos2.z)**2)**0.5
+                bond_lengths.append(distance)
+            
+            # Check for unreasonable bond lengths (outside 0.5-3.0 Å range)
+            if bond_lengths and (min(bond_lengths) < 0.5 or max(bond_lengths) > 3.0):
+                log.warning(f"Suspicious bond lengths after transformation for {pid}: min={min(bond_lengths):.2f}Å, max={max(bond_lengths):.2f}Å")
+        except Exception as e:
+            log.debug(f"Bond length validation failed for {pid}: {e}")
         
         transformed_lig.SetProp("ca_rmsd", f"{ca_rmsd:.3f}")
         transformed_lig.SetProp("template_pid", pid)
@@ -258,7 +278,7 @@ def get_templates_with_progressive_fallback(
                 )
             return filtered_templates, threshold, False
     
-    # Ultimate fallback: find template with smallest CA RMSD and use central atom positioning
+    #  fallback: find template with smallest CA RMSD and use central atom positioning
     best_template = None
     best_rmsd = float('inf')
     
@@ -304,7 +324,7 @@ def validate_template_molecule(mol: Chem.Mol, mol_name: str = "unknown") -> Tupl
         return False, f"{mol_name}: Template molecule is None"
         
     try:
-        # Check basic molecular properties
+        # Check if atoms are present
         if mol.GetNumAtoms() == 0:
             return False, f"{mol_name}: Template has no atoms"
             
