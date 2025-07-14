@@ -468,9 +468,9 @@ def get_ux_config() -> TEMPLUXConfig:
 
 
 def configure_logging_for_verbosity(
-    verbosity: VerbosityLevel, logger_name: str = "templ-cli"
+    verbosity: VerbosityLevel, logger_name: str = "templ-cli", log_file_path: str = None
 ):
-    """Configure logging based on verbosity level."""
+    """Configure logging based on verbosity level with optional log file support."""
     root_logger = logging.getLogger()
     cli_logger = logging.getLogger(logger_name)
 
@@ -480,32 +480,63 @@ def configure_logging_for_verbosity(
     detailed_formatter = logging.Formatter(
         "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     )
+    file_formatter = logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    )
 
     # Clear existing handlers
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
-    # Create new handler
-    handler = logging.StreamHandler()
-
+    # Create console handler - use WARNING+ for cleaner output
+    console_handler = logging.StreamHandler()
+    
     if verbosity == VerbosityLevel.MINIMAL:
         root_logger.setLevel(logging.WARNING)
         cli_logger.setLevel(logging.WARNING)
-        handler.setFormatter(minimal_formatter)
+        console_handler.setLevel(logging.WARNING)
+        console_handler.setFormatter(minimal_formatter)
     elif verbosity == VerbosityLevel.NORMAL:
         root_logger.setLevel(logging.INFO)
         cli_logger.setLevel(logging.INFO)
-        handler.setFormatter(normal_formatter)
+        console_handler.setLevel(logging.WARNING)  # Changed from INFO to WARNING
+        console_handler.setFormatter(normal_formatter)
     elif verbosity == VerbosityLevel.DETAILED:
         root_logger.setLevel(logging.INFO)
         cli_logger.setLevel(logging.DEBUG)
-        handler.setFormatter(detailed_formatter)
+        console_handler.setLevel(logging.INFO)  # Keep INFO for detailed mode
+        console_handler.setFormatter(detailed_formatter)
     elif verbosity == VerbosityLevel.DEBUG:
         root_logger.setLevel(logging.DEBUG)
         cli_logger.setLevel(logging.DEBUG)
-        handler.setFormatter(detailed_formatter)
+        console_handler.setLevel(logging.DEBUG)
+        console_handler.setFormatter(detailed_formatter)
 
-    root_logger.addHandler(handler)
+    root_logger.addHandler(console_handler)
+    
+    # Add file handler if log file path is provided
+    if log_file_path:
+        try:
+            import os
+            os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
+            
+            # Main log file - INFO+ messages
+            file_handler = logging.FileHandler(log_file_path)
+            file_handler.setLevel(logging.INFO)
+            file_handler.setFormatter(file_formatter)
+            root_logger.addHandler(file_handler)
+            
+            # Error log file - WARNING+ messages only
+            error_log_path = log_file_path.replace(".log", "_errors.log")
+            error_handler = logging.FileHandler(error_log_path)
+            error_handler.setLevel(logging.WARNING)
+            error_handler.setFormatter(file_formatter)
+            root_logger.addHandler(error_handler)
+            
+            # Log the file creation
+            root_logger.info(f"Logging to files: {log_file_path} (INFO+), {error_log_path} (WARNING+)")
+        except Exception as e:
+            root_logger.warning(f"Failed to create log files: {e}")
 
 
 # Export main classes and functions
