@@ -102,29 +102,29 @@ def _cached_hardware_detection() -> HardwareInfo:
     # Calculate optimal workers
     if gpu_available:
         # GPU can handle more concurrent operations
-        base_workers = min(cpu_count, 16)  # Increased from 8 to 16
+        base_workers = min(cpu_count, 32)  # Increased from 16 to 32 for better utilization
     else:
         # CPU-only: Use more cores but leave some for system
         if cpu_count >= 16:
             base_workers = min(
-                cpu_count - 2, 16
-            )  # Use up to 16 workers, reserve 2 cores
+                cpu_count - 2, 32
+            )  # Use up to 32 workers, reserve 2 cores
         elif cpu_count >= 8:
             base_workers = min(
-                cpu_count - 1, 12
+                cpu_count - 1, 16
             )  # Use most cores for 8-16 core systems
         else:
             base_workers = min(
-                cpu_count - 1, 4
-            )  # Original conservative approach for <8 cores
+                cpu_count - 1, 8
+            )  # Increased from 4 to 8 for better utilization
 
     # Adjust based on RAM
     if total_ram_gb < 8:
-        max_workers = min(base_workers, 2)
+        max_workers = min(base_workers, 4)  # Increased from 2
     elif total_ram_gb < 16:
-        max_workers = min(base_workers, 6)  # Increased from 4
+        max_workers = min(base_workers, 8)  # Increased from 6
     elif total_ram_gb < 32:
-        max_workers = min(base_workers, 12)  # New tier for 16-32GB
+        max_workers = min(base_workers, 16)  # Increased from 12
     else:
         max_workers = base_workers  # Use full base_workers for 32GB+
 

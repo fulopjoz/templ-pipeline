@@ -179,9 +179,9 @@ def get_optimized_worker_config(
 
     # Base configuration based on workload type - OPTIMIZED FOR MAXIMUM HARDWARE UTILIZATION
     if workload_type == "cpu_intensive":
-        # Use all CPUs with optimal internal workers for heavy computation
-        n_workers = max(1, total_cpus // 2)  # Still use half for CPU-intensive to prevent oversubscription
-        internal_pipeline_workers = min(8, total_cpus // n_workers)  # Increased from 4 to 8
+        # Use all CPUs for benchmark workloads, conservative for others
+        n_workers = total_cpus  # Use all CPUs for maximum throughput
+        internal_pipeline_workers = min(8, total_cpus // n_workers) if n_workers > 1 else 1
 
     elif workload_type == "io_intensive":
         # Maximize parallel targets for I/O-bound tasks - remove artificial caps
@@ -213,7 +213,7 @@ def get_optimized_worker_config(
         internal_pipeline_workers = min(internal_pipeline_workers + 1, 4)  # Boost internal workers too
     elif hardware_info.total_ram_gb < 8.0:
         # Limited RAM - still optimize but be slightly more conservative
-        n_workers = min(n_workers, max(2, total_cpus // 2))  # Use at least half CPUs instead of capping at 2
+        n_workers = min(n_workers, max(4, total_cpus // 2))  # Use at least half CPUs, minimum 4 workers
 
     config = {
         "n_workers": n_workers,

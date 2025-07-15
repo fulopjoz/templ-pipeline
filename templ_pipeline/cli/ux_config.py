@@ -539,6 +539,38 @@ def configure_logging_for_verbosity(
             root_logger.warning(f"Failed to create log files: {e}")
 
 
+def configure_benchmark_logging(
+    benchmark_name: str,
+    workspace_dir: str,
+    suppress_console: bool = True,
+    log_level: str = "INFO"
+):
+    """
+    Configure logging specifically for benchmark operations with clean progress bar support.
+    
+    This function sets up file-only logging to keep terminal output clean for progress bars.
+    
+    Args:
+        benchmark_name: Name of the benchmark (e.g., 'polaris', 'timesplit')
+        workspace_dir: Directory where log files should be created
+        suppress_console: Whether to suppress all console output except progress bars
+        log_level: Logging level (DEBUG, INFO, WARNING, ERROR)
+    
+    Returns:
+        Dictionary with log file paths
+    """
+    from templ_pipeline.core.benchmark_logging import BenchmarkLoggingConfig
+    
+    config = BenchmarkLoggingConfig(
+        workspace_dir=workspace_dir,
+        benchmark_name=benchmark_name,
+        log_level=log_level,
+        suppress_console=suppress_console
+    )
+    
+    return config.setup_file_logging()
+
+
 # Export main classes and functions
 __all__ = [
     "TEMPLUXConfig",
@@ -548,4 +580,5 @@ __all__ = [
     "ArgumentComplexity",
     "get_ux_config",
     "configure_logging_for_verbosity",
+    "configure_benchmark_logging",
 ]
