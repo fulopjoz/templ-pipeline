@@ -1030,15 +1030,15 @@ def _optimize_hardware_config(args):
             config["n_workers"] = max(1, int(effective_cpus * 0.9))
             args.max_ram_gb = getattr(args, "max_ram_gb", None) or system_memory_gb * 0.9
         else:  # auto
-            # Use heuristics based on workload type
+            # Use heuristics based on workload type - BENCHMARK OPTIMIZED
             if args.suite == "polaris":
-                # Polaris is more compute-intensive
-                config["n_workers"] = max(1, int(effective_cpus * 0.8))
+                # Polaris is compute-intensive - use all cores
+                config["n_workers"] = max(1, effective_cpus)
                 config["strategy"] = "cpu-bound"
             elif args.suite == "time-split":
-                # Timesplit can be memory-intensive with large datasets
-                config["n_workers"] = max(1, int(effective_cpus * 0.7))
-                config["strategy"] = "memory-bound"
+                # Timesplit benefits from full parallelization
+                config["n_workers"] = max(1, effective_cpus)
+                config["strategy"] = "cpu-bound"
             
             args.max_ram_gb = getattr(args, "max_ram_gb", None) or system_memory_gb * 0.8
         
@@ -1046,6 +1046,9 @@ def _optimize_hardware_config(args):
         if config["strategy"] == "io-bound":
             # I/O bound can benefit from more workers
             config["n_workers"] = min(config["n_workers"] * 2, effective_cpus)
+        elif config["strategy"] == "cpu-bound":
+            # CPU-bound benchmarks should use all available cores
+            config["n_workers"] = effective_cpus
         elif config["strategy"] == "memory-bound":
             # Memory bound should be more conservative
             memory_per_worker = getattr(args, "per_worker_ram_gb", 4.0)
@@ -1114,63 +1117,78 @@ def benchmark_command(args):
                 main as benchmark_main,
             )
 
-            # Setup logging with files
-            verbosity = ux_config.get_verbosity_level()
+            # Setup file-only logging for clean progress bar display
+            from templ_pipeline.core.benchmark_logging import benchmark_logging_context
+            
+            # Determine log level based on verbosity
             if hasattr(args, "verbose") and args.verbose:
-                verbosity = VerbosityLevel.DETAILED
-            configure_logging_for_verbosity(verbosity, "templ-cli", str(main_log_file))
-            
-            logger.info(f"Starting Polaris benchmark with {args.n_workers} workers")
-            logger.info(f"Workspace directory: {workspace_dir}/")
-            logger.info(f"Logs will be written to: {logs_dir}")
-
-            # Setup quiet mode for terminal output only
-            quiet_mode = not (hasattr(args, "verbose") and args.verbose)
-
-            # Convert CLI args to benchmark args with workspace integration
-            benchmark_args = []
-            
-            # Set output directory to workspace raw_results
-            polaris_output_dir = workspace_dir / "raw_results" / "polaris"
-            polaris_output_dir.mkdir(parents=True, exist_ok=True)
-            benchmark_args.extend(["--output-dir", str(polaris_output_dir)])
-            
-            if hasattr(args, "n_workers") and args.n_workers:
-                benchmark_args.extend(["--n-workers", str(args.n_workers)])
-            if hasattr(args, "n_conformers") and args.n_conformers:
-                benchmark_args.extend(["--n-conformers", str(args.n_conformers)])
-            if hasattr(args, "quick") and args.quick:
-                benchmark_args.append("--quick")
-            if hasattr(args, "verbose") and args.verbose:
-                benchmark_args.extend(["--log-level", "DEBUG"])
+                log_level = "DEBUG"
             else:
-                benchmark_args.extend(["--log-level", "WARNING"])
-            
-            # Add pose saving arguments
-            if hasattr(args, "save_poses") and args.save_poses:
-                benchmark_args.append("--save-poses")
-                if hasattr(args, "poses_dir") and args.poses_dir:
-                    benchmark_args.extend(["--poses-dir", args.poses_dir])
+                log_level = "INFO"
+                
+            # Use benchmark logging context for clean terminal output
+            with benchmark_logging_context(
+                workspace_dir=workspace_dir,
+                benchmark_name="polaris",
+                log_level=log_level,
+                suppress_console=True
+            ) as log_info:
+                logger.info(f"Starting Polaris benchmark with {args.n_workers} workers")
+                logger.info(f"Workspace directory: {workspace_dir}/")
+                logger.info(f"Logs will be written to: {logs_dir}")
+
+                # Setup quiet mode for terminal output only
+                # For clean progress bars, we want quiet=False so progress bars show up
+                # but all logging goes to files due to the logging context
+                quiet_mode = False
+
+                # Convert CLI args to benchmark args with workspace integration
+                benchmark_args = []
+                
+                # Set output directory to workspace raw_results
+                polaris_output_dir = workspace_dir / "raw_results" / "polaris"
+                polaris_output_dir.mkdir(parents=True, exist_ok=True)
+                benchmark_args.extend(["--output-dir", str(polaris_output_dir)])
+                
+                # Add workspace directory for logging integration
+                benchmark_args.extend(["--workspace-dir", str(workspace_dir)])
+                
+                if hasattr(args, "n_workers") and args.n_workers:
+                    benchmark_args.extend(["--n-workers", str(args.n_workers)])
+                if hasattr(args, "n_conformers") and args.n_conformers:
+                    benchmark_args.extend(["--n-conformers", str(args.n_conformers)])
+                if hasattr(args, "quick") and args.quick:
+                    benchmark_args.append("--quick")
+                if hasattr(args, "verbose") and args.verbose:
+                    benchmark_args.extend(["--log-level", "DEBUG"])
                 else:
-                    # Use workspace subdirectory for poses
-                    default_poses_dir = workspace_dir / "predicted_poses"
-                    default_poses_dir.mkdir(exist_ok=True)
-                    benchmark_args.extend(["--poses-dir", str(default_poses_dir)])
+                    benchmark_args.extend(["--log-level", "INFO"])
+                
+                # Add pose saving arguments
+                if hasattr(args, "save_poses") and args.save_poses:
+                    benchmark_args.append("--save-poses")
+                    if hasattr(args, "poses_dir") and args.poses_dir:
+                        benchmark_args.extend(["--poses-dir", args.poses_dir])
+                    else:
+                        # Use workspace subdirectory for poses
+                        default_poses_dir = workspace_dir / "predicted_poses"
+                        default_poses_dir.mkdir(exist_ok=True)
+                        benchmark_args.extend(["--poses-dir", str(default_poses_dir)])
 
-            result = benchmark_main(benchmark_args)
+                result = benchmark_main(benchmark_args)
 
-            # Generate unified summary for Polaris results
-            _generate_unified_summary(workspace_dir, "polaris")
+                # Generate unified summary for Polaris results
+                _generate_unified_summary(workspace_dir, "polaris")
 
-            logger.info(f"Polaris benchmark completed. Workspace: {workspace_dir}")
-            return result
+                logger.info(f"Polaris benchmark completed. Workspace: {workspace_dir}")
+                return result
         except ImportError as e:
             logger.error(f"Polaris benchmark module not available: {e}")
             return 1
 
     elif args.suite == "time-split":
         try:
-            from templ_pipeline.benchmark.timesplit import run_timesplit_benchmark
+            from templ_pipeline.benchmark.timesplit_stream import run_timesplit_streaming
 
             # Determine which splits to run
             splits_to_run = []
@@ -1183,56 +1201,125 @@ def benchmark_command(args):
             else:
                 splits_to_run = ["train", "val", "test"]
 
-            # Setup logging with files
-            verbosity = ux_config.get_verbosity_level()
-            if hasattr(args, "verbose") and args.verbose:
-                verbosity = VerbosityLevel.DETAILED
-            configure_logging_for_verbosity(verbosity, "templ-cli", str(main_log_file))
+            # Setup file-only logging for clean progress bar display
+            from templ_pipeline.core.benchmark_logging import benchmark_logging_context
             
-            logger.info(f"Starting Timesplit benchmark for splits: {', '.join(splits_to_run)}")
-            logger.info(f"Using {args.n_workers} workers, {args.n_conformers} conformers")
-            logger.info(f"Workspace directory: {workspace_dir}/")
-            logger.info(f"Logs will be written to: {logs_dir}")
-
-            # Setup quiet mode for terminal output only  
-            quiet_mode = not (hasattr(args, "verbose") and args.verbose)
-
-            # Use workspace subdirectory for timesplit results
-            timesplit_results_dir = workspace_dir / "raw_results" / "timesplit"
-
-            # Convert CLI args to function kwargs with proper workspace management
-            kwargs = {
-                "splits_to_run": splits_to_run, 
-                "quiet": quiet_mode,
-                "streaming_output_dir": str(timesplit_results_dir),
-            }
-
-            if hasattr(args, "n_workers") and args.n_workers:
-                kwargs["n_workers"] = args.n_workers
-            if hasattr(args, "n_conformers") and args.n_conformers:
-                kwargs["n_conformers"] = args.n_conformers
-            if hasattr(args, "template_knn") and args.template_knn:
-                kwargs["template_knn"] = args.template_knn
-            if hasattr(args, "max_pdbs") and args.max_pdbs:
-                kwargs["max_pdbs"] = args.max_pdbs
-            if hasattr(args, "max_ram_gb") and args.max_ram_gb:
-                kwargs["max_ram_gb"] = args.max_ram_gb
-            if hasattr(args, "per_worker_ram_gb") and args.per_worker_ram_gb:
-                kwargs["per_worker_ram_gb"] = args.per_worker_ram_gb
-            if hasattr(args, "peptide_threshold") and args.peptide_threshold:
-                kwargs["peptide_threshold"] = args.peptide_threshold
-
-            result = run_timesplit_benchmark(**kwargs)
-
-            # Generate unified summary for Timesplit results
-            if result.get("success", False):
-                _generate_unified_summary(workspace_dir, "timesplit")
-                logger.info(f"Timesplit benchmark completed successfully!")
-                logger.info(f"Workspace directory: {workspace_dir}")
-                return 0
+            # Determine log level based on verbosity
+            if hasattr(args, "verbose") and args.verbose:
+                log_level = "DEBUG"
             else:
-                logger.error(f"Timesplit benchmark failed: {result.get('error', 'Unknown error')}")
-                return 1
+                log_level = "INFO"
+                
+            # Use benchmark logging context for clean terminal output
+            with benchmark_logging_context(
+                workspace_dir=workspace_dir,
+                benchmark_name="timesplit",
+                log_level=log_level,
+                suppress_console=True
+            ) as log_info:
+                logger.info(f"Starting Timesplit benchmark for splits: {', '.join(splits_to_run)}")
+                logger.info(f"Using {args.n_workers} workers, {args.n_conformers} conformers")
+                logger.info(f"Workspace directory: {workspace_dir}/")
+                logger.info(f"Logs will be written to: {logs_dir}")
+
+                # Setup quiet mode for terminal output only  
+                # For clean progress bars, we want quiet=False so progress bars show up
+                # but all logging goes to files due to the logging context
+                quiet_mode = False
+
+                # Use workspace subdirectory for timesplit results
+                timesplit_results_dir = workspace_dir / "raw_results" / "timesplit"
+                timesplit_results_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Discover data directory dynamically
+                import os
+                from pathlib import Path as PathlibPath
+                
+                # Try multiple potential data directory locations
+                potential_data_dirs = [
+                    PathlibPath(__file__).resolve().parent.parent / "data",
+                    PathlibPath.cwd() / "data",
+                    PathlibPath.cwd() / "templ_pipeline" / "data",
+                    PathlibPath("data"),
+                    PathlibPath("..") / "data",
+                ]
+
+                data_dir = None
+                for candidate_path in potential_data_dirs:
+                    if (
+                        candidate_path.exists()
+                        and (candidate_path / "ligands" / "templ_processed_ligands_v1.0.0.sdf.gz").exists()
+                    ):
+                        data_dir = str(candidate_path)
+                        break
+
+                # Fallback to PDBBind-style directories if TEMPL data not found
+                if data_dir is None:
+                    env_data_dir = os.environ.get("PDBBIND_DATA_DIR")
+                    if env_data_dir and PathlibPath(env_data_dir).exists():
+                        data_dir = env_data_dir
+                    else:
+                        data_dir = "/data/pdbbind"  # Final fallback
+                
+                logger.info(f"Using data directory: {data_dir}")
+                
+                # Load the target PDBs for the selected splits
+                from templ_pipeline.benchmark.timesplit_stream import load_timesplit_pdb_list
+                
+                target_pdbs = []
+                for split in splits_to_run:
+                    try:
+                        target_pdbs.extend(load_timesplit_pdb_list(split))
+                    except Exception as exc:
+                        logger.error(f"Failed to load '{split}' split: {exc}")
+                        return 1
+                
+                # Apply max_pdbs limit if specified
+                if hasattr(args, "max_pdbs") and args.max_pdbs:
+                    target_pdbs = target_pdbs[:args.max_pdbs]
+                    
+                if not target_pdbs:
+                    logger.error("No target PDBs found for selected splits")
+                    return 1
+
+                logger.info(f"Processing {len(target_pdbs)} targets from splits: {', '.join(splits_to_run)}")
+
+                # Prepare kwargs for run_timesplit_streaming
+                streaming_kwargs = {
+                    "target_pdbs": target_pdbs,
+                    "data_dir": data_dir,
+                    "results_dir": str(timesplit_results_dir),
+                    "quiet": quiet_mode,
+                }
+
+                if hasattr(args, "n_workers") and args.n_workers:
+                    streaming_kwargs["max_workers"] = args.n_workers
+                if hasattr(args, "n_conformers") and args.n_conformers:
+                    streaming_kwargs["n_conformers"] = args.n_conformers
+                if hasattr(args, "template_knn") and args.template_knn:
+                    streaming_kwargs["template_knn"] = args.template_knn
+                if hasattr(args, "max_ram_gb") and args.max_ram_gb:
+                    streaming_kwargs["max_ram_gb"] = args.max_ram_gb
+                if hasattr(args, "per_worker_ram_gb") and args.per_worker_ram_gb:
+                    streaming_kwargs["per_worker_ram_gb"] = args.per_worker_ram_gb
+                if hasattr(args, "peptide_threshold") and args.peptide_threshold:
+                    streaming_kwargs["peptide_threshold"] = args.peptide_threshold
+
+                # Call the streaming function directly
+                run_timesplit_streaming(**streaming_kwargs)
+                
+                # Streaming function doesn't return a result dict, so create one
+                result = {"success": True, "results_dir": str(timesplit_results_dir)}
+
+                # Generate unified summary for Timesplit results
+                if result.get("success", False):
+                    _generate_unified_summary(workspace_dir, "timesplit")
+                    logger.info(f"Timesplit benchmark completed successfully!")
+                    logger.info(f"Workspace directory: {workspace_dir}")
+                    return 0
+                else:
+                    logger.error(f"Timesplit benchmark failed: {result.get('error', 'Unknown error')}")
+                    return 1
         except ImportError as e:
             logger.error(f"Time-split benchmark module not available: {e}")
             return 1

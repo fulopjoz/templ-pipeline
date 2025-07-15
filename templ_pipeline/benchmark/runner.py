@@ -316,6 +316,7 @@ class BenchmarkRunner:
                             "Ligand data not found in database",
                             "ligand"
                         )
+                    log.warning(f"Could not load ligand data for {params.target_pdb}")
                     raise ValueError(f"Could not load ligand data for {params.target_pdb}")
             except Exception as e:
                 if error_tracker:
