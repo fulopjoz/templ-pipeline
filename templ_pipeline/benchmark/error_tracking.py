@@ -103,15 +103,25 @@ class BenchmarkErrorTracker:
         """Record a successful target processing."""
         self.successful_targets.add(pdb_id)
         
-    def record_target_failure(self, pdb_id: str, error_message: str) -> None:
+    def record_target_failure(self, pdb_id: str, error_message: str, context: Optional[Dict[str, Any]] = None) -> None:
         """Record a failed target processing."""
         self.failed_targets.add(pdb_id)
-        self.record_missing_pdb(
-            pdb_id, 
-            "target_processing_failed", 
-            error_message, 
-            "pipeline"
-        )
+        if "ligand_not_found" in error_message.lower():
+            self.record_missing_pdb(
+                pdb_id,
+                "ligand_not_found",
+                error_message,
+                "ligand",
+                context=context
+            )
+        else:
+            self.record_missing_pdb(
+                pdb_id, 
+                "target_processing_failed", 
+                error_message, 
+                "pipeline",
+                context=context
+            )
         
     def get_missing_pdbs_by_component(self) -> Dict[str, Set[str]]:
         """Get missing PDBs grouped by component type."""

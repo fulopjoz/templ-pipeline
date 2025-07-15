@@ -79,32 +79,60 @@ class ProgressConfig:
 
     @staticmethod
     def get_bar_format():
-        return "{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
+        # Clean format matching user's request: 53%|████████████████████████████████████████████████████| 409/770 [03:13<02:49, 2.12it/s]
+        return "{percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
 
     @staticmethod
     def get_postfix_format(success_rate: float, errors: int = 0):
         return {"success": f"{success_rate:.1f}%", "errors": errors}
+    
+    @staticmethod
+    def get_tqdm_config(desc: str = None):
+        """Get complete tqdm configuration for benchmark progress bars"""
+        config = {
+            'bar_format': ProgressConfig.get_bar_format(),
+            'ncols': 100,
+            'leave': True,
+            'file': sys.stdout,
+            'disable': False
+        }
+        if desc:
+            config['desc'] = desc
+        return config
 
 
-def setup_benchmark_logging(log_level: str = "INFO"):
-    """Configure logging for benchmark with reduced verbosity"""
-    # Set up root logger
-    root_logger = logging.getLogger()
-    root_logger.setLevel(getattr(logging, log_level))
+def setup_benchmark_logging(log_level: str = "INFO", workspace_dir: Optional[Path] = None):
+    """Configure logging for benchmark with file-only output and clean progress bars"""
+    # Import the new benchmark logging system
+    from templ_pipeline.core.benchmark_logging import (
+        benchmark_logging_context, 
+        suppress_worker_logging,
+        create_benchmark_logger
+    )
+    
+    # If workspace directory is provided, set up file-only logging
+    if workspace_dir:
+        # The context manager will be used by the calling function
+        # This function now just returns the logger
+        return create_benchmark_logger("polaris")
+    else:
+        # Fallback to original behavior for compatibility
+        root_logger = logging.getLogger()
+        root_logger.setLevel(getattr(logging, log_level))
 
-    # Reduce verbosity for specific modules during benchmark
-    mcs_logger = logging.getLogger("templ_pipeline.core.mcs")
-    scoring_logger = logging.getLogger("templ_pipeline.core.scoring")
+        # Reduce verbosity for specific modules during benchmark
+        mcs_logger = logging.getLogger("templ_pipeline.core.mcs")
+        scoring_logger = logging.getLogger("templ_pipeline.core.scoring")
 
-    # Set MCS and scoring to WARNING to reduce verbose output
-    mcs_logger.setLevel(logging.WARNING)
-    scoring_logger.setLevel(logging.WARNING)
+        # Set MCS and scoring to WARNING to reduce verbose output
+        mcs_logger.setLevel(logging.WARNING)
+        scoring_logger.setLevel(logging.WARNING)
 
-    # Keep benchmark logger at INFO level
-    benchmark_logger = logging.getLogger(__name__)
-    benchmark_logger.setLevel(getattr(logging, log_level))
+        # Keep benchmark logger at INFO level
+        benchmark_logger = logging.getLogger(__name__)
+        benchmark_logger.setLevel(getattr(logging, log_level))
 
-    return benchmark_logger
+        return benchmark_logger
 
 
 # -----------------------------------------------------------------------------
@@ -530,11 +558,9 @@ def evaluate_with_leave_one_out(
             successes = 0
             errors = 0
 
-            with tqdm(
-                total=len(futures),
-                desc=desc,
-                bar_format=ProgressConfig.get_bar_format(),
-            ) as pbar:
+            tqdm_config = ProgressConfig.get_tqdm_config(desc)
+            tqdm_config['total'] = len(futures)
+            with tqdm(**tqdm_config) as pbar:
 
                 for future, mol_name, query_mol in futures:
                     try:
@@ -611,11 +637,9 @@ def evaluate_with_leave_one_out(
             successes = 0
             errors = 0
 
-            with tqdm(
-                total=len(future_to_mol),
-                desc=desc,
-                bar_format=ProgressConfig.get_bar_format(),
-            ) as pbar:
+            tqdm_config = ProgressConfig.get_tqdm_config(desc)
+            tqdm_config['total'] = len(future_to_mol)
+            with tqdm(**tqdm_config) as pbar:
 
                 for future in as_completed(future_to_mol):
                     mol_name, query_mol = future_to_mol[future]
@@ -733,11 +757,9 @@ def evaluate_with_templates(
             successes = 0
             errors = 0
 
-            with tqdm(
-                total=len(futures),
-                desc=desc,
-                bar_format=ProgressConfig.get_bar_format(),
-            ) as pbar:
+            tqdm_config = ProgressConfig.get_tqdm_config(desc)
+            tqdm_config['total'] = len(futures)
+            with tqdm(**tqdm_config) as pbar:
 
                 for future, mol_name, query_mol in futures:
                     try:
@@ -814,11 +836,9 @@ def evaluate_with_templates(
             successes = 0
             errors = 0
 
-            with tqdm(
-                total=len(future_to_mol),
-                desc=desc,
-                bar_format=ProgressConfig.get_bar_format(),
-            ) as pbar:
+            tqdm_config = ProgressConfig.get_tqdm_config(desc)
+            tqdm_config['total'] = len(future_to_mol)
+            with tqdm(**tqdm_config) as pbar:
 
                 for future in as_completed(future_to_mol):
                     mol_name, query_mol = future_to_mol[future]
@@ -1141,6 +1161,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=OUTPUT_DIR,
         help="Directory to save benchmark results (default: %(default)s)",
     )
+    p.add_argument(
+        "--workspace-dir",
+        type=str,
+        default=None,
+        help="Workspace directory for organized logging and file management",
+    )
     return p
 
 
@@ -1194,7 +1220,18 @@ def main(argv: List[str] | None = None):
         OUTPUT_DIR = args.output_dir
         
     # Set up benchmark logging with reduced verbosity
-    logger = setup_benchmark_logging(args.log_level)
+    # Check if workspace directory is provided (when called from CLI)
+    workspace_dir = getattr(args, 'workspace_dir', None)
+    
+    if workspace_dir:
+        # Use new benchmark logging system with file-only output
+        from templ_pipeline.core.benchmark_logging import benchmark_logging_context
+        
+        # The context will be managed in the CLI layer
+        logger = setup_benchmark_logging(args.log_level, workspace_dir)
+    else:
+        # Fallback to original logging for direct script execution
+        logger = setup_benchmark_logging(args.log_level)
 
     # Log hardware detection results
     try:
@@ -1263,10 +1300,10 @@ def main(argv: List[str] | None = None):
         logger.error("Data validation failed. Exiting.")
         return 1
 
-    print("Loading datasets...")
-    with tqdm(
-        total=4, desc="Dataset Loading", bar_format=ProgressConfig.get_bar_format()
-    ) as pbar:
+    logger.info("Loading datasets...")
+    tqdm_config = ProgressConfig.get_tqdm_config("Dataset Loading")
+    tqdm_config['total'] = 4
+    with tqdm(**tqdm_config) as pbar:
         train_sars = load_sdf_molecules(data_dir / "train_sarsmols.sdf")
         pbar.update(1)
         train_mers = load_sdf_molecules(data_dir / "train_mersmols.sdf")
@@ -1278,7 +1315,7 @@ def main(argv: List[str] | None = None):
         test_set = load_sdf_molecules(data_dir / "test_poses_with_properties.sdf")
         pbar.update(1)
 
-    print(
+    logger.info(
         f"✓ Loaded datasets: {len(train_sars)} SARS train, {len(train_mers)} MERS train, {len(test_set)} test molecules"
     )
 

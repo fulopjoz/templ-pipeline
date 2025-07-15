@@ -312,15 +312,13 @@ def find_mcs(tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False) 
     max_template_atoms = max(mol.GetNumAtoms() for mol in refs)
     log.debug(f"Using RascalMCES for molecules (target: {target_atoms}, max template: {max_template_atoms})")
     
-    # Progressive similarity thresholds following true_mcs.py pattern
-    similarity_thresholds = [0.9, 0.7, 0.5, 0.3, 0.2]
-    
+    # Use continuous threshold reduction like true_mcs.py
     opts = rdRascalMCES.RascalOptions()
     opts.singleLargestFrag = True
+    opts.similarityThreshold = 0.9  # Start at high threshold
     
-    # Try each similarity threshold progressively
-    for threshold in similarity_thresholds:
-        opts.similarityThreshold = threshold
+    # Continuous threshold reduction with 0.1 steps
+    while opts.similarityThreshold >= 0.0:
         hits = []
         
         for i, r in enumerate(refs):
@@ -346,7 +344,7 @@ def find_mcs(tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False) 
                     else:
                         hits.append((len(atom_matches), i, smarts))
             except (MemoryError, RuntimeError) as e:
-                log.warning(f"RascalMCES failed for template {i} at threshold {threshold:.2f}: {e}")
+                log.warning(f"RascalMCES failed for template {i} at threshold {opts.similarityThreshold:.2f}: {e}")
                 continue
         
         if hits:
@@ -357,15 +355,18 @@ def find_mcs(tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False) 
                 best_size, idx, smarts = max(hits)
             
             # Quality control: accept small matches only at low thresholds
-            if best_size >= min_acceptable_size or threshold <= 0.2:
-                log.info(f"MCS found: size={best_size}, threshold={threshold:.2f}")
+            if best_size >= min_acceptable_size or opts.similarityThreshold <= 0.2:
+                log.info(f"MCS found: size={best_size}, threshold={opts.similarityThreshold:.2f}")
                 if return_details:
                     return idx, smarts, details
                 return idx, smarts
             else:
-                log.warning(f"Rejecting small MCS (size={best_size}) at threshold {threshold:.2f}")
+                log.warning(f"Rejecting small MCS (size={best_size}) at threshold {opts.similarityThreshold:.2f}")
         else:
-            log.warning(f"No MCS found at threshold {threshold:.2f}, trying next threshold")
+            log.warning(f"No MCS found at threshold {opts.similarityThreshold:.2f}, trying next threshold")
+        
+        # Reduce threshold by 0.1 for next iteration
+        opts.similarityThreshold = round(opts.similarityThreshold - 0.1, 1)
     
     # Central atom fallback: use template with best CA RMSD
     log.warning("RascalMCS search failed at all thresholds - using central atom fallback with best CA RMSD template")
@@ -604,7 +605,7 @@ def embed_organometallic_with_constraints(mol: Chem.Mol, n_conformers: int, coor
     return []
 
 
-def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: dict = None, numThreads: int = 0) -> bool:
+def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: dict = None, numThreads: int = 0) -> List[int]:
     """Embedding function with UFF force field fallback for organometallic molecules.
     
     Args:
@@ -614,16 +615,34 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: dict = N
         numThreads: Number of threads to use
         
     Returns:
-        True if embedding succeeded, False otherwise
+        List of conformer IDs generated, empty list if failed
     """
+    
+    # Simple thread limiting to prevent resource exhaustion
+    safe_threads = min(numThreads if numThreads > 0 else mp.cpu_count(), 3)
+    
+    # Adaptive conformer count based on molecule size to prevent resource exhaustion
+    num_atoms = mol.GetNumAtoms()
+    if num_atoms > 100:
+        # Large molecules: use fewer conformers
+        adaptive_conformers = min(n_conformers, 50)
+        log.info(f"Large molecule ({num_atoms} atoms): reducing conformers from {n_conformers} to {adaptive_conformers}")
+    elif num_atoms > 50:
+        # Medium molecules: moderate reduction
+        adaptive_conformers = min(n_conformers, 100)
+        log.info(f"Medium molecule ({num_atoms} atoms): reducing conformers from {n_conformers} to {adaptive_conformers}")
+    else:
+        # Small molecules: use requested amount
+        adaptive_conformers = n_conformers
+    
     try:
         # Try standard embedding with coordinate map
         if coordMap:
             cids = rdDistGeom.EmbedMultipleConfs(
                 mol, 
-                numConfs=n_conformers,
+                numConfs=adaptive_conformers,
                 randomSeed=42,
-                numThreads=numThreads,
+                numThreads=safe_threads,
                 coordMap=coordMap,
                 useRandomCoords=False,
                 enforceChirality=False,
@@ -632,46 +651,82 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: dict = N
         else:
             cids = rdDistGeom.EmbedMultipleConfs(
                 mol, 
-                numConfs=n_conformers,
+                numConfs=adaptive_conformers,
                 randomSeed=42,
-                numThreads=numThreads,
+                numThreads=safe_threads,
                 useRandomCoords=False,
                 enforceChirality=False,
                 maxAttempts=1000
             )
         
-        if len(cids) == 0:
-            log.debug("Standard embedding failed, trying UFF fallback")
-            # Try with UFF for organometallic molecules
-            if needs_uff_fallback(mol):
-                # Use UFF-compatible embedding with random coordinates
-                if coordMap:
-                    cids = rdDistGeom.EmbedMultipleConfs(
-                        mol, 
-                        numConfs=n_conformers,
-                        randomSeed=42,
-                        numThreads=numThreads,
-                        coordMap=coordMap,
-                        useRandomCoords=True,
-                        enforceChirality=False,
-                        maxAttempts=1000
-                    )
-                else:
-                    cids = rdDistGeom.EmbedMultipleConfs(
-                        mol, 
-                        numConfs=n_conformers,
-                        randomSeed=42,
-                        numThreads=numThreads,
-                        useRandomCoords=True,
-                        enforceChirality=False,
-                        maxAttempts=1000
-                    )
-                if len(cids) > 0:
-                    minimize_with_uff(mol, list(cids))
-                    return True
-            return False
-            
-        return len(cids) > 0
+        if cids:
+            log.debug(f"Standard embedding succeeded: {len(cids)} conformers")
+            return list(cids)
+        
+        # Fallback 1: Try with UFF for organometallic molecules
+        log.debug("Standard embedding failed, trying UFF fallback")
+        if needs_uff_fallback(mol):
+            # Use UFF-compatible embedding with random coordinates
+            if coordMap:
+                cids = rdDistGeom.EmbedMultipleConfs(
+                    mol, 
+                    numConfs=adaptive_conformers,
+                    randomSeed=42,
+                    numThreads=safe_threads,
+                    coordMap=coordMap,
+                    useRandomCoords=True,
+                    enforceChirality=False,
+                    maxAttempts=1000
+                )
+            else:
+                cids = rdDistGeom.EmbedMultipleConfs(
+                    mol, 
+                    numConfs=adaptive_conformers,
+                    randomSeed=42,
+                    numThreads=safe_threads,
+                    useRandomCoords=True,
+                    enforceChirality=False,
+                    maxAttempts=1000
+                )
+            if cids:
+                minimize_with_uff(mol, list(cids))
+                log.debug(f"UFF fallback succeeded: {len(cids)} conformers")
+                return list(cids)
+        
+        # Fallback 2: Try with relaxed parameters and no coordinate map
+        log.debug("UFF fallback failed, trying relaxed parameters")
+        cids = rdDistGeom.EmbedMultipleConfs(
+            mol, 
+            numConfs=min(adaptive_conformers, 50),  # Further reduce conformer count
+            randomSeed=42,
+            numThreads=safe_threads,
+            useRandomCoords=True,
+            enforceChirality=False,
+            maxAttempts=2000  # Increase attempts
+        )
+        
+        if cids:
+            log.debug(f"Relaxed embedding succeeded: {len(cids)} conformers")
+            return list(cids)
+        
+        # Fallback 3: Minimal parameters for difficult molecules
+        log.debug("Relaxed embedding failed, trying minimal parameters")
+        cids = rdDistGeom.EmbedMultipleConfs(
+            mol, 
+            numConfs=min(adaptive_conformers, 20),  # Minimal conformer count
+            randomSeed=42,
+            numThreads=1,  # Single thread
+            useRandomCoords=True,
+            enforceChirality=False,
+            maxAttempts=5000  # Many attempts
+        )
+        
+        if cids:
+            log.debug(f"Minimal embedding succeeded: {len(cids)} conformers")
+            return list(cids)
+        
+        log.warning("All embedding methods failed")
+        return []
         
     except Exception as e:
         log.error(f"Embedding with UFF fallback failed: {e}")
@@ -679,7 +734,7 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: dict = N
         if coordMap:
             log.error(f"Coordinate map size: {len(coordMap)} constraints")
         log.error(f"Target conformers: {n_conformers}, numThreads: {numThreads}")
-        return False
+        return []
 
 
 def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: int = N_CONFS, n_workers_pipeline: int = 0) -> Optional[Chem.Mol]:
@@ -694,6 +749,12 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
     use_uff = needs_uff_fallback(tgt)
     if use_uff:
         log.info("Detected organometallic atoms in target molecule, using UFF-compatible embedding")
+    
+    # Early detection for extremely large molecules
+    num_atoms = tgt.GetNumAtoms()
+    if num_atoms > 150:
+        log.warning(f"Extremely large molecule ({num_atoms} atoms) - skipping constrained embedding and using central atom fallback")
+        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
     
     patt = Chem.MolFromSmarts(smarts)
     if patt is None:
@@ -758,24 +819,27 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
     if len(coordMap) < 3:
         log.warning("Insufficient coordinate constraints for embedding, falling back to central atom")
         return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
-    
+
     # Log coordinate map details for debugging
     log_coordinate_map(coordMap, "initial_coordinate_map")
     
-    # Relax constraints that are too close
+    # Relax constraints that are too close together
     coordMap = relax_close_constraints(coordMap, min_distance=1.0)
     
     if len(coordMap) < 3:
-        log.warning("Insufficient constraints after relaxation, falling back to central atom")
+        log.warning("Insufficient coordinate constraints after relaxation, falling back to central atom")
         return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+    
+    log.info(f"Using {len(coordMap)} constraints after relaxation")
     
     # Use proven working pattern from reference code
     try:
         ps = rdDistGeom.ETKDGv3()
         ps.randomSeed = 42
         ps.enforceChirality = False
-        # Use all available threads (0 = auto-detect) or specified number
-        ps.numThreads = n_workers_pipeline if n_workers_pipeline > 0 else 0
+        # Resource-aware thread management to prevent "Resource temporarily unavailable" errors
+        max_threads = min(n_workers_pipeline if n_workers_pipeline > 0 else mp.cpu_count(), 3)
+        ps.numThreads = max_threads
         
         # Progressive coordinate mapping - reduce constraints until embedding succeeds
         r = -1
@@ -904,10 +968,20 @@ def central_atom_embed(tgt: Chem.Mol, ref: Chem.Mol, n_conformers: int, n_worker
         tgt_copy = Chem.Mol(tgt)
         tgt_copy = Chem.AddHs(tgt_copy)
         
-        # Generate unconstrained conformers
-        success = embed_with_uff_fallback(tgt_copy, n_conformers, numThreads=n_workers_pipeline)
+        # Use even fewer conformers for central atom fallback (more conservative)
+        num_atoms = tgt_copy.GetNumAtoms()
+        if num_atoms > 100:
+            # Large molecules: very few conformers for fallback
+            fallback_conformers = min(n_conformers, 20)
+            log.info(f"Central atom fallback for large molecule ({num_atoms} atoms): using {fallback_conformers} conformers")
+        else:
+            # Smaller molecules: use standard adaptive count
+            fallback_conformers = n_conformers
         
-        if not success:
+        # Generate unconstrained conformers
+        conf_ids = embed_with_uff_fallback(tgt_copy, fallback_conformers, numThreads=n_workers_pipeline)
+        
+        if not conf_ids:
             log.error("Central atom embedding failed")
             return None
         
