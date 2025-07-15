@@ -66,6 +66,9 @@ class BenchmarkLoggingConfig:
         Returns:
             Dictionary with log file paths
         """
+        # Suppress Python warnings that can pollute output
+        suppress_benchmark_warnings()
+        
         # Get root logger
         root_logger = logging.getLogger()
         
@@ -235,6 +238,9 @@ def suppress_worker_logging():
     # Set high level to minimize processing
     root_logger.setLevel(logging.CRITICAL)
     
+    # Suppress Python warnings that can pollute output
+    suppress_benchmark_warnings()
+    
     # Also suppress specific loggers that might be noisy
     for logger_name in [
         'templ_pipeline.core.mcs',
@@ -319,3 +325,36 @@ def get_progress_bar_config(benchmark_name: str) -> Dict[str, Any]:
         benchmark_name, 
         BENCHMARK_PROGRESS_CONFIG['polaris']
     )
+
+
+def suppress_benchmark_warnings():
+    """
+    Suppress common warnings that appear during benchmark operations.
+    
+    This function should be called at the start of benchmark operations
+    to prevent common warnings from polluting the console output.
+    """
+    import warnings
+    
+    # Suppress biotite warnings about element guessing
+    warnings.filterwarnings('ignore', category=UserWarning, module='biotite.structure.io.pdb.file')
+    warnings.filterwarnings('ignore', category=UserWarning, message='.*elements were guessed.*')
+    warnings.filterwarnings('ignore', category=UserWarning, message='.*atom name.*')
+    
+    # Suppress RDKit warnings
+    warnings.filterwarnings('ignore', category=UserWarning, module='rdkit')
+    warnings.filterwarnings('ignore', category=DeprecationWarning, module='rdkit')
+    
+    # Suppress common scientific library warnings
+    warnings.filterwarnings('ignore', category=DeprecationWarning)
+    warnings.filterwarnings('ignore', category=FutureWarning)
+    warnings.filterwarnings('ignore', category=RuntimeWarning, message='.*divide by zero.*')
+    warnings.filterwarnings('ignore', category=RuntimeWarning, message='.*invalid value.*')
+    
+    # Suppress numpy warnings
+    warnings.filterwarnings('ignore', category=UserWarning, module='numpy')
+    warnings.filterwarnings('ignore', category=DeprecationWarning, module='numpy')
+    
+    # Suppress sklearn warnings
+    warnings.filterwarnings('ignore', category=UserWarning, module='sklearn')
+    warnings.filterwarnings('ignore', category=FutureWarning, module='sklearn')
