@@ -215,12 +215,16 @@ class ExecutionManager:
             max_workers = min(recommended_workers, system_cpu_count)
         elif task_type == "embedding":
             max_workers = min(recommended_workers, system_cpu_count // 2)
+        elif task_type == "benchmark":
+            # Benchmark tasks should use all available cores
+            max_workers = system_cpu_count
         else:
             max_workers = min(recommended_workers, system_cpu_count)
         
         safe_workers = max(1, max_workers)
         
         if safe_workers < requested_workers:
+            current_threads = threading.active_count()
             logger.warning(
                 f"Reducing {task_type} workers from {requested_workers} to {safe_workers} "
                 f"(active threads: {current_threads}, limit: {self._max_threads})"

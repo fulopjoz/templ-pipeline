@@ -204,5 +204,5 @@ data/ligands/
 
 # GEMINI
 GEMINI.md
-true_mcs.py
+# true_mcs.py
 shift_molvis_fix.md
