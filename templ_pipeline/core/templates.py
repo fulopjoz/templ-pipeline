@@ -16,11 +16,20 @@ try:
         get_chains,
         superimpose,
         superimpose_homologs,
+        to_sequence,
     )
     import biotite.structure.io as bsio
+    import biotite.sequence as seq
+    import biotite.sequence.align as align
+    try:
+        import biotite.structure.alphabet as strucalph
+        STRUCTURAL_ALPHABET_AVAILABLE = True
+    except ImportError:
+        STRUCTURAL_ALPHABET_AVAILABLE = False
     BIOTITE_AVAILABLE = True
 except ImportError:
     BIOTITE_AVAILABLE = False
+    STRUCTURAL_ALPHABET_AVAILABLE = False
 
 log = logging.getLogger(__name__)
 
@@ -117,9 +126,14 @@ def transform_ligand(mob_pdb: str, lig: Chem.Mol, pid: str, ref_struct: AtomArra
             log.warning(f"No amino acids found in {pid}")
             return None
 
-        # Use specified chains or fallback to all available chains
-        ref_chain_ids = ref_chains if ref_chains else get_chains(ref_prot)
-        mob_chain_ids = mob_chains if mob_chains else get_chains(mob_prot)
+        # Validate and optimize chain selection for binding site alignment
+        ref_chain_ids, mob_chain_ids = _validate_and_select_chains(
+            ref_prot, mob_prot, ref_chains, mob_chains, pid
+        )
+        
+        if not ref_chain_ids or not mob_chain_ids:
+            log.warning(f"No valid chains found for alignment in {pid}")
+            return None
 
         ref_ca = ref_prot[np.isin(ref_prot.chain_id, ref_chain_ids) & (ref_prot.atom_name == "CA")]
         mob_ca = mob_prot[np.isin(mob_prot.chain_id, mob_chain_ids) & (mob_prot.atom_name == "CA")]
@@ -128,43 +142,78 @@ def transform_ligand(mob_pdb: str, lig: Chem.Mol, pid: str, ref_struct: AtomArra
             log.warning(f"Not enough C-alpha atoms for alignment in {pid}: ref={len(ref_ca)}, mob={len(mob_ca)}")
             return None
 
-        # Perform structural alignment with sequence matching
+        # Perform structural alignment with multi-level fallback strategy
+        ca_rmsd = None
+        transformation = None
+        alignment_method = None
+        anchor_count = 0
+        
+        # Level 1: Try superimpose_homologs for similar-length sequences
         try:
-            # First try sequence-aware alignment (homologs) which is more robust
-            fitted, transformation, fixed_idx, mob_idx = superimpose_homologs(
-                ref_ca, mob_ca,
-                substitution_matrix="BLOSUM62",
-                gap_penalty=-10,
-                min_anchors=3,  # Minimum required for valid alignment
-                terminal_penalty=True
-            )
-            
-            # Calculate RMSD using matched CA pairs
-            if len(fixed_idx) >= 3 and len(mob_idx) >= 3:
-                ref_subset = ref_ca[fixed_idx]
-                mob_subset = mob_ca[mob_idx]
-                fitted_mob_ca, _ = superimpose(ref_subset, mob_subset)
-                ca_rmsd = struc.rmsd(ref_subset, fitted_mob_ca)
-                log.info(f"Homologous structural alignment for {pid}: CA RMSD = {ca_rmsd:.3f}Å using {len(fixed_idx)} matched residues")
+            if abs(len(ref_ca) - len(mob_ca)) / max(len(ref_ca), len(mob_ca)) < 0.3:
+                # Only try homolog alignment if sequences are reasonably similar in length
+                fitted, transformation, fixed_idx, mob_idx = superimpose_homologs(
+                    ref_ca, mob_ca,
+                    substitution_matrix="BLOSUM62",
+                    gap_penalty=-10,
+                    min_anchors=3,
+                    terminal_penalty=True
+                )
+                
+                if len(fixed_idx) >= 3 and len(mob_idx) >= 3:
+                    ref_subset = ref_ca[fixed_idx]
+                    mob_subset = mob_ca[mob_idx]
+                    fitted_mob_ca, _ = superimpose(ref_subset, mob_subset)
+                    ca_rmsd = struc.rmsd(ref_subset, fitted_mob_ca)
+                    anchor_count = len(fixed_idx)
+                    alignment_method = "homologs"
+                    log.info(f"Homologous alignment for {pid}: CA RMSD = {ca_rmsd:.3f}Å using {anchor_count} anchors")
+                else:
+                    raise ValueError("Insufficient matched residues from homologs")
             else:
-                log.warning(f"Too few matched residues for homolog alignment in {pid}: {len(fixed_idx)}")
-                raise ValueError("Insufficient matched residues")
+                raise ValueError("Sequence length difference too large for homolog alignment")
                 
         except Exception as e:
-            log.warning(f"Homologous structural alignment failed for {pid}: {e}")
-            # Fallback to simple superimposition
+            log.debug(f"Homologous alignment failed for {pid}: {e}")
+            
+            # Level 2: Biotite optimal sequence alignment with anchor extraction
             try:
-                min_length = min(len(ref_ca), len(mob_ca))
-                if min_length < MIN_CA_ATOMS_FOR_ALIGNMENT:
-                    log.error(f"Insufficient CA atoms for alignment in {pid}: {min_length}")
-                    return None
-                    
-                fitted_mob_ca, transformation = superimpose(ref_ca[:min_length], mob_ca[:min_length])
-                ca_rmsd = struc.rmsd(ref_ca[:min_length], fitted_mob_ca)
-                log.info(f"Direct structural alignment for {pid}: CA RMSD = {ca_rmsd:.3f}Å using {min_length} residues")
+                transformation, ca_rmsd, anchor_count = _align_with_biotite_sequence(
+                    ref_ca, mob_ca, pid
+                )
+                alignment_method = "sequence"
+                
             except Exception as e2:
-                log.error(f"All alignment methods failed for {pid}: {e2}")
-                return None
+                log.debug(f"Biotite sequence alignment failed for {pid}: {e2}")
+                
+                # Level 3: 3Di structural alphabet alignment for remote homologs
+                try:
+                    transformation, ca_rmsd, anchor_count = _align_with_3di_structural(
+                        ref_ca, mob_ca, pid
+                    )
+                    alignment_method = "3di"
+                    
+                except Exception as e3:
+                    log.debug(f"3Di structural alignment failed for {pid}: {e3}")
+                    
+                    # Level 4: Simple centroid-based alignment as final fallback
+                    try:
+                        transformation, ca_rmsd, anchor_count = _align_with_centroid_fallback(
+                            ref_ca, mob_ca, pid
+                        )
+                        alignment_method = "centroid"
+                        
+                    except Exception as e4:
+                        log.error(f"All alignment methods failed for {pid}: {e4}")
+                        return None
+        
+        # Log final alignment results
+        if transformation is not None:
+            log.info(f"Structural alignment for {pid} using {alignment_method}: "
+                    f"CA RMSD = {ca_rmsd:.3f}Å, anchors = {anchor_count}")
+        else:
+            log.error(f"No valid alignment found for {pid}")
+            return None
 
         if lig.GetNumConformers() == 0:
             log.warning(f"No conformers in ligand for {pid}")
@@ -209,6 +258,8 @@ def transform_ligand(mob_pdb: str, lig: Chem.Mol, pid: str, ref_struct: AtomArra
         transformed_lig.SetProp("similarity_score", f"{similarity_score:.3f}")
         transformed_lig.SetProp("ref_chains", ",".join(ref_chain_ids))
         transformed_lig.SetProp("mob_chains", ",".join(mob_chain_ids))
+        transformed_lig.SetProp("alignment_method", alignment_method)
+        transformed_lig.SetProp("anchor_count", str(anchor_count))
         
         return transformed_lig
         
@@ -407,7 +458,8 @@ def extract_template_metadata(mol: Chem.Mol) -> Dict[str, Any]:
         # Extract standard properties
         prop_names = [
             "template_pid", "ca_rmsd", "similarity_score", 
-            "ref_chains", "mob_chains", "template_source"
+            "ref_chains", "mob_chains", "template_source",
+            "alignment_method", "anchor_count"
         ]
         
         for prop_name in prop_names:
@@ -415,7 +467,7 @@ def extract_template_metadata(mol: Chem.Mol) -> Dict[str, Any]:
                 metadata[prop_name] = mol.GetProp(prop_name)
                 
         # Extract numeric properties with validation
-        numeric_props = ["ca_rmsd", "similarity_score"]
+        numeric_props = ["ca_rmsd", "similarity_score", "anchor_count"]
         for prop_name in numeric_props:
             if prop_name in metadata:
                 try:
@@ -623,3 +675,203 @@ def ligand_path(pid: str, data_dir: str = "data") -> Optional[str]:
             
     log.warning(f"Ligand file for {pid} not found in any standard location")
     return None
+
+
+#  Advanced Alignment Helper Functions 
+
+def _rmsd_from_alignment(fixed_ca: AtomArray, mobile_ca: AtomArray, alignment, pid: str) -> Tuple[AtomArray, float, int]:
+    """
+    Extract corresponding residues from alignment and perform superimposition.
+    Based on biotite documentation pattern.
+    """
+    if not BIOTITE_AVAILABLE:
+        raise ImportError("Biotite not available")
+        
+    # Get alignment codes and find anchors
+    alignment_codes = align.get_codes(alignment)
+    
+    # Create substitution matrix for anchor quality assessment
+    matrix = align.SubstitutionMatrix.std_protein_matrix()
+    
+    # Anchors must be structurally similar and without gaps
+    anchor_mask = (
+        # Anchors must be structurally similar (positive score)
+        (matrix.score_matrix()[alignment_codes[0], alignment_codes[1]] > 0)
+        # Gaps are not anchors
+        & (alignment_codes != -1).all(axis=0)
+    )
+    
+    superimposition_anchors = alignment.trace[anchor_mask]
+    
+    if len(superimposition_anchors) < MIN_CA_ATOMS_FOR_ALIGNMENT:
+        raise ValueError(f"Insufficient anchors found: {len(superimposition_anchors)}")
+    
+    # Extract anchor atoms
+    fixed_anchors = fixed_ca[superimposition_anchors[:, 0]]
+    mobile_anchors = mobile_ca[superimposition_anchors[:, 1]]
+    
+    # Perform superimposition
+    mobile_anchors_fitted, transformation = struc.superimpose(fixed_anchors, mobile_anchors)
+    rmsd = struc.rmsd(fixed_anchors, mobile_anchors_fitted)
+    
+    return transformation, rmsd, len(superimposition_anchors)
+
+
+def _align_with_biotite_sequence(ref_ca: AtomArray, mob_ca: AtomArray, pid: str) -> Tuple[object, float, int]:
+    """
+    Level 2: Biotite optimal sequence alignment with anchor extraction.
+    """
+    if not BIOTITE_AVAILABLE:
+        raise ImportError("Biotite not available")
+    
+    # Convert structures to sequences
+    ref_sequences, _ = to_sequence(ref_ca)
+    mob_sequences, _ = to_sequence(mob_ca)
+    
+    if not ref_sequences or not mob_sequences:
+        raise ValueError("Could not extract sequences from structures")
+    
+    ref_seq = ref_sequences[0]  # Take first chain
+    mob_seq = mob_sequences[0]  # Take first chain
+    
+    # Perform optimal alignment
+    matrix = align.SubstitutionMatrix.std_protein_matrix()
+    alignments = align.align_optimal(
+        ref_seq, mob_seq, matrix,
+        gap_penalty=(-10, -1),
+        terminal_penalty=False
+    )
+    
+    if not alignments:
+        raise ValueError("No alignment found")
+        
+    best_alignment = alignments[0]
+    
+    # Extract anchors and perform superimposition
+    transformation, rmsd, anchor_count = _rmsd_from_alignment(
+        ref_ca, mob_ca, best_alignment, pid
+    )
+    
+    log.info(f"Biotite sequence alignment for {pid}: "
+            f"CA RMSD = {rmsd:.3f}Å using {anchor_count} anchors")
+    
+    return transformation, rmsd, anchor_count
+
+
+def _align_with_3di_structural(ref_ca: AtomArray, mob_ca: AtomArray, pid: str) -> Tuple[object, float, int]:
+    """
+    Level 3: 3Di structural alphabet alignment for remote homologs.
+    """
+    if not BIOTITE_AVAILABLE or not STRUCTURAL_ALPHABET_AVAILABLE:
+        raise ImportError("Biotite structural alphabet not available")
+    
+    try:
+        # Convert structures to 3Di sequences
+        ref_3di_sequences, _ = strucalph.to_3di(ref_ca)
+        mob_3di_sequences, _ = strucalph.to_3di(mob_ca)
+        
+        if not ref_3di_sequences or not mob_3di_sequences:
+            raise ValueError("Could not extract 3Di sequences")
+        
+        ref_3di = ref_3di_sequences[0]  # Take first chain
+        mob_3di = mob_3di_sequences[0]  # Take first chain
+        
+        # Perform 3Di alignment
+        matrix = align.SubstitutionMatrix.std_3di_matrix()
+        alignments = align.align_optimal(
+            ref_3di, mob_3di, matrix,
+            gap_penalty=(-10, -1),
+            terminal_penalty=False
+        )
+        
+        if not alignments:
+            raise ValueError("No 3Di alignment found")
+        
+        best_alignment = alignments[0]
+        
+        # Extract anchors and perform superimposition
+        transformation, rmsd, anchor_count = _rmsd_from_alignment(
+            ref_ca, mob_ca, best_alignment, pid
+        )
+        
+        log.info(f"3Di structural alignment for {pid}: "
+                f"CA RMSD = {rmsd:.3f}Å using {anchor_count} anchors")
+        
+        return transformation, rmsd, anchor_count
+        
+    except Exception as e:
+        raise ValueError(f"3Di alignment failed: {e}")
+
+
+def _align_with_centroid_fallback(ref_ca: AtomArray, mob_ca: AtomArray, pid: str) -> Tuple[object, float, int]:
+    """
+    Level 4: Simple centroid-based alignment as final fallback.
+    """
+    if not BIOTITE_AVAILABLE:
+        raise ImportError("Biotite not available")
+    
+    # Use the first N atoms from both structures where N is the minimum length
+    min_length = min(len(ref_ca), len(mob_ca))
+    
+    if min_length < MIN_CA_ATOMS_FOR_ALIGNMENT:
+        raise ValueError(f"Insufficient atoms for centroid alignment: {min_length}")
+    
+    # Use first N atoms for alignment
+    ref_subset = ref_ca[:min_length]
+    mob_subset = mob_ca[:min_length]
+    
+    # Perform simple superimposition
+    fitted_mob_ca, transformation = struc.superimpose(ref_subset, mob_subset)
+    rmsd = struc.rmsd(ref_subset, fitted_mob_ca)
+    
+    log.warning(f"Centroid fallback alignment for {pid}: "
+               f"CA RMSD = {rmsd:.3f}Å using {min_length} atoms (may be less accurate)")
+    
+    return transformation, rmsd, min_length
+
+
+def _validate_and_select_chains(ref_prot: AtomArray, mob_prot: AtomArray, 
+                               ref_chains: Optional[List[str]], mob_chains: Optional[List[str]], 
+                               pid: str) -> Tuple[List[str], List[str]]:
+    """
+    Validate and select optimal chains for binding site alignment.
+    
+    Args:
+        ref_prot: Reference protein structure
+        mob_prot: Mobile protein structure  
+        ref_chains: Specified reference chains (from embedding data)
+        mob_chains: Specified mobile chains (from embedding data)
+        pid: PDB ID for logging
+        
+    Returns:
+        Tuple of (validated_ref_chains, validated_mob_chains)
+    """
+    if not BIOTITE_AVAILABLE:
+        return [], []
+    
+    # Get all available chains (convert to list for easier handling)
+    available_ref_chains = list(get_chains(ref_prot))
+    available_mob_chains = list(get_chains(mob_prot))
+    
+    # If chains are specified (from embedding data), validate them
+    if ref_chains and mob_chains:
+        # Validate specified chains exist
+        valid_ref_chains = [c for c in ref_chains if c in available_ref_chains]
+        valid_mob_chains = [c for c in mob_chains if c in available_mob_chains]
+        
+        if valid_ref_chains and valid_mob_chains:
+            log.info(f"Using specified binding site chains for {pid}: "
+                    f"ref={valid_ref_chains}, mob={valid_mob_chains}")
+            return valid_ref_chains, valid_mob_chains
+        else:
+            log.warning(f"Specified chains not found in {pid}, falling back to all chains")
+    
+    # Fallback to all available chains
+    if available_ref_chains and available_mob_chains:
+        log.debug(f"Using all available chains for {pid}: "
+                 f"ref={available_ref_chains}, mob={available_mob_chains}")
+        return available_ref_chains, available_mob_chains
+    
+    # No valid chains found
+    log.error(f"No valid chains found for {pid}")
+    return [], []

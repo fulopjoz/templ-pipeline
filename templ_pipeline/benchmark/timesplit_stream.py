@@ -105,6 +105,10 @@ def _worker_task(args: tuple) -> Dict:
     cfg = TimesplitConfig(**cfg_dict)
     start = time.perf_counter()
 
+    # Suppress worker logging to prevent console pollution
+    from templ_pipeline.core.benchmark_logging import suppress_worker_logging
+    suppress_worker_logging()
+
     # --------------------------------------------------------------
     # Apply per-worker memory cap (POSIX only). We use RLIMIT_AS so it
     # covers heap + mmap allocations. If unsupported we silently skip.
@@ -296,7 +300,9 @@ def run_timesplit_streaming(
 
     # Pre-load shared caches for workers
     if not quiet:
-        print(f"Pre-loading caches to share across {pool_size} workers...")
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Pre-loading caches to share across {pool_size} workers...")
     shared_cache_file = None
     shared_embedding_cache = None
 
@@ -315,15 +321,15 @@ def run_timesplit_streaming(
                 molecules, Path(cfg.results_dir)
             )
             if not quiet:
-                print(
+                logger.info(
                     f"Created shared molecule cache with {len(molecules)} molecules: {shared_cache_file}"
                 )
         else:
             if not quiet:
-                print("Warning: Failed to pre-load molecule cache")
+                logger.warning("Failed to pre-load molecule cache")
     except Exception as e:
         if not quiet:
-            print(f"Warning: Failed to pre-load molecule cache: {e}")
+            logger.warning(f"Failed to pre-load molecule cache: {e}")
 
     # 2. Pre-load embedding cache
     try:
@@ -341,15 +347,15 @@ def run_timesplit_streaming(
                 embedding_data, Path(cfg.results_dir)
             )
             if not quiet:
-                print(
+                logger.info(
                     f"Created shared embedding cache with {len(embedding_data['embedding_db'])} embeddings: {shared_embedding_cache}"
                 )
         else:
             if not quiet:
-                print("Warning: Failed to load embeddings for shared cache")
+                logger.warning("Failed to load embeddings for shared cache")
     except Exception as e:
         if not quiet:
-            print(f"Warning: Failed to pre-load embedding cache: {e}")
+            logger.warning(f"Failed to pre-load embedding cache: {e}")
 
     # Add cleanup handler
     import atexit
@@ -373,19 +379,23 @@ def run_timesplit_streaming(
         start_time = time.time()
 
         if not quiet:
-            # Show initial status
-            print(f"Processing {total_targets} targets with {pool_size} workers...")
+            # Log initial status (will go to file)
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Processing {total_targets} targets with {pool_size} workers...")
 
-            # Try to use tqdm for progress bar
+            # Try to use tqdm for progress bar with clean format
             try:
                 from tqdm import tqdm
+                from templ_pipeline.core.benchmark_logging import get_progress_bar_config
 
+                # Get clean progress bar configuration
+                progress_config = get_progress_bar_config('timesplit')
                 progress_bar = tqdm(
                     total=total_targets,
                     desc="Processing targets",
                     unit="targets",
-                    ncols=80,
-                    bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} ({percentage:3.0f}%) [{elapsed}<{remaining}, {rate_fmt}]",
+                    **progress_config
                 )
                 use_progress_bar = True
             except ImportError:
@@ -462,7 +472,7 @@ def run_timesplit_streaming(
                         or processed_count % 5 == 0
                     ):
                         progress_pct = (processed_count / total_targets) * 100
-                        print(
+                        logger.info(
                             f"Progress: {processed_count}/{total_targets} ({progress_pct:.1f}%) - {success_count} successful, {failed_count} failed"
                         )
 
@@ -475,18 +485,18 @@ def run_timesplit_streaming(
 
             # Show final summary with skip statistics
             total_time = time.time() - start_time
-            print(f"\nBenchmark completed in {total_time:.1f}s")
-            print(f"Completed: {success_count} successful, {failed_count} failed")
+            logger.info(f"Benchmark completed in {total_time:.1f}s")
+            logger.info(f"Completed: {success_count} successful, {failed_count} failed")
             
             if failed_count > 0 and skip_statistics:
-                print("\nFailure breakdown:")
+                logger.info("Failure breakdown:")
                 for reason, count in sorted(skip_statistics.items(), key=lambda x: x[1], reverse=True):
-                    print(f"  {reason}: {count} targets ({count/failed_count*100:.1f}%)")
+                    logger.info(f"  {reason}: {count} targets ({count/failed_count*100:.1f}%)")
             
-            print(f"Results saved to: {cfg.results_dir}")
-            print(f"Progress log: {progress_jsonl}")
+            logger.info(f"Results saved to: {cfg.results_dir}")
+            logger.info(f"Progress log: {progress_jsonl}")
             if failed_count == 0:
-                print("All targets processed successfully!")
+                logger.info("All targets processed successfully!")
 
     # Generate error summary report at the end (only if not quiet)
     if not quiet:
@@ -518,7 +528,9 @@ def _generate_error_summary_report(cfg: TimesplitConfig, quiet: bool = False) ->
 
         if error_report_files:
             if not quiet:
-                print(
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(
                     f"Combining error reports from {len(error_report_files)} workers..."
                 )
 
@@ -552,8 +564,8 @@ def _generate_error_summary_report(cfg: TimesplitConfig, quiet: bool = False) ->
 
                 except Exception as e:
                     if not quiet:
-                        print(
-                            f"Warning: Failed to process error report {error_file}: {e}"
+                        logger.warning(
+                            f"Failed to process error report {error_file}: {e}"
                         )
 
         # Also parse the main results JSONL for additional error information
@@ -575,7 +587,7 @@ def _generate_error_summary_report(cfg: TimesplitConfig, quiet: bool = False) ->
                                 )
             except Exception as e:
                 if not quiet:
-                    print(f"Warning: Failed to parse results JSONL: {e}")
+                    logger.warning(f"Failed to parse results JSONL: {e}")
 
         # Generate and save final combined error report
         final_report_path = combined_tracker.save_error_report(
@@ -593,18 +605,22 @@ def _generate_error_summary_report(cfg: TimesplitConfig, quiet: bool = False) ->
             with open(recovery_plan_path, "w") as f:
                 json.dump(recovery_plan, f, indent=2)
             if not quiet:
-                print(f"\nRecovery plan saved to: {recovery_plan_path}")
-                print("Recovery Plan Summary:")
+                logger.info(f"Recovery plan saved to: {recovery_plan_path}")
+                logger.info("Recovery Plan Summary:")
                 for category, pdbs in recovery_plan.items():
-                    print(f"  {category}: {len(pdbs)} PDBs")
+                    logger.info(f"  {category}: {len(pdbs)} PDBs")
 
         if not quiet:
-            print(f"\nDetailed error report: {final_report_path}")
+            logger.info(f"Detailed error report: {final_report_path}")
 
     except ImportError:
-        print("Error tracking module not available - skipping error summary")
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning("Error tracking module not available - skipping error summary")
     except Exception as e:
-        print(f"Warning: Failed to generate error summary: {e}")
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Failed to generate error summary: {e}")
 
 
 ###############################################################################
@@ -870,7 +886,9 @@ def run_timesplit_benchmark(
             target_pdbs.extend(load_timesplit_pdb_list(split))
         except Exception as exc:
             if not quiet:
-                print(f"Failed to load '{split}' split: {exc}")
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to load '{split}' split: {exc}")
             return {"success": False, "error": str(exc)}
 
     # Keep order deterministic while removing duplicates (train/val/test sets
@@ -913,7 +931,9 @@ def run_timesplit_benchmark(
 
     except Exception as e:
         if not quiet:
-            print(f"Streaming benchmark failed: {e}")
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Streaming benchmark failed: {e}")
         return {"success": False, "error": str(e)}
 
 
