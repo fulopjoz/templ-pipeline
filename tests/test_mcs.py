@@ -26,7 +26,7 @@ try:
         mmff_minimise_fixed_parallel,
         mmff_minimise_fixed_sequential,
         safe_name,
-        transform_ligand,
+        # transform_ligand,
     )
     from templ_pipeline.core.embedding import EmbeddingManager
 except ImportError:
@@ -40,7 +40,7 @@ except ImportError:
         mmff_minimise_fixed_parallel,
         mmff_minimise_fixed_sequential,
         safe_name,
-        transform_ligand,
+        # transform_ligand,
     )
     from core.embedding import EmbeddingManager
 
@@ -195,14 +195,11 @@ class TestMCS(unittest.TestCase):
             msg="Fixed atom position should not change during minimization",
         )
 
-    @patch("templ_pipeline.core.mcs.ProcessPoolExecutor")
-    def test_mmff_minimise_fixed_parallel(self, mock_executor):
+    @patch("templ_pipeline.core.mcs._mmff_minimize_single_conformer_task")
+    def test_mmff_minimise_fixed_parallel(self, mock_task):
         """Test parallel MMFF minimization with fixed atoms."""
-        # Setup mock executor to simulate parallel execution
-        mock_executor.return_value.__enter__.return_value.map.return_value = [
-            (0, [[-1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 0.0, 0.0]]),
-            (1, [[-1.1, 0.1, 0.1], [0.1, 0.1, 0.1], [1.1, 0.1, 0.1]]),
-        ]
+        # Setup mock task to return a dummy result
+        mock_task.return_value = (0, [[-1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
 
         # Create a test molecule with conformers
         mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
@@ -214,11 +211,8 @@ class TestMCS(unittest.TestCase):
         # Run the function with mocked parallel execution
         mmff_minimise_fixed_parallel(mol, conf_ids, fixed_idx=[0], n_workers=2)
 
-        # Check that map was called appropriately
-        self.assertTrue(
-            mock_executor.return_value.__enter__.return_value.map.called,
-            "ProcessPoolExecutor.map should be called in parallel minimization",
-        )
+        # Check that the task was called
+        self.assertTrue(mock_task.called, "_mmff_minimize_single_conformer_task should be called")
 
     def test_constrained_embed_valid_mcs(self):
         """Test constrained embedding with a valid MCS."""
