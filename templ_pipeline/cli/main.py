@@ -1127,8 +1127,6 @@ def benchmark_command(args):
                 log_level = "INFO"
                 
             # Suppress warnings before starting benchmark
-            from templ_pipeline.core.benchmark_logging import suppress_benchmark_warnings
-            suppress_benchmark_warnings()
             
             # Use benchmark logging context for clean terminal output
             with benchmark_logging_context(
@@ -1215,8 +1213,9 @@ def benchmark_command(args):
                 log_level = "INFO"
                 
             # Suppress warnings before starting benchmark
+            from templ_pipeline.core.benchmark_logging import suppress_benchmark_warnings
             suppress_benchmark_warnings()
-            
+
             # Use benchmark logging context for clean terminal output
             with benchmark_logging_context(
                 workspace_dir=workspace_dir,
