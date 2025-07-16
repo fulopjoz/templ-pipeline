@@ -636,6 +636,31 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: dict = N
         adaptive_conformers = n_conformers
     
     try:
+        # Check available memory before conformer generation
+        try:
+            import psutil
+            available_gb = psutil.virtual_memory().available / (1024**3)
+            
+            # Estimate memory needed: ~0.5MB per atom per conformer for large molecules
+            estimated_memory_gb = (num_atoms * adaptive_conformers * 0.5) / 1024
+            
+            if estimated_memory_gb > available_gb * 0.5:  # Use max 50% of available memory (more conservative)
+                # Reduce conformers even more aggressively
+                safe_conformers = max(5, int(available_gb * 0.5 * 1024 / (num_atoms * 0.5)))
+                safe_conformers = min(safe_conformers, adaptive_conformers)
+                log.warning(f"Memory pressure: reducing conformers from {adaptive_conformers} to {safe_conformers}")
+                log.warning(f"Molecule has {num_atoms} atoms, estimated memory: {estimated_memory_gb:.2f}GB, available: {available_gb:.2f}GB")
+                adaptive_conformers = safe_conformers
+            elif estimated_memory_gb > available_gb * 0.3:  # More aggressive scaling for medium pressure
+                # Reduce conformers by 50% for medium pressure
+                safe_conformers = max(10, adaptive_conformers // 2)
+                log.warning(f"Medium memory pressure: reducing conformers from {adaptive_conformers} to {safe_conformers}")
+                adaptive_conformers = safe_conformers
+        except ImportError:
+            log.warning("psutil not available, cannot check memory before conformer generation")
+        except Exception as e:
+            log.warning(f"Memory check failed: {e}")
+            
         # Try standard embedding with coordinate map
         if coordMap:
             cids = rdDistGeom.EmbedMultipleConfs(
@@ -852,6 +877,32 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
         
         # Enhanced error handling for conformer generation
         try:
+            # Check available memory before conformer generation
+            try:
+                import psutil
+                available_gb = psutil.virtual_memory().available / (1024**3)
+                num_atoms = target_h.GetNumAtoms()
+                
+                # Estimate memory needed: ~0.5MB per atom per conformer for large molecules
+                estimated_memory_gb = (num_atoms * n_conformers * 0.5) / 1024
+                
+                if estimated_memory_gb > available_gb * 0.5:  # Use max 50% of available memory (more conservative)
+                    # Reduce conformers adaptively
+                    safe_conformers = max(10, int(available_gb * 0.5 * 1024 / (num_atoms * 0.5)))
+                    safe_conformers = min(safe_conformers, n_conformers)
+                    log.warning(f"Reducing conformers from {n_conformers} to {safe_conformers} due to memory pressure")
+                    log.warning(f"Molecule has {num_atoms} atoms, estimated memory: {estimated_memory_gb:.2f}GB, available: {available_gb:.2f}GB")
+                    n_conformers = safe_conformers
+                elif estimated_memory_gb > available_gb * 0.3:  # More aggressive scaling for medium pressure
+                    # Reduce conformers by 50% for medium pressure
+                    safe_conformers = max(20, n_conformers // 2)
+                    log.warning(f"Medium memory pressure: reducing conformers from {n_conformers} to {safe_conformers}")
+                    n_conformers = safe_conformers
+            except ImportError:
+                log.warning("psutil not available, cannot check memory before conformer generation")
+            except Exception as e:
+                log.warning(f"Memory check failed: {e}")
+                
             r = rdDistGeom.EmbedMultipleConfs(target_h, n_conformers, ps)
         except Exception as e:
             log.error(f"RDKit EmbedMultipleConfs failed: {e}")

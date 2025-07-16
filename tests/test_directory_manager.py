@@ -10,24 +10,26 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 try:
-    from templ_pipeline.core.directory_manager import (
-        DirectoryManager,
-        TempDirectoryManager,
-        register_directory_cleanup,
-        cleanup_test_artifacts,
-        emergency_cleanup
-    )
+    # from templ_pipeline.core.directory_manager import (
+    #     DirectoryManager,
+    #     TempDirectoryManager,
+    #     register_directory_cleanup,
+    #     cleanup_test_artifacts,
+    #     emergency_cleanup
+    # )
+    pass
 except ImportError:
     import sys
     import os
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-    from templ_pipeline.core.directory_manager import (
-        DirectoryManager,
-        TempDirectoryManager,
-        register_directory_cleanup,
-        cleanup_test_artifacts,
-        emergency_cleanup
-    )
+    # from templ_pipeline.core.directory_manager import (
+    #     DirectoryManager,
+    #     TempDirectoryManager,
+    #     register_directory_cleanup,
+    #     cleanup_test_artifacts,
+    #     emergency_cleanup
+    # )
+    pass
 
 
 class TestDirectoryManager(unittest.TestCase):
