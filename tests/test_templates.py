@@ -12,12 +12,12 @@ from rdkit import Chem
 from templ_pipeline.core.templates import (
     filter_templates_by_ca_rmsd,
     get_templates_with_progressive_fallback,
-    find_best_ca_rmsd_template,
-    load_uniprot_exclude,
-    get_uniprot_mapping,
-    load_pdb_filter,
-    standardize_atom_arrays,
-    DEFAULT_CA_RMSD_FALLBACK_THRESHOLDS,
+    # find_best_ca_rmsd_template,
+    # load_uniprot_exclude,
+    # get_uniprot_mapping,
+    # load_pdb_filter,
+    # standardize_atom_arrays,
+    # DEFAULT_CA_RMSD_FALLBACK_THRESHOLDS,
 )
 
 

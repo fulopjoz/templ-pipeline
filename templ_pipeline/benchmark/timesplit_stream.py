@@ -108,6 +108,24 @@ def _worker_task(args: tuple) -> Dict:
     # Suppress worker logging to prevent console pollution
     from templ_pipeline.core.benchmark_logging import suppress_worker_logging
     suppress_worker_logging()
+    
+    # Set up timeout signal handler (Unix only)
+    import signal
+    # Use maximum timeout of 5 minutes (300s) to prevent extreme outliers
+    # while keeping the configured timeout for most targets
+    max_timeout = 300  # 5 minutes maximum per target
+    timeout_seconds = min(cfg.timeout, max_timeout)
+    
+    def timeout_handler(signum, frame):
+        raise TimeoutError(f"Worker task for {target_pdb} exceeded {timeout_seconds}s timeout (max: {max_timeout}s)")
+    
+    # Set signal handler for timeout
+    try:
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(timeout_seconds)
+    except (AttributeError, ValueError):
+        # signal.alarm not available on Windows or in some environments
+        pass
 
     # --------------------------------------------------------------
     # Apply per-worker memory cap (POSIX only). We use RLIMIT_AS so it
@@ -119,7 +137,11 @@ def _worker_task(args: tuple) -> Dict:
 
         per_worker_limit = cfg_dict.get("per_worker_ram_gb", 4.0)
         bytes_limit = int(math.ceil(per_worker_limit * 1024**3))
-        resource.setrlimit(resource.RLIMIT_AS, (bytes_limit, bytes_limit))
+        
+        # Set memory limit with some buffer for system overhead
+        # Use soft limit = 90% of requested, hard limit = 100%
+        soft_limit = int(bytes_limit * 0.9)
+        resource.setrlimit(resource.RLIMIT_AS, (soft_limit, bytes_limit))
 
         if per_worker_limit < 3.0:
             import warnings
@@ -180,14 +202,70 @@ def _worker_task(args: tuple) -> Dict:
         result["target_split"] = target_split
         result["exclusions_count"] = len(effective_exclusions)
         result["runtime_total"] = time.perf_counter() - start
+        result["is_retry"] = cfg_dict.get("is_retry", False)
+        
+        # Clear timeout alarm on successful completion
+        try:
+            signal.alarm(0)
+        except (AttributeError, ValueError):
+            pass
+        
+        # Force garbage collection to prevent memory leaks
+        import gc
+        gc.collect()
+        
         return result
 
+    except MemoryError as exc:  # Handle memory allocation errors specifically
+        import psutil
+        try:
+            mem_info = psutil.virtual_memory()
+            mem_msg = f"Memory allocation failed. Available: {mem_info.available/1024**3:.1f}GB, Used: {mem_info.percent:.1f}%"
+        except:
+            mem_msg = "Memory allocation failed"
+        
+        # Force garbage collection after memory error
+        import gc
+        gc.collect()
+        
+        return {
+            "success": False,
+            "error": f"MemoryError: {mem_msg}. Original error: {str(exc)}",
+            "error_type": "memory_error",
+            "pdb_id": target_pdb,
+            "runtime_total": time.perf_counter() - start,
+            "is_retry": cfg_dict.get("is_retry", False),
+        }
+    except TimeoutError as exc:  # Handle timeout errors specifically
+        # Clear timeout alarm
+        try:
+            signal.alarm(0)
+        except (AttributeError, ValueError):
+            pass
+        
+        # Force garbage collection after timeout
+        import gc
+        gc.collect()
+        
+        return {
+            "success": False,
+            "error": f"TimeoutError: {str(exc)}",
+            "error_type": "timeout_error",
+            "pdb_id": target_pdb,
+            "runtime_total": time.perf_counter() - start,
+            "is_retry": cfg_dict.get("is_retry", False),
+        }
     except Exception as exc:  # pragma: no cover – wide net to ensure robustness
+        # Force garbage collection after any error
+        import gc
+        gc.collect()
+        
         return {
             "success": False,
             "error": str(exc),
             "pdb_id": target_pdb,
             "runtime_total": time.perf_counter() - start,
+            "is_retry": cfg_dict.get("is_retry", False),
         }
 
 
@@ -294,6 +372,11 @@ def run_timesplit_streaming(
             return cfg_.max_workers
 
         ram_limited = max(1, int(avail_gb // cfg_.memory_per_worker_gb))
+        
+        # Add memory pressure detection - if less than 2GB available, be more conservative
+        if avail_gb < 2.0:
+            ram_limited = max(1, ram_limited // 2)  # Halve workers if memory pressure
+            
         return max(1, min(cfg_.max_workers, os.cpu_count() or 2, ram_limited))
 
     pool_size = _compute_pool_size(cfg)
@@ -406,7 +489,46 @@ def run_timesplit_streaming(
             use_progress_bar = False
             progress_bar = None
 
-        for result in pool.imap_unordered(_worker_task, tasks_iter):
+        # Use imap_unordered with retry logic for failed workers
+        initial_tasks = [(pdb_id, cfg_dict) for pdb_id in cfg.target_pdbs]
+        retry_tasks = []
+        
+        # Process all initial tasks
+        result_iter = pool.imap_unordered(_worker_task, initial_tasks)
+        
+        for result in result_iter:
+            # Check for memory errors and queue for retry with lower memory
+            if not result.get("success") and result.get("error_type") == "memory_error":
+                pdb_id = result.get("pdb_id")
+                if pdb_id and not result.get("is_retry", False):  # Only retry once
+                    # Create retry config with 50% memory limit
+                    retry_cfg_dict = cfg_dict.copy()
+                    retry_cfg_dict["per_worker_ram_gb"] = cfg_dict.get("per_worker_ram_gb", 4.0) * 0.5
+                    retry_cfg_dict["is_retry"] = True
+                    retry_tasks.append((pdb_id, retry_cfg_dict))
+                    
+                    if not quiet:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.info(f"Memory error for {pdb_id} - will retry with {retry_cfg_dict['per_worker_ram_gb']:.1f}GB limit")
+                else:
+                    if not quiet:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.warning(f"Memory error for {result.get('pdb_id', 'unknown')} - retry failed, skipping")
+            
+            # Check for timeout errors and track problematic targets
+            if not result.get("success") and result.get("error_type") == "timeout_error":
+                pdb_id = result.get("pdb_id")
+                if not quiet:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Timeout error for {pdb_id}: {result.get('error', 'Unknown error')}")
+                    logger.warning("Consider reducing --timeout to avoid hanging tasks")
+                
+                # Track problematic targets that consistently timeout
+                skip_statistics["timeout_targets"] = skip_statistics.get("timeout_targets", 0) + 1
+            
             # Append to JSONL
             with output_jsonl.open("a", encoding="utf-8") as fh:
                 json.dump(result, fh)
@@ -477,6 +599,42 @@ def run_timesplit_streaming(
                         )
 
             _maybe_throttle(pool, cfg)
+
+        # Process retry tasks if any
+        if retry_tasks:
+            if not quiet:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"Processing {len(retry_tasks)} failed targets with reduced memory limits...")
+            
+            # Update progress bar total if needed
+            if use_progress_bar and progress_bar:
+                progress_bar.total += len(retry_tasks)
+                progress_bar.refresh()
+            
+            # Process retry tasks
+            retry_result_iter = pool.imap_unordered(_worker_task, retry_tasks)
+            for result in retry_result_iter:
+                processed_count += 1
+                if result.get("success"):
+                    success_count += 1
+                else:
+                    failed_count += 1
+                
+                # Append retry results to JSONL
+                with output_jsonl.open("a", encoding="utf-8") as fh:
+                    json.dump(result, fh)
+                    fh.write("\n")
+                
+                # Update progress display for retries
+                if not quiet:
+                    if use_progress_bar and progress_bar:
+                        progress_bar.update(1)
+                
+                # Log final retry failures
+                if not result.get("success"):
+                    if not quiet:
+                        logger.warning(f"Retry failed for {result.get('pdb_id', 'unknown')}: {result.get('error', 'Unknown error')}")
 
         # Close progress bar and show summary
         if not quiet:
