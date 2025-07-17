@@ -406,9 +406,18 @@ def rmsd_raw(a: Chem.Mol, b: Chem.Mol) -> float:
         return float("nan")
 
     try:
+        # Ensure both molecules are processed consistently
+        a_clean = Chem.RemoveHs(a)
+        b_clean = Chem.RemoveHs(b)
+        
+        # Check if molecules have the same number of atoms
+        if a_clean.GetNumAtoms() != b_clean.GetNumAtoms():
+            logger.debug(f"RMSD skipped: atom count mismatch ({a_clean.GetNumAtoms()} vs {b_clean.GetNumAtoms()})")
+            return float("nan")
+        
         return rmsdwrapper(
-            Molecule.from_rdkit(a),
-            Molecule.from_rdkit(b),
+            Molecule.from_rdkit(a_clean),
+            Molecule.from_rdkit(b_clean),
             minimize=False,
             strip=True,
             symmetry=True,
@@ -416,7 +425,7 @@ def rmsd_raw(a: Chem.Mol, b: Chem.Mol) -> float:
     except AssertionError:
         return float("nan")
     except Exception as e:
-        logger.error(f"RMSD calculation error: {str(e)}")
+        logger.debug(f"RMSD calculation error: {str(e)}")
         return float("nan")
 
 
@@ -835,151 +844,164 @@ def select_best(
         batch_size = min(30, n_confs)  # Conservative batch size for small sets
     all_results = []
 
-    for batch_start in range(0, n_confs, batch_size):
-        batch_end = min(batch_start + batch_size, n_confs)
-        batch_conf_ids = list(range(batch_start, batch_end))
-
-        logger.debug(
-            f"Processing batch {batch_start//batch_size + 1}: conformers {batch_start}-{batch_end-1}"
-        )
-
-        # Prepare arguments for this batch
-        args_list = []
-        for conf_id in batch_conf_ids:
+    # Create single process pool for all batches (performance optimization)
+    executor = None
+    if n_workers > 1:
+        try:
+            # Import thread monitoring functions (optional)
             try:
-                # Validate input molecules before processing
-                if confs is None or tpl is None:
-                    logger.warning(f"Invalid input molecules for conformer {conf_id}")
-                    continue
+                from .thread_manager import log_thread_status
+                # Log thread status before creating executor
+                log_thread_status("before_scoring_processing")
+            except ImportError:
+                # Thread monitoring not available, continue without it
+                pass
+            
+            executor = _get_executor_for_context(n_workers)
+            logger.debug(f"Created single process pool for all {n_confs} conformers")
+        except Exception as e:
+            logger.warning(f"Failed to create process pool: {e}, using sequential processing")
+            executor = None
 
-                if conf_id >= confs.GetNumConformers():
-                    logger.warning(
-                        f"Conformer {conf_id} doesn't exist (total: {confs.GetNumConformers()})"
-                    )
-                    continue
+    try:
+        for batch_start in range(0, n_confs, batch_size):
+            batch_end = min(batch_start + batch_size, n_confs)
+            batch_conf_ids = list(range(batch_start, batch_end))
 
-                # Create independent copy of conformer with enhanced validation
-                conf_mol = FixedMolecularProcessor.create_independent_copy(confs)
+            logger.debug(
+                f"Processing batch {batch_start//batch_size + 1}: conformers {batch_start}-{batch_end-1}"
+            )
 
-                if conf_mol is None:
-                    logger.warning(
-                        f"Failed to copy molecule for conformer {conf_id}, trying direct approach"
-                    )
-                    # Fallback: create a new molecule from SMILES if available
+            # Prepare arguments for this batch
+            args_list = []
+            for conf_id in batch_conf_ids:
+                try:
+                    # Validate input molecules before processing
+                    if confs is None or tpl is None:
+                        logger.warning(f"Invalid input molecules for conformer {conf_id}")
+                        continue
+
+                    if conf_id >= confs.GetNumConformers():
+                        logger.warning(
+                            f"Conformer {conf_id} doesn't exist (total: {confs.GetNumConformers()})"
+                        )
+                        continue
+
+                    # Create independent copy of conformer with enhanced validation
+                    conf_mol = FixedMolecularProcessor.create_independent_copy(confs)
+
+                    if conf_mol is None:
+                        logger.warning(
+                            f"Failed to copy molecule for conformer {conf_id}, trying direct approach"
+                        )
+                        # Fallback: create a new molecule from SMILES if available
+                        try:
+                            smiles = Chem.MolToSmiles(confs)
+                            conf_mol = Chem.MolFromSmiles(smiles)
+                            if conf_mol is None:
+                                raise Exception("SMILES conversion failed")
+                        except Exception as smiles_err:
+                            logger.warning(
+                                f"SMILES fallback failed for conformer {conf_id}: {smiles_err}"
+                            )
+                            continue
+
+                    # Keep only this conformer with robust error handling
                     try:
-                        smiles = Chem.MolToSmiles(confs)
-                        conf_mol = Chem.MolFromSmiles(smiles)
-                        if conf_mol is None:
-                            raise Exception("SMILES conversion failed")
-                    except Exception as smiles_err:
+                        temp_mol = Chem.RWMol(conf_mol)
+                        temp_mol.RemoveAllConformers()
+
+                        # Validate conformer exists before accessing
+                        if conf_id < confs.GetNumConformers():
+                            conf = confs.GetConformer(conf_id)
+                            new_conf = Chem.Conformer(conf)
+                            temp_mol.AddConformer(new_conf, assignId=True)
+                        else:
+                            logger.warning(f"Conformer {conf_id} index out of range")
+                            continue
+
+                        # Validate the result has a conformer
+                        if temp_mol.GetNumConformers() == 0:
+                            logger.warning(
+                                f"No conformers after processing conformer {conf_id}"
+                            )
+                            continue
+
+                        args_list.append((temp_mol, tpl, conf_id, no_realign))
+
+                    except Exception as conf_err:
                         logger.warning(
-                            f"SMILES fallback failed for conformer {conf_id}: {smiles_err}"
+                            f"Conformer processing failed for {conf_id}: {conf_err}"
                         )
                         continue
 
-                # Keep only this conformer with robust error handling
-                try:
-                    temp_mol = Chem.RWMol(conf_mol)
-                    temp_mol.RemoveAllConformers()
+                except Exception as e:
+                    logger.warning(f"Failed to prepare conformer {conf_id}: {e}")
+                    import traceback
 
-                    # Validate conformer exists before accessing
-                    if conf_id < confs.GetNumConformers():
-                        conf = confs.GetConformer(conf_id)
-                        new_conf = Chem.Conformer(conf)
-                        temp_mol.AddConformer(new_conf, assignId=True)
-                    else:
-                        logger.warning(f"Conformer {conf_id} index out of range")
-                        continue
-
-                    # Validate the result has a conformer
-                    if temp_mol.GetNumConformers() == 0:
-                        logger.warning(
-                            f"No conformers after processing conformer {conf_id}"
-                        )
-                        continue
-
-                    args_list.append((temp_mol, tpl, conf_id, no_realign))
-
-                except Exception as conf_err:
-                    logger.warning(
-                        f"Conformer processing failed for {conf_id}: {conf_err}"
+                    logger.debug(
+                        f"Conformer preparation traceback: {traceback.format_exc()}"
                     )
                     continue
 
-            except Exception as e:
-                logger.warning(f"Failed to prepare conformer {conf_id}: {e}")
-                import traceback
-
-                logger.debug(
-                    f"Conformer preparation traceback: {traceback.format_exc()}"
-                )
-                continue
-
-        # Process this batch
-        if n_workers > 1 and len(args_list) > 1:
-            try:
-                # Import thread monitoring functions (optional)
+            # Process this batch using the persistent executor
+            if executor and len(args_list) > 1:
                 try:
-                    from .thread_manager import log_thread_status
-                    # Log thread status before creating executor
-                    log_thread_status("before_batch_processing")
-                except ImportError:
-                    # Thread monitoring not available, continue without it
-                    pass
-                
-                with _get_executor_for_context(
-                    min(n_workers, len(args_list))
-                ) as executor:
                     batch_results = list(executor.map(_score_and_align_task, args_list))
-                
-                # Log thread status after executor cleanup (optional)
-                try:
-                    from .thread_manager import log_thread_status
-                    log_thread_status("after_batch_processing")
-                except ImportError:
-                    # Thread monitoring not available, continue without it
-                    pass
-                
-            except Exception as e:
-                logger.warning(f"Parallel processing failed: {e}, falling back to sequential")
+                    logger.debug(f"Processed batch with {len(args_list)} conformers using persistent pool")
+                except Exception as e:
+                    logger.warning(f"Parallel processing failed: {e}, falling back to sequential")
+                    batch_results = [_score_and_align_task(args) for args in args_list]
+            else:
                 batch_results = [_score_and_align_task(args) for args in args_list]
-        else:
-            batch_results = [_score_and_align_task(args) for args in args_list]
+                logger.debug(f"Processed batch with {len(args_list)} conformers sequentially")
 
-        # Filter valid results and add to overall results with enhanced validation
-        for result in batch_results:
-            if result is not None:
-                try:
-                    # Validate result structure
-                    if len(result) == 3:
-                        conf_id, scores, mol = result
+            # Filter valid results and add to overall results with enhanced validation
+            for result in batch_results:
+                if result is not None:
+                    try:
+                        # Validate result structure
+                        if len(result) == 3:
+                            conf_id, scores, mol = result
 
-                        # Validate scores
-                        if isinstance(scores, dict) and all(
-                            metric in scores for metric in ["shape", "color", "combo"]
-                        ):
-                            # Validate molecule
-                            if mol is not None and isinstance(mol, Chem.Mol):
-                                all_results.append(result)
+                            # Validate scores
+                            if isinstance(scores, dict) and all(
+                                metric in scores for metric in ["shape", "color", "combo"]
+                            ):
+                                # Validate molecule
+                                if mol is not None and isinstance(mol, Chem.Mol):
+                                    all_results.append(result)
+                                else:
+                                    logger.warning(
+                                        f"Invalid molecule in result for conformer {conf_id}"
+                                    )
                             else:
                                 logger.warning(
-                                    f"Invalid molecule in result for conformer {conf_id}"
+                                    f"Invalid scores in result for conformer {conf_id}: {scores}"
                                 )
                         else:
-                            logger.warning(
-                                f"Invalid scores in result for conformer {conf_id}: {scores}"
-                            )
-                    else:
-                        logger.warning(f"Invalid result structure: {result}")
-                except Exception as e:
-                    logger.warning(f"Error validating batch result: {e}")
-                    continue
+                            logger.warning(f"Invalid result structure: {result}")
+                    except Exception as e:
+                        logger.warning(f"Error validating batch result: {e}")
+                        continue
 
-        # Force cleanup after each batch
-        del args_list, batch_results
-        cleanup_memory()
+            # Force cleanup after each batch
+            del args_list, batch_results
+            cleanup_memory()
 
-        logger.debug(f"Batch complete, {len(all_results)} total valid results so far")
+            logger.debug(f"Batch complete, {len(all_results)} total valid results so far")
+
+    finally:
+        # Clean up the persistent executor
+        if executor:
+            try:
+                if hasattr(executor, 'close'):
+                    executor.close()
+                if hasattr(executor, 'join'):
+                    executor.join()
+                logger.debug("Persistent process pool cleaned up successfully")
+            except Exception as e:
+                logger.warning(f"Error cleaning up persistent process pool: {e}")
 
     if not all_results:
         logger.warning("No valid scoring results obtained")
