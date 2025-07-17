@@ -42,8 +42,8 @@ class PipelineService:
         """Initialize unified workspace manager for the session"""
         try:
             # Import workspace manager
-            from templ_pipeline.core.unified_workspace_manager import (
-                UnifiedWorkspaceManager, 
+            from templ_pipeline.core.workspace_manager import (
+                WorkspaceManager, 
                 WorkspaceConfig
             )
             
@@ -62,7 +62,7 @@ class PipelineService:
                 self.session.set("session_id", session_id)
             
             # Create workspace manager
-            self.workspace_manager = UnifiedWorkspaceManager(
+            self.workspace_manager = WorkspaceManager(
                 run_id=f"ui_{session_id}",
                 config=workspace_config
             )
@@ -74,7 +74,7 @@ class PipelineService:
             logger.info(f"Initialized workspace manager: {self.workspace_manager.run_dir}")
             
         except ImportError:
-            logger.warning("UnifiedWorkspaceManager not available, using legacy file handling")
+            logger.warning("WorkspaceManager not available, using legacy file handling")
             self.workspace_manager = None
         except Exception as e:
             logger.warning(f"Failed to initialize workspace manager: {e}")
@@ -334,29 +334,17 @@ class PipelineService:
         if progress_callback:
             progress_callback("Processing custom templates...", 40)
 
-        query_mol = self.pipeline.prepare_query_molecule(ligand_smiles=smiles)
-
-        if progress_callback:
-            progress_callback("Generating conformers...", 60)
-
-        pose_results = self.pipeline.generate_poses(
-            query_mol=query_mol,
-            template_mols=custom_templates,
-            num_conformers=200,
-            n_workers=4,
-            use_aligned_poses=True,
-        )
-
-        if progress_callback:
-            progress_callback("Scoring poses...", 80)
-
-        # Format results
-        if isinstance(pose_results, dict) and "poses" in pose_results:
-            results = pose_results
-        else:
-            results = {"poses": pose_results}
-
-        return self._format_pipeline_results(results, query_mol, user_settings)
+        # For custom templates, we need to use the pipeline's individual methods
+        # since run_full_pipeline doesn't support custom templates directly
+        logger.info("Custom template pipeline not fully implemented yet")
+        
+        # For now, return an error indicating this feature needs implementation
+        return {
+            "success": False,
+            "error": "Custom template pipeline not yet implemented",
+            "poses": {},
+            "template_info": {}
+        }
 
     def _run_uploaded_pdb_pipeline(
         self,
@@ -371,71 +359,18 @@ class PipelineService:
         if progress_callback:
             progress_callback("Generating protein embedding...", 35)
 
-        # Generate embedding for the uploaded protein
+        # Use run_full_pipeline with the uploaded PDB file
         try:
-            # Resolve chain selection from user settings
-            target_chain = self._resolve_chain_selection(
-                user_settings["chain_selection"]
-            )
-            embedding, chain_id = self.pipeline.generate_embedding(
-                pdb_file, chain=target_chain
-            )
-            logger.info(f"Generated embedding for chain {chain_id}")
-
-            if progress_callback:
-                progress_callback("Searching for similar proteins...", 45)
-
-            # Find similar templates using KNN
-            templates = self.pipeline.find_templates(
-                protein_embedding=embedding,
+            results = self.pipeline.run_full_pipeline(
+                protein_file=pdb_file,
+                ligand_smiles=smiles,
                 num_templates=user_settings["knn_threshold"],
+                num_conformers=200,
+                n_workers=4,
                 similarity_threshold=user_settings["similarity_threshold"],
-                allow_self_as_template=False,
             )
 
-            if not templates:
-                # Safe streamlit call
-                try:
-                    import streamlit as st
-
-                    if hasattr(st, "warning"):
-                        st.warning("No similar proteins found in database")
-                        st.info(
-                            "Consider uploading custom template molecules instead"
-                        )
-                except:
-                    logger.warning("No similar proteins found in database")
-                return None
-
-            logger.info(f"Found {len(templates)} similar templates")
-
-            # Safe streamlit calls for showing results
-            try:
-                import streamlit as st
-
-                if hasattr(st, "success"):
-                    st.success(f"Found {len(templates)} similar protein structures")
-
-                    # Show top templates
-                    with st.expander("Top similar proteins", expanded=False):
-                        for i, (pdb_id, similarity) in enumerate(templates[:5]):
-                            st.write(
-                                f"{i+1}. **{pdb_id.upper()}** (similarity: {similarity:.3f})"
-                            )
-            except:
-                # Just log if streamlit is not available
-                logger.info(
-                    f"Top 5 similar proteins: {[(p, f'{s:.3f}') for p, s in templates[:5]]}"
-                )
-
-            if progress_callback:
-                progress_callback("Loading template molecules...", 55)
-
-            # Continue with full pipeline
-            return self._run_full_pipeline_with_templates(
-                smiles, templates, embedding, chain_id, progress_callback, user_settings,
-                target_protein_file=pdb_file, target_protein_pdb_id=None
-            )
+            return self._format_pipeline_results(results, user_settings)
 
         except Exception as e:
             logger.error(f"Failed to process uploaded PDB file: {e}")
@@ -471,7 +406,6 @@ class PipelineService:
             num_templates=user_settings["knn_threshold"],
             num_conformers=200,
             n_workers=4,
-            use_aligned_poses=True,
         )
 
         return self._format_pipeline_results(results, user_settings)
@@ -487,57 +421,14 @@ class PipelineService:
         target_protein_file: Optional[str] = None,
         target_protein_pdb_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Continue full pipeline after finding templates"""
-
-        # Load template molecules
-        template_pdbs = [t[0] for t in templates]
-        template_mols = self.pipeline.load_template_molecules(template_pdbs)
-
-        if not template_mols:
-            raise RuntimeError("Failed to load template molecules")
-
-        if progress_callback:
-            progress_callback("Preparing query molecule...", 65)
-
-        # Prepare query molecule
-        query_mol = self.pipeline.prepare_query_molecule(ligand_smiles=smiles)
-
-        if progress_callback:
-            progress_callback("Generating poses...", 75)
-
-        # Generate poses with protein alignment
-        pose_results = self.pipeline.generate_poses(
-            query_mol,
-            template_mols,
-            num_conformers=200,
-            n_workers=4,
-            use_aligned_poses=True,
-            target_protein_file=target_protein_file,
-            target_protein_pdb_id=target_protein_pdb_id,
-            target_chain_id=chain_id,
-            template_pdbs=template_pdbs,
-            template_similarities=[t[1] for t in templates] if templates else None,
-        )
-
-        if progress_callback:
-            progress_callback("Finalizing results...", 90)
-
-        # Format results
-        if isinstance(pose_results, dict):
-            results = {
-                "poses": pose_results["poses"],
-                "mcs_info": pose_results.get("mcs_info"),
-                "all_ranked_poses": pose_results.get("all_ranked_poses"),
-                "alignment_used": pose_results.get("alignment_used", True),
-                "templates": templates,
-                "template_molecules": template_mols,
-                "embedding": embedding,
-                "chain_id": chain_id,
-            }
-        else:
-            results = {"poses": pose_results}
-
-        return self._format_pipeline_results(results, query_mol, user_settings)
+        """Continue full pipeline after finding templates - NOT IMPLEMENTED"""
+        logger.warning("_run_full_pipeline_with_templates method not implemented")
+        return {
+            "success": False,
+            "error": "Template-based pipeline not yet implemented",
+            "poses": {},
+            "template_info": {}
+        }
 
     def _format_pipeline_results(
         self,

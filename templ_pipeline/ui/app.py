@@ -35,70 +35,156 @@ def handle_health_check():
 
     # Check for health check endpoints
     if query_params.get("health") == "check" or query_params.get("healthz") is not None:
-        st.write("OK")
+        logger.info("Health check requested")
+        
+        # Perform basic health checks
+        health_status = {
+            "status": "healthy",
+            "timestamp": str(Path(__file__).stat().st_mtime),
+            "python_version": sys.version,
+            "working_directory": str(Path.cwd()),
+        }
+        
+        # Check critical imports
+        try:
+            from templ_pipeline.ui.config.settings import get_config
+            health_status["config_import"] = "✅ OK"
+        except ImportError as e:
+            health_status["config_import"] = f"❌ FAIL: {e}"
+            health_status["status"] = "unhealthy"
+        
+        try:
+            from templ_pipeline.ui.core.session_manager import get_session_manager
+            health_status["session_manager_import"] = "✅ OK"
+        except ImportError as e:
+            health_status["session_manager_import"] = f"❌ FAIL: {e}"
+            health_status["status"] = "unhealthy"
+        
+        if health_status["status"] == "healthy":
+            st.success("✅ TEMPL Pipeline Health Check: OK")
+        else:
+            st.error("❌ TEMPL Pipeline Health Check: FAILED")
+            
+        st.json(health_status)
         st.stop()
 
 
 def initialize_app():
-    """Initialize application configuration and core services"""
-    # Get configuration
-    config = get_config()
-
-    # Configure Streamlit page
+    """Initialize application configuration and core services with comprehensive error handling"""
     try:
-        st.set_page_config(**config.page_config)
-    except st.errors.StreamlitAPIException:
-        # Page already configured (on rerun)
-        pass
+        logger.info("Starting application initialization...")
+        
+        # Get configuration
+        logger.info("Loading configuration...")
+        config = get_config()
+        logger.info(f"Configuration loaded successfully: {config.app_version}")
 
-    # Get session manager
-    session = get_session_manager(config)
+        # Configure Streamlit page
+        try:
+            logger.info("Setting up Streamlit page configuration...")
+            st.set_page_config(**config.page_config)
+            logger.info("Streamlit page configuration set successfully")
+        except st.errors.StreamlitAPIException as e:
+            # Page already configured (on rerun)
+            logger.info(f"Page already configured: {e}")
+            pass
 
-    # Initialize session state
-    session.initialize()
+        # Get session manager
+        logger.info("Initializing session manager...")
+        session = get_session_manager(config)
+        logger.info("Session manager created successfully")
 
-    # Initialize hardware detection (cached)
-    hardware_manager = get_hardware_manager()
-    hardware_info = hardware_manager.detect_hardware()
-    session.set("hardware_info", hardware_info)
+        # Initialize session state
+        logger.info("Initializing session state...")
+        session.initialize()
+        logger.info("Session state initialized successfully")
 
-    # Log initialization
-    if not session.get("initialization_logged", False):
-        logger.info(f"TEMPL Pipeline v{config.app_version} initialized")
-        logger.info(f"Hardware: {hardware_info.recommended_config}")
-        logger.info(f"Features: {config.features}")
-        session.set("initialization_logged", True)
+        # Initialize hardware detection (cached)
+        logger.info("Detecting hardware configuration...")
+        hardware_manager = get_hardware_manager()
+        hardware_info = hardware_manager.detect_hardware()
+        session.set("hardware_info", hardware_info)
+        logger.info(f"Hardware detection completed: {hardware_info.recommended_config}")
 
-    return config, session
+        # Log initialization
+        if not session.get("initialization_logged", False):
+            logger.info(f"TEMPL Pipeline v{config.app_version} initialized")
+            logger.info(f"Hardware: {hardware_info.recommended_config}")
+            logger.info(f"Features: {config.features}")
+            session.set("initialization_logged", True)
+
+        logger.info("Application initialization completed successfully")
+        return config, session
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize application: {e}", exc_info=True)
+        
+        # Display detailed error information
+        st.error("Application Initialization Failed")
+        st.error(f"Error: {str(e)}")
+        
+        with st.expander("Detailed Error Information", expanded=True):
+            st.code(traceback.format_exc())
+            
+            # Show import status
+            st.subheader("Import Status Check")
+            imports_to_check = [
+                "templ_pipeline.ui.config.settings",
+                "templ_pipeline.ui.core.session_manager", 
+                "templ_pipeline.ui.core.hardware_manager",
+                "templ_pipeline.ui.layouts.main_layout"
+            ]
+            
+            for import_name in imports_to_check:
+                try:
+                    __import__(import_name)
+                    st.success(f"{import_name}")
+                except ImportError as ie:
+                    st.error(f"{import_name}: {ie}")
+                    
+        # Allow user to continue with basic functionality
+        st.info("You can try refreshing the page or check the server logs for more details.")
+        
+        raise
 
 
 def main():
-    """Main application entry point"""
     try:
-        # Add debug marker
-        st.session_state._debug_marker = "app_v2_main_started"
-        logger.info("Main function started")
+        st.set_page_config(
+            # page_title="TEMPL Pipeline",
+            page_icon="🧬",
+            layout="wide",
+            initial_sidebar_state="expanded"
+        )
+        with st.spinner("Initializing TEMPL Pipeline..."):
+            # Add debug marker
+            st.session_state._debug_marker = "app_v2_main_started"
+            logger.info("Main function started")
 
-        # Handle health checks first
-        handle_health_check()
+            # Handle health checks first
+            logger.info("Handling health checks...")
+            handle_health_check()
 
-        # Initialize application
-        logger.info("Initializing application...")
-        config, session = initialize_app()
-        logger.info("Application initialized successfully")
+            # Initialize application
+            logger.info("Initializing application...")
+            config, session = initialize_app()
+            
+            logger.info("Application initialized successfully")
 
-        # Debug: Log session state
-        logger.info(f"Session has_results: {session.has_results()}")
-        logger.info(f"Session has_valid_input: {session.has_valid_input()}")
+            # Debug: Log session state
+            logger.info(f"Session has_results: {session.has_results()}")
+            logger.info(f"Session has_valid_input: {session.has_valid_input()}")
 
-        # Create layout components
-        logger.info("Creating main layout...")
-        layout = MainLayout(config, session)
+            # Create layout components
+            logger.info("Creating main layout...")
+            layout = MainLayout(config, session)
+            logger.info("Main layout created successfully")
 
-        layout.render()
+            # Render the layout
+            logger.info("Rendering main layout...")
+            layout.render()
 
-        logger.info("Main function completed successfully")
-
+            logger.info("Main function completed successfully")
     except Exception as e:
         logger.error(f"Application error: {e}", exc_info=True)
 
@@ -114,13 +200,18 @@ def main():
             )
 
         # Show error page with more details
-        st.error("An unexpected error occurred")
+        st.error("TEMPL Pipeline Application Error")
+        st.error(f"**Error Type**: {type(e).__name__}")
+        st.error(f"**Error Message**: {str(e)}")
 
-        # Show the actual error message
-        st.error(f"Error: {str(e)}")
-
-        with st.expander("Full Error Details", expanded=True):
+        with st.expander("📋 Full Error Details", expanded=True):
             st.code(traceback.format_exc())
+
+            # Show environment information
+            st.subheader("Environment Information")
+            st.write(f"**Python Version**: {sys.version}")
+            st.write(f"**Working Directory**: {Path.cwd()}")
+            st.write(f"**Python Path**: {sys.path[:3]}...")
 
             # Show session state for debugging
             st.subheader("Session State Debug Info")
@@ -156,6 +247,7 @@ def main():
                 if st.button("Restart Application"):
                     st.cache_data.clear()
                     st.cache_resource.clear()
+                    st.rerun()
 
             with col2:
                 if st.button("Clear Session Only"):
@@ -169,6 +261,13 @@ def main():
                     error_info = f"Error: {str(e)}\n\n{traceback.format_exc()}"
                     st.code(error_info)
                     st.info("Copy the error information above")
+
+        # Show helpful suggestions
+        st.subheader("Troubleshooting Suggestions")
+        st.info("1. Try refreshing the page (Ctrl+F5)")
+        st.info("2. Check the server logs for more details")
+        st.info("3. Ensure all required dependencies are installed")
+        st.info("4. Verify the TEMPL data files are accessible")
 
 
 # Compatibility layer for backward compatibility and testing

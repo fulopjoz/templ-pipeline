@@ -97,7 +97,7 @@ Commands by Workflow:
 
 FULL PIPELINE (Most Common):
   templ run --protein-file protein.pdb --ligand-smiles "SMILES_STRING"
-  templ run --protein-pdb-id 1iky --ligand-file ligand.sdf
+  templ run --protein-pdb-id 2hyy --ligand-file ligand.sdf
 
 STEP-BY-STEP WORKFLOW:
   1. Generate embedding:     templ embed --protein-file protein.pdb
@@ -142,6 +142,8 @@ run - Full pipeline execution
     --num-conformers INT      Conformers to generate (default: 100)
     --workers INT             Parallel workers (default: auto-detect)
     --run-id STR             Custom identifier (default: timestamp)
+    --no-realign             Use raw conformers (no shape alignment)
+    --enable-optimization    Enable force field optimization (disabled by default)
 
 embed - Generate protein embeddings
   --protein-file PATH       Protein PDB file (required)
@@ -236,7 +238,7 @@ Installation Check:
 
 Basic Workflow:
   1. Prepare your files:
-     - Protein: .pdb file or PDB ID (e.g., "1iky")
+     - Protein: .pdb file or PDB ID (e.g., "2hyy")
      - Ligand: SMILES string or .sdf file
 
   2. Run prediction:
@@ -295,8 +297,8 @@ Troubleshooting Setup:
   templ benchmark polaris --quick --verbose  # Diagnostic run
 """,
                 examples=[
-                    'templ run --protein-file examples/1iky_protein.pdb --ligand-smiles "COc1ccc(C(C)=O)c(O)c1[C@H]1C[C@H]1NC(=S)Nc1ccc(C#N)cn1"',
-                    "templ run --protein-pdb-id 1iky --ligand-file examples/ligand.sdf --workers 4",
+                    'templ run --protein-file examples/2hyy_protein.pdb --ligand-smiles "COc1ccc(C(C)=O)c(O)c1[C@H]1C[C@H]1NC(=S)Nc1ccc(C#N)cn1"',
+                    "templ run --protein-pdb-id 2hyy --ligand-file examples/ligand.sdf --workers 4",
                 ],
             ),
             HelpTopic.EXAMPLES: HelpContent(
@@ -307,10 +309,13 @@ Simple pose prediction:
   templ run --protein-file protein.pdb --ligand-smiles "CCO"
 
 Using PDB ID instead of file:
-  templ run --protein-pdb-id 1iky --ligand-smiles "CCO"
+  templ run --protein-pdb-id 2hyy --ligand-smiles "CCO"
 
 Using SDF file for ligand:
   templ run --protein-file protein.pdb --ligand-file ligand.sdf
+
+With optimization enabled:
+  templ run --protein-file protein.pdb --ligand-smiles "CCO" --enable-optimization
 """,
                 intermediate="""
 COMPREHENSIVE EXAMPLES
@@ -320,7 +325,7 @@ Basic Examples:
   templ run --protein-file protein.pdb --ligand-smiles "CCO"
   
   # Using PDB ID (automatically downloads structure)
-  templ run --protein-pdb-id 1iky --ligand-smiles "CC(=O)OC1=CC=CC=C1C(=O)O"
+  templ run --protein-pdb-id 2hyy --ligand-smiles "CC(=O)OC1=CC=CC=C1C(=O)O"
   
   # Complex ligand from file
   templ run --protein-file protein.pdb --ligand-file complex_ligand.sdf
@@ -331,6 +336,9 @@ Performance Examples:
   
   # Generate more conformers for better coverage
   templ run --protein-file protein.pdb --ligand-smiles "CCO" --num-conformers 200
+  
+  # Enable force field optimization for better quality
+  templ run --protein-file protein.pdb --ligand-smiles "CCO" --enable-optimization
   
   # Custom output directory
   templ run --protein-file protein.pdb --ligand-smiles "CCO" --output-dir results/ethanol_binding/
@@ -353,6 +361,11 @@ Production Workflows:
   templ run --protein-file target.pdb --ligand-smiles "SMILES" \\
             --workers 16 --num-conformers 500 --num-templates 200 \\
             --output-dir batch_results/compound_001/
+
+  # High-quality poses with optimization
+  templ run --protein-file target.pdb --ligand-smiles "SMILES" \\
+            --num-conformers 1000 --enable-optimization \\
+            --output-dir high_quality_poses/
 
   # Custom template database
   templ find-templates --query protein.pdb \\
@@ -382,7 +395,14 @@ Benchmarking Examples:
 Integration Examples:
   # ChEMBL compound processing
   for smiles in $(cat chembl_compounds.txt); do
-    templ run --protein-pdb-id 1iky --ligand-smiles "$smiles" \\
+    templ run --protein-pdb-id 2hyy --ligand-smiles "$smiles" \\
+              --output-dir "results/$(echo $smiles | md5sum | cut -d' ' -f1)/"
+  done
+
+  # High-quality batch processing with optimization
+  for smiles in $(cat chembl_compounds.txt); do
+    templ run --protein-pdb-id 2hyy --ligand-smiles "$smiles" \\
+              --enable-optimization --num-conformers 500 \\
               --output-dir "results/$(echo $smiles | md5sum | cut -d' ' -f1)/"
   done
 
@@ -391,6 +411,12 @@ Integration Examples:
             --run-id "batch_$(date +%Y%m%d_%H%M%S)" \\
             --log-level DEBUG > batch_log.txt 2>&1
 
+  # Production-quality batch processing
+  templ run --protein-file protein.pdb --ligand-file compounds.sdf \\
+            --run-id "production_$(date +%Y%m%d_%H%M%S)" \\
+            --enable-optimization --num-conformers 1000 \\
+            --log-level INFO > production_log.txt 2>&1
+
 Advanced Configuration:
   # Custom environment setup
   export TEMPL_DATA_DIR="/data/templ_database"
@@ -398,7 +424,7 @@ Advanced Configuration:
   export OMP_NUM_THREADS=1
   
   templ run --protein-file protein.pdb --ligand-smiles "CCO" \\
-            --workers $(nproc) --num-conformers 1000
+            --workers $(nproc) --num-conformers 1000 --enable-optimization
 """,
                 examples=[],
             ),
@@ -639,6 +665,8 @@ Common options:
   --workers N           Number of CPU cores (default: auto)
   --num-conformers N    Conformers to generate (default: 100)
   --output-dir PATH     Output directory (default: output)
+  --enable-optimization Enable force field optimization (disabled by default)
+  --no-realign         Use raw conformers (no shape alignment)
 
 Example:
   templ run --protein-file protein.pdb --ligand-smiles "CCO" --workers 4

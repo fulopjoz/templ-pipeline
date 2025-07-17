@@ -19,19 +19,19 @@ Features:
 
 Usage examples:
   # Generate embedding for a protein
-  templ embed --protein-file data/example/1iky_protein.pdb
+  templ embed --protein-file data/example/2hyy_protein.pdb
 
   # Find protein templates
-  templ find-templates --protein-file data/example/1iky_protein.pdb --embedding-file data/embeddings/templ_protein_embeddings_v1.0.0.npz
+  templ find-templates --protein-file data/example/2hyy_protein.pdb --embedding-file data/embeddings/templ_protein_embeddings_v1.0.0.npz
 
   # Generate poses with SMILES input
-  templ generate-poses --protein-file data/example/1iky_protein.pdb --ligand-smiles "COc1ccc(C(C)=O)c(O)c1[C@H]1C[C@H]1NC(=S)Nc1ccc(C#N)cn1" --template-pdb 5eqy
+  templ generate-poses --protein-file data/example/2hyy_protein.pdb --ligand-smiles "Cc1cn(cn1)c2cc(NC(=O)c3ccc(C)c(Nc4nccc(n4)c5cccnc5)c3)cc(c2)C(F)(F)F" --template-pdb 5eqy
 
   # Generate poses with SDF input
-  templ generate-poses --protein-file data/example/1iky_protein.pdb --ligand-file data/example/1iky_ligand.sdf --template-pdb 5eqy
+  templ generate-poses --protein-file data/example/2hyy_protein.pdb --ligand-file data/example/2hyy_ligand.sdf --template-pdb 5eqy
 
   # Run full pipeline
-  templ run --protein-file data/example/1iky_protein.pdb --ligand-smiles "COc1ccc(C(C)=O)c(O)c1[C@H]1C[C@H]1NC(=S)Nc1ccc(C#N)cn1" --embedding-file data/embeddings/templ_protein_embeddings_v1.0.0.npz
+  templ run --protein-file data/example/2hyy_protein.pdb --ligand-smiles "Cc1cn(cn1)c2cc(NC(=O)c3ccc(C)c(Nc4nccc(n4)c5cccnc5)c3)cc(c2)C(F)(F)F" --embedding-file data/embeddings/templ_protein_embeddings_v1.0.0.npz
 """
 
 import argparse
@@ -365,6 +365,16 @@ def setup_parser():
         type=str,
         default=None,
         help="Custom run identifier (default: timestamp)",
+    )
+    run_parser.add_argument(
+        "--no-realign",
+        action="store_true",
+        help="Use raw conformers (no shape alignment)",
+    )
+    run_parser.add_argument(
+        "--enable-optimization",
+        action="store_true",
+        help="Enable force field optimization (optimization disabled by default)",
     )
 
     # Benchmark command ---------------------------------------------------
@@ -828,6 +838,8 @@ def run_command(args):
             num_conformers=getattr(args, "num_conformers", 100),
             n_workers=args.workers,
             similarity_threshold=getattr(args, "similarity_threshold", None),
+            no_realign=getattr(args, "no_realign", False),
+            enable_optimization=getattr(args, "enable_optimization", False),
         )
 
         # Report results
@@ -994,11 +1006,25 @@ def _optimize_hardware_config(args):
     }
     
     try:
-        # Get system information for optimization
+        # Get system information for optimization with timeout protection
         import psutil
-        system_memory_gb = psutil.virtual_memory().total / (1024**3)
-        cpu_count = psutil.cpu_count(logical=False)  # Physical cores
-        logical_cpus = psutil.cpu_count(logical=True)  # Logical cores (with hyperthreading)
+        import time
+        
+        # Single psutil call with error handling
+        try:
+            virtual_memory = psutil.virtual_memory()
+            system_memory_gb = virtual_memory.total / (1024**3)
+        except Exception as e:
+            logger.warning(f"Failed to get memory info: {e}")
+            system_memory_gb = 8.0  # Fallback
+        
+        try:
+            cpu_count = psutil.cpu_count(logical=False)  # Physical cores
+            logical_cpus = psutil.cpu_count(logical=True)  # Logical cores (with hyperthreading)
+        except Exception as e:
+            logger.warning(f"Failed to get CPU info: {e}")
+            cpu_count = 4  # Fallback
+            logical_cpus = 4
         
         config["total_memory_gb"] = system_memory_gb
         
@@ -1020,15 +1046,18 @@ def _optimize_hardware_config(args):
         if config["profile"] == "conservative":
             # Use 50% of available resources
             config["n_workers"] = max(1, effective_cpus // 2)
-            args.max_ram_gb = getattr(args, "max_ram_gb", None) or system_memory_gb * 0.5
+            if not hasattr(args, "max_ram_gb") or args.max_ram_gb is None:
+                args.max_ram_gb = system_memory_gb * 0.5
         elif config["profile"] == "balanced":
             # Use 75% of available resources (default)
             config["n_workers"] = max(1, int(effective_cpus * 0.75))
-            args.max_ram_gb = getattr(args, "max_ram_gb", None) or system_memory_gb * 0.75
+            if not hasattr(args, "max_ram_gb") or args.max_ram_gb is None:
+                args.max_ram_gb = system_memory_gb * 0.75
         elif config["profile"] == "aggressive":
             # Use 90% of available resources
             config["n_workers"] = max(1, int(effective_cpus * 0.9))
-            args.max_ram_gb = getattr(args, "max_ram_gb", None) or system_memory_gb * 0.9
+            if not hasattr(args, "max_ram_gb") or args.max_ram_gb is None:
+                args.max_ram_gb = system_memory_gb * 0.9
         else:  # auto
             # Use heuristics based on workload type - BENCHMARK OPTIMIZED
             if args.suite == "polaris":
@@ -1036,11 +1065,13 @@ def _optimize_hardware_config(args):
                 config["n_workers"] = max(1, effective_cpus)
                 config["strategy"] = "cpu-bound"
             elif args.suite == "time-split":
-                # Timesplit benefits from full parallelization
-                config["n_workers"] = max(1, effective_cpus)
+                # CRITICAL FIX: Use conservative worker count for time-split to prevent resource exhaustion
+                # Full parallelization causes "cannot allocate memory for thread-local data" errors
+                config["n_workers"] = min(20, max(1, effective_cpus // 2))  # Allow up to 20 workers for 24-core systems
                 config["strategy"] = "cpu-bound"
             
-            args.max_ram_gb = getattr(args, "max_ram_gb", None) or system_memory_gb * 0.8
+            if not hasattr(args, "max_ram_gb") or args.max_ram_gb is None:
+                args.max_ram_gb = system_memory_gb * 0.8
         
         # Apply worker strategy optimizations
         if config["strategy"] == "io-bound":
@@ -1078,6 +1109,12 @@ def _optimize_hardware_config(args):
         config["n_workers"] = base_config["n_workers"]
         if hasattr(args, "n_workers") and args.n_workers:
             config["n_workers"] = args.n_workers
+    except Exception as e:
+        # Catch any other errors and use fallback
+        logger.warning(f"Hardware optimization failed: {e}")
+        config["n_workers"] = base_config["n_workers"]
+        if hasattr(args, "n_workers") and args.n_workers:
+            config["n_workers"] = args.n_workers
     
     return config
 
@@ -1112,6 +1149,7 @@ def benchmark_command(args):
     error_log_file = logs_dir / "errors.log"
 
     if args.suite == "polaris":
+        print("DEBUG: Polaris benchmark requested")
         try:
             from templ_pipeline.benchmark.polaris.benchmark import (
                 main as benchmark_main,
@@ -1133,7 +1171,7 @@ def benchmark_command(args):
                 workspace_dir=workspace_dir,
                 benchmark_name="polaris",
                 log_level=log_level,
-                suppress_console=True
+                suppress_console=False  # Allow progress bars to show
             ) as log_info:
                 logger.info(f"Starting Polaris benchmark with {args.n_workers} workers")
                 logger.info(f"Workspace directory: {workspace_dir}/")
@@ -1211,7 +1249,7 @@ def benchmark_command(args):
                 log_level = "DEBUG"
             else:
                 log_level = "INFO"
-                
+            
             # Suppress warnings before starting benchmark
             from templ_pipeline.core.benchmark_logging import suppress_benchmark_warnings
             suppress_benchmark_warnings()
@@ -1221,7 +1259,7 @@ def benchmark_command(args):
                 workspace_dir=workspace_dir,
                 benchmark_name="timesplit",
                 log_level=log_level,
-                suppress_console=True
+                suppress_console=False  # Allow progress bars to show
             ) as log_info:
                 logger.info(f"Starting Timesplit benchmark for splits: {', '.join(splits_to_run)}")
                 logger.info(f"Using {args.n_workers} workers, {args.n_conformers} conformers")
@@ -1310,6 +1348,8 @@ def benchmark_command(args):
                     streaming_kwargs["per_worker_ram_gb"] = args.per_worker_ram_gb
                 if hasattr(args, "peptide_threshold") and args.peptide_threshold:
                     streaming_kwargs["peptide_threshold"] = args.peptide_threshold
+                if hasattr(args, "pipeline_timeout") and args.pipeline_timeout:
+                    streaming_kwargs["timeout"] = args.pipeline_timeout
 
                 # Call the streaming function directly
                 run_timesplit_streaming(**streaming_kwargs)

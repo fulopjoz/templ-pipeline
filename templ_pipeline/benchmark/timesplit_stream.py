@@ -41,6 +41,72 @@ from templ_pipeline.core.hardware import get_optimized_worker_config
 __all__: List[str] = []
 
 ###############################################################################
+# Chemical validation for data leakage detection
+###############################################################################
+
+def validate_template_similarity(rmsd_values: Dict[str, Dict[str, float]], 
+                                pdb_id: str, 
+                                template_info: Dict = None) -> Dict[str, any]:
+    """Validate template similarity scores to detect potential data leakage.
+    
+    Checks for suspiciously high similarity scores and low RMSD values that
+    might indicate the same chemical structure appearing in query and template.
+    
+    Parameters
+    ----------
+    rmsd_values : Dict[str, Dict[str, float]]
+        RMSD results from pipeline with format {metric: {rmsd: float, score: float}}
+    pdb_id : str
+        The target PDB ID being processed
+    template_info : Dict, optional
+        Additional template information if available
+        
+    Returns
+    -------
+    Dict[str, any]
+        Validation results with warnings and flags
+    """
+    validation_result = {
+        "has_warnings": False,
+        "warnings": [],
+        "potential_data_leakage": False,
+        "perfect_matches": []
+    }
+    
+    for metric, values in rmsd_values.items():
+        rmsd = values.get("rmsd", float('inf'))
+        score = values.get("score", 0.0)
+        
+        # Flag extremely low RMSD values (< 0.05Å suggests identical structures)
+        if rmsd < 0.05:
+            validation_result["potential_data_leakage"] = True
+            validation_result["perfect_matches"].append({
+                "metric": metric,
+                "rmsd": rmsd,
+                "score": score,
+                "reason": "sub_angstrom_rmsd"
+            })
+            warning = f"POTENTIAL DATA LEAKAGE: {pdb_id} {metric} RMSD={rmsd:.4f}Å (< 0.05Å threshold)"
+            validation_result["warnings"].append(warning)
+            
+        # Flag extremely high similarity scores (> 0.999 suggests identical structures)
+        if score > 0.999:
+            validation_result["potential_data_leakage"] = True
+            validation_result["perfect_matches"].append({
+                "metric": metric,
+                "rmsd": rmsd,
+                "score": score,
+                "reason": "perfect_similarity"
+            })
+            warning = f"POTENTIAL DATA LEAKAGE: {pdb_id} {metric} similarity={score:.6f} (> 0.999 threshold)"
+            validation_result["warnings"].append(warning)
+    
+    if validation_result["warnings"]:
+        validation_result["has_warnings"] = True
+        
+    return validation_result
+
+###############################################################################
 # Configuration objects
 ###############################################################################
 
@@ -57,7 +123,9 @@ class TimesplitConfig:
     template_knn: int = 100
     similarity_threshold: float | None = None
     internal_workers: int = 1
-    timeout: int = 1800  # seconds
+    timeout: int = 1800  # seconds per individual target
+    estimated_time_per_target: float = 3.0  # seconds (for timeout calculation)
+    timeout_safety_buffer: float = 1.5  # multiplier for safety margin
     max_workers: int | None = None  # concurrent processes
     max_ram_gb: float | None = None  # adaptive throttling
     # Rough estimate of how much RSS a single worker consumes (GiB). Used
@@ -102,8 +170,18 @@ def _worker_task(args: tuple) -> Dict:
         cfg_dict,
     ) = args
 
-    cfg = TimesplitConfig(**cfg_dict)
+    # Worker only processes one target, so create minimal config
+    cfg = TimesplitConfig(target_pdbs=[target_pdb], **cfg_dict)
     start = time.perf_counter()
+
+    # Fix worker environment: ensure proper working directory
+    import os
+    original_cwd = os.getcwd()
+    
+    # Change to the project root directory to ensure relative paths work
+    project_root = "/home/ubuntu/mcs/templ_pipeline"
+    if os.path.exists(project_root) and original_cwd != project_root:
+        os.chdir(project_root)
 
     # Suppress worker logging to prevent console pollution
     from templ_pipeline.core.benchmark_logging import suppress_worker_logging
@@ -180,6 +258,10 @@ def _worker_task(args: tuple) -> Dict:
         # Combine original exclusions with time-based exclusions
         effective_exclusions = (cfg.exclude_pdb_ids or set()) | timesplit_exclusions
 
+        # Ensure poses output directory exists
+        poses_output_dir = os.path.join(cfg.results_dir, "poses")
+        os.makedirs(poses_output_dir, exist_ok=True)
+
         result = run_templ_pipeline_for_benchmark(
             target_pdb=target_pdb,
             exclude_pdb_ids=effective_exclusions,
@@ -189,7 +271,7 @@ def _worker_task(args: tuple) -> Dict:
             internal_workers=cfg.internal_workers,
             timeout=cfg.timeout,
             data_dir=cfg.data_dir,
-            poses_output_dir=os.path.join(cfg.results_dir, "poses"),
+            poses_output_dir=poses_output_dir,
             shared_cache_file=cfg_dict.get("shared_cache_file"),
             shared_embedding_cache=cfg_dict.get("shared_embedding_cache"),
         )
@@ -203,6 +285,22 @@ def _worker_task(args: tuple) -> Dict:
         result["exclusions_count"] = len(effective_exclusions)
         result["runtime_total"] = time.perf_counter() - start
         result["is_retry"] = cfg_dict.get("is_retry", False)
+        
+        # Validate template similarity to detect potential data leakage
+        if result.get("success") and result.get("rmsd_values"):
+            validation = validate_template_similarity(
+                rmsd_values=result["rmsd_values"], 
+                pdb_id=target_pdb,
+                template_info=result.get("template_info")
+            )
+            result["data_leakage_validation"] = validation
+            
+            # Log warnings for potential data leakage
+            if validation["has_warnings"]:
+                import logging
+                logger = logging.getLogger(__name__)
+                for warning in validation["warnings"]:
+                    logger.warning(warning)
         
         # Clear timeout alarm on successful completion
         try:
@@ -303,18 +401,29 @@ def run_timesplit_streaming(
 
     results_dir = results_dir or os.path.join(os.getcwd(), "timesplit_stream_results")
 
-    # Use hardware detection for optimal worker configuration
-    if max_workers is None or internal_workers == 1:
-        # Get hardware-optimized configuration for CPU-intensive benchmark workload
-        hw_config = get_optimized_worker_config(
-            workload_type="cpu_intensive", 
-            dataset_size=len(target_pdbs)
-        )
-        effective_max_workers = max_workers or hw_config["n_workers"]
-        if internal_workers == 1:  # Default value, use hardware-optimized setting
-            internal_workers = hw_config["internal_pipeline_workers"]
-    else:
-        effective_max_workers = max_workers or os.cpu_count() or 2
+    # CRITICAL FIX: Use conservative settings instead of hardware detection
+    # Hardware detection was causing resource exhaustion by using too many workers
+    # Force conservative settings to prevent "cannot allocate memory for thread-local data" errors
+    
+    # Override any hardware detection - use conservative values
+    # This prevents "cannot allocate memory for thread-local data" errors
+    
+    # ABSOLUTE SAFETY CAP: Allow up to 20 workers for 24-core systems
+    ABSOLUTE_MAX_WORKERS = 20
+    effective_max_workers = min(ABSOLUTE_MAX_WORKERS, max_workers or 12)
+    internal_workers = 1  # Always use 1 internal worker to prevent thread explosion (was 8)
+    
+    if not quiet:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Using conservative worker settings: max_workers={effective_max_workers}, internal_workers={internal_workers}")
+        logger.info("Hardware detection bypassed to prevent resource exhaustion")
+        
+        # Log if CLI settings were overridden by safety cap
+        if max_workers and max_workers > ABSOLUTE_MAX_WORKERS:
+            logger.warning(f"CLI requested {max_workers} workers but capped to {ABSOLUTE_MAX_WORKERS} for system safety")
+        
+        logger.info(f"Worker configuration: {effective_max_workers} concurrent processes, {internal_workers} internal workers each")
 
     cfg = TimesplitConfig(
         data_dir=data_dir,
@@ -376,8 +485,24 @@ def run_timesplit_streaming(
         # Add memory pressure detection - if less than 2GB available, be more conservative
         if avail_gb < 2.0:
             ram_limited = max(1, ram_limited // 2)  # Halve workers if memory pressure
-            
-        return max(1, min(cfg_.max_workers, os.cpu_count() or 2, ram_limited))
+        
+        # CRITICAL FIX: Cap maximum workers to prevent system resource exhaustion
+        # The "cannot allocate memory for thread-local data" error indicates thread/process
+        # limits being hit, not memory exhaustion. Add conservative hard cap.
+        SYSTEM_SAFE_MAX_WORKERS = 20  # Allow up to 20 workers for 24-core systems (matches ABSOLUTE_MAX_WORKERS)
+        
+        computed_workers = max(1, min(cfg_.max_workers, os.cpu_count() or 2, ram_limited))
+        
+        # Apply system-safe cap
+        safe_workers = min(computed_workers, SYSTEM_SAFE_MAX_WORKERS)
+        
+        # Always log worker limiting for debugging (not dependent on quiet parameter)
+        if safe_workers < computed_workers:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Limiting workers from {computed_workers} to {safe_workers} to prevent system resource exhaustion")
+        
+        return safe_workers
 
     pool_size = _compute_pool_size(cfg)
 
@@ -385,6 +510,7 @@ def run_timesplit_streaming(
     if not quiet:
         import logging
         logger = logging.getLogger(__name__)
+        logger.info(f"Using {pool_size} workers for {len(cfg.target_pdbs)} targets")
         logger.info(f"Pre-loading caches to share across {pool_size} workers...")
     shared_cache_file = None
     shared_embedding_cache = None
@@ -452,6 +578,8 @@ def run_timesplit_streaming(
         cfg_dict = asdict(cfg)
         cfg_dict["shared_cache_file"] = shared_cache_file
         cfg_dict["shared_embedding_cache"] = shared_embedding_cache
+        # Remove target_pdbs from worker config as workers only process one target
+        cfg_dict.pop("target_pdbs", None)
         tasks_iter = ((pdb_id, cfg_dict) for pdb_id in cfg.target_pdbs)
         # Initialize progress tracking
         total_targets = len(cfg.target_pdbs)
@@ -489,14 +617,157 @@ def run_timesplit_streaming(
             use_progress_bar = False
             progress_bar = None
 
-        # Use imap_unordered with retry logic for failed workers
+        # Create initial tasks list and retry tasks list
         initial_tasks = [(pdb_id, cfg_dict) for pdb_id in cfg.target_pdbs]
         retry_tasks = []
         
-        # Process all initial tasks
+        # Process all initial tasks with timeout handling
         result_iter = pool.imap_unordered(_worker_task, initial_tasks)
+        expected_results = len(initial_tasks)
+        collected_results = 0
+        no_result_timeout = 30  # seconds to wait when no results are coming
+        last_result_time = time.time()
+        # Dynamic timeout based on dataset size and expected processing time
+        estimated_time_per_target = cfg.estimated_time_per_target
+        safety_buffer = cfg.timeout_safety_buffer
+        min_timeout = 3600  # At least 1 hour
+        max_timeout = 86400  # At most 24 hours
         
-        for result in result_iter:
+        estimated_total_time = len(initial_tasks) * estimated_time_per_target * safety_buffer
+        absolute_timeout = max(min_timeout, min(max_timeout, estimated_total_time))
+        
+        if not quiet:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Dynamic timeout calculation:")
+            logger.info(f"  - Targets to process: {len(initial_tasks)}")
+            logger.info(f"  - Estimated time per target: {estimated_time_per_target}s")
+            logger.info(f"  - Safety buffer: {safety_buffer}x")
+            logger.info(f"  - Calculated timeout: {absolute_timeout/3600:.1f} hours ({absolute_timeout}s)")
+            
+        start_collection_time = time.time()
+        
+        # Track which PDB IDs have been processed
+        processed_pdb_ids = set()
+        
+        while collected_results < expected_results:
+            try:
+                # Check for absolute timeout
+                if time.time() - start_collection_time > absolute_timeout:
+                    if not quiet:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.warning(f"Absolute timeout reached after {absolute_timeout}s")
+                        logger.warning(f"Completing benchmark with {collected_results}/{expected_results} results")
+                    break
+                
+                # Try to get next result with timeout
+                import signal
+                
+                def timeout_handler(signum, frame):
+                    raise TimeoutError("No result received within timeout")
+                
+                # Set timeout for getting next result
+                try:
+                    signal.signal(signal.SIGALRM, timeout_handler)
+                    signal.alarm(no_result_timeout)
+                except (AttributeError, ValueError):
+                    # signal.alarm not available on Windows
+                    pass
+                
+                try:
+                    result = next(result_iter)
+                    try:
+                        signal.alarm(0)  # Cancel timeout
+                    except (AttributeError, ValueError):
+                        pass
+                    collected_results += 1
+                    last_result_time = time.time()
+                    
+                    # Add to processed PDB IDs
+                    if "pdb_id" in result:
+                        processed_pdb_ids.add(result["pdb_id"])
+                    
+                except StopIteration:
+                    try:
+                        signal.alarm(0)
+                    except (AttributeError, ValueError):
+                        pass
+                    break  # No more results
+                except TimeoutError:
+                    try:
+                        signal.alarm(0)
+                    except (AttributeError, ValueError):
+                        pass
+                    
+                    # Check if we've got most results and should complete
+                    completion_rate = collected_results / expected_results
+                    time_since_last = time.time() - last_result_time
+                    
+                    # CRITICAL FIX: Only terminate early if we have 100% completion or extreme timeout
+                    # This ensures all 363 targets are attempted, not just 288/363
+                    if completion_rate >= 1.0 or time_since_last > 600:  # 100% completion or no results for 10 minutes
+                        if not quiet:
+                            import logging
+                            logger = logging.getLogger(__name__)
+                            logger.warning(f"Completing benchmark early: {collected_results}/{expected_results} results collected ({completion_rate:.1%})")
+                            logger.warning(f"No results received for {time_since_last:.1f}s (timeout: 600s)")
+                            logger.warning(f"Remaining {expected_results - collected_results} targets appear to have failed")
+                            
+                        # Find which PDB IDs are missing by comparing with original targets
+                        missing_pdbs = []
+                        for task in initial_tasks:
+                            pdb_id = task[0]  # First element of task tuple is PDB ID
+                            if pdb_id not in processed_pdb_ids:
+                                missing_pdbs.append(pdb_id)
+                        
+                        if not quiet:
+                            logger.warning(f"Missing PDB IDs: {missing_pdbs[:10]}{'...' if len(missing_pdbs) > 10 else ''}")
+                            logger.warning(f"Worker pool status: {pool._state if hasattr(pool, '_state') else 'unknown'}")
+                        
+                        # Create failure records for missing PDBs
+                        for pdb_id in missing_pdbs:
+                            failed_result = {
+                                "success": False,
+                                "error": f"Worker process failed to return result after {time_since_last:.1f}s timeout (likely memory allocation failure or deadlock)",
+                                "error_type": "worker_timeout",
+                                "pdb_id": pdb_id,
+                                "runtime_total": time_since_last,
+                                "target_split": None,
+                                "exclusions_count": 0,
+                                "rmsd_values": {}
+                            }
+                            
+                            # Append to JSONL
+                            with output_jsonl.open("a", encoding="utf-8") as fh:
+                                json.dump(failed_result, fh)
+                                fh.write("\n")
+                            
+                            # Update counters
+                            failed_count += 1
+                            processed_count += 1
+                            
+                            # Update progress tracking
+                            skip_statistics["worker_timeout"] = skip_statistics.get("worker_timeout", 0) + 1
+                            
+                            if not quiet and use_progress_bar and progress_bar:
+                                progress_bar.update(1)
+                        
+                        break
+                    else:
+                        # Not enough results yet, continue waiting
+                        continue
+                
+            except Exception as e:
+                if not quiet:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Error collecting results: {e}")
+                    import traceback
+                    logger.error(f"Traceback: {traceback.format_exc()}")
+                break
+            
+            # Process the result we got
             # Check for memory errors and queue for retry with lower memory
             if not result.get("success") and result.get("error_type") == "memory_error":
                 pdb_id = result.get("pdb_id")
@@ -594,8 +865,10 @@ def run_timesplit_streaming(
                         or processed_count % 5 == 0
                     ):
                         progress_pct = (processed_count / total_targets) * 100
+                        remaining_targets = total_targets - processed_count
                         logger.info(
-                            f"Progress: {processed_count}/{total_targets} ({progress_pct:.1f}%) - {success_count} successful, {failed_count} failed"
+                            f"Progress: {processed_count}/{total_targets} ({progress_pct:.1f}%) - "
+                            f"{success_count} successful, {failed_count} failed, {remaining_targets} remaining"
                         )
 
             _maybe_throttle(pool, cfg)
@@ -612,9 +885,62 @@ def run_timesplit_streaming(
                 progress_bar.total += len(retry_tasks)
                 progress_bar.refresh()
             
-            # Process retry tasks
+            # Process retry tasks with timeout handling
             retry_result_iter = pool.imap_unordered(_worker_task, retry_tasks)
-            for result in retry_result_iter:
+            expected_retry_results = len(retry_tasks)
+            collected_retry_results = 0
+            retry_start_time = time.time()
+            # Dynamic retry timeout based on number of retry tasks
+            retry_estimated_time = len(retry_tasks) * estimated_time_per_target * safety_buffer
+            retry_min_timeout = 300  # At least 5 minutes for retries
+            retry_max_timeout = 7200  # At most 2 hours for retries
+            retry_absolute_timeout = max(retry_min_timeout, min(retry_max_timeout, retry_estimated_time))
+            
+            while collected_retry_results < expected_retry_results:
+                # Check for absolute timeout
+                if time.time() - retry_start_time > retry_absolute_timeout:
+                    if not quiet:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.warning(f"Retry absolute timeout reached after {retry_absolute_timeout}s")
+                        logger.warning(f"Completing benchmark with {collected_retry_results}/{expected_retry_results} retry results")
+                    break
+                    
+                try:
+                    # Set timeout for retry results too
+                    try:
+                        signal.signal(signal.SIGALRM, timeout_handler)
+                        signal.alarm(no_result_timeout)
+                    except (AttributeError, ValueError):
+                        # signal.alarm not available on Windows
+                        pass
+                    
+                    try:
+                        result = next(retry_result_iter)
+                        try:
+                            signal.alarm(0)
+                        except (AttributeError, ValueError):
+                            pass
+                        collected_retry_results += 1
+                    except StopIteration:
+                        try:
+                            signal.alarm(0)
+                        except (AttributeError, ValueError):
+                            pass
+                        break
+                    except TimeoutError:
+                        try:
+                            signal.alarm(0)
+                        except (AttributeError, ValueError):
+                            pass
+                        if not quiet:
+                            logger.warning(f"Timeout waiting for retry results: {collected_retry_results}/{expected_retry_results} collected")
+                        break
+                        
+                except Exception as e:
+                    if not quiet:
+                        logger.error(f"Error collecting retry results: {e}")
+                    break
                 processed_count += 1
                 if result.get("success"):
                     success_count += 1
@@ -641,20 +967,44 @@ def run_timesplit_streaming(
             if use_progress_bar and progress_bar:
                 progress_bar.close()
 
-            # Show final summary with skip statistics
+            # Show comprehensive final summary
             total_time = time.time() - start_time
-            logger.info(f"Benchmark completed in {total_time:.1f}s")
-            logger.info(f"Completed: {success_count} successful, {failed_count} failed")
+            total_targets = len(cfg.target_pdbs)
+            completion_rate = processed_count / total_targets if total_targets > 0 else 0
+            
+            logger.info("="*60)
+            logger.info("BENCHMARK COMPLETION SUMMARY")
+            logger.info("="*60)
+            logger.info(f"Total targets in test split: {total_targets}")
+            logger.info(f"Targets submitted for processing: {processed_count}")
+            logger.info(f"Targets never submitted: {total_targets - processed_count}")
+            logger.info(f"Successful targets: {success_count}")
+            logger.info(f"Failed targets: {failed_count}")
+            logger.info(f"Overall completion rate: {completion_rate:.1%}")
+            logger.info(f"Success rate of submitted targets: {success_count/processed_count*100:.1f}%" if processed_count > 0 else "Success rate: N/A")
+            logger.info(f"Total benchmark time: {total_time:.1f}s")
             
             if failed_count > 0 and skip_statistics:
-                logger.info("Failure breakdown:")
+                logger.info("\nFailure breakdown:")
                 for reason, count in sorted(skip_statistics.items(), key=lambda x: x[1], reverse=True):
                     logger.info(f"  {reason}: {count} targets ({count/failed_count*100:.1f}%)")
             
-            logger.info(f"Results saved to: {cfg.results_dir}")
+            # Show missing targets warning if any
+            if processed_count < total_targets:
+                missing_count = total_targets - processed_count
+                logger.warning(f"\nWARNING: {missing_count} targets were never submitted for processing")
+                logger.warning("This indicates worker failure or early termination")
+                logger.warning("Check worker logs for memory allocation or timeout issues")
+            
+            logger.info(f"\nResults saved to: {cfg.results_dir}")
             logger.info(f"Progress log: {progress_jsonl}")
-            if failed_count == 0:
-                logger.info("All targets processed successfully!")
+            
+            if processed_count == total_targets and failed_count == 0:
+                logger.info("✅ ALL TARGETS PROCESSED SUCCESSFULLY!")
+            elif processed_count == total_targets:
+                logger.info("✅ All targets submitted for processing")
+            else:
+                logger.warning("❌ Incomplete benchmark - some targets not processed")
 
     # Generate error summary report at the end (only if not quiet)
     if not quiet:
@@ -849,9 +1199,9 @@ def load_timesplit_pdb_list(split_name: str) -> List[str]:
     """Return list of PDB IDs for the requested *split_name*.
 
     The time-split lists are stored in the repository under
-    ``templ_pipeline/data/splits/timesplit_<split>`` (no file extension).
-    This helper keeps the path logic in one place and fails with a clear
-    error message if the file cannot be located.
+    ``common_pdbids_<split>.txt`` files, which contain only PDB IDs
+    that exist in both the temporal splits AND the template database.
+    This prevents data leakage while ensuring templates are available.
 
     Parameters
     ----------
@@ -869,19 +1219,23 @@ def load_timesplit_pdb_list(split_name: str) -> List[str]:
         raise ValueError(f"Invalid split name: {split_name}")
 
     # Locate the split file with multiple fallback paths for robustness
+    # Use common_pdbids_* files which contain filtered PDB IDs that exist in template database
     potential_paths = [
+        # From current working directory (main project directory)
+        Path.cwd() / f"common_pdbids_{split_name}.txt",
         # From package root (templ_pipeline/)
+        Path(__file__).resolve().parent.parent.parent / f"common_pdbids_{split_name}.txt",
+        # From project root
+        Path.cwd() / "templ_pipeline" / f"common_pdbids_{split_name}.txt",
+        # Relative paths
+        Path(f"common_pdbids_{split_name}.txt"),
+        Path("..") / f"common_pdbids_{split_name}.txt",
+        # Fallback to original timesplit files if common_pdbids not found
         Path(__file__).resolve().parent.parent
         / "data"
         / "splits"
         / f"timesplit_{split_name}",
-        # From current working directory
         Path.cwd() / "data" / "splits" / f"timesplit_{split_name}",
-        # From project root
-        Path.cwd() / "templ_pipeline" / "data" / "splits" / f"timesplit_{split_name}",
-        # Relative paths
-        Path("data") / "splits" / f"timesplit_{split_name}",
-        Path("..") / "data" / "splits" / f"timesplit_{split_name}",
     ]
 
     split_file = None
@@ -892,7 +1246,7 @@ def load_timesplit_pdb_list(split_name: str) -> List[str]:
 
     if split_file is None:
         raise FileNotFoundError(
-            f"Time-split file 'timesplit_{split_name}' not found. Tried locations:\n"
+            f"Time-split file 'common_pdbids_{split_name}.txt' not found. Tried locations:\n"
             + "\n".join(f"  - {p}" for p in potential_paths)
         )
 

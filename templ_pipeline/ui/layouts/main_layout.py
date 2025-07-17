@@ -466,196 +466,120 @@ class MainLayout:
             unsafe_allow_html=True,
         )
 
-        with st.expander("Advanced Settings", expanded=False):
-            st.markdown(
-                "Configure advanced pipeline parameters for optimal performance"
+        with st.expander("🔧 Advanced Settings", expanded=False):
+            st.markdown("##### Pipeline Configuration")
+            
+            # GPU/Device selection
+            device_pref = st.selectbox(
+                "Device Preference", 
+                ["auto", "gpu", "cpu"], 
+                index=0,
+                help="Choose compute device. Auto will use GPU if available."
             )
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-                st.markdown("**Hardware & Performance**")
-
-                # Device Selection
-                hardware_info = self.session.get(SESSION_KEYS["HARDWARE_INFO"])
-                device_options = ["Auto"]
-                device_help = "Auto: Use GPU if available, fallback to CPU"
-
-                if hardware_info and hardware_info.gpu_available:
-                    device_options.extend(["Force GPU", "Force CPU"])
-                    device_help = "Auto: Use GPU if available | Force GPU: Always use GPU | Force CPU: Always use CPU"
+            
+            # KNN threshold
+            knn_threshold = st.slider(
+                "Template Selection (k-NN)", 
+                10, 500, 100,
+                help="Number of similar templates to consider"
+            )
+            
+            # Similarity threshold
+            similarity_threshold = st.slider(
+                "Similarity Threshold", 
+                0.0, 1.0, 0.9, 0.05,
+                help="Minimum similarity score for template selection"
+            )
+            
+            # Chain selection
+            chain_selection = st.text_input(
+                "Chain Selection",
+                value="auto",
+                help="Specify protein chain(s) to use (e.g., 'A', 'B', 'AB') or 'auto' for automatic selection"
+            )
+            
+            # Advanced options
+            st.markdown("##### Advanced Options")
+            
+            # Debug mode toggle
+            debug_mode = st.checkbox(
+                "Enable Debug Mode",
+                value=st.session_state.get("debug_mode", False),
+                help="Show detailed debugging information for troubleshooting"
+            )
+            
+            # Show FAIR metadata toggle
+            show_fair_panel = st.checkbox(
+                "Show FAIR Metadata Panel",
+                value=self.session.get(SESSION_KEYS["SHOW_FAIR_PANEL"], False),
+                help="Display FAIR (Findable, Accessible, Interoperable, Reusable) metadata information"
+            )
+            
+            # Store settings in session
+            self.session.set(SESSION_KEYS["USER_DEVICE_PREFERENCE"], device_pref)
+            self.session.set(SESSION_KEYS["USER_KNN_THRESHOLD"], knn_threshold)
+            self.session.set(SESSION_KEYS["USER_SIMILARITY_THRESHOLD"], similarity_threshold)
+            self.session.set(SESSION_KEYS["USER_CHAIN_SELECTION"], chain_selection)
+            self.session.set(SESSION_KEYS["SHOW_FAIR_PANEL"], show_fair_panel)
+            
+            # Store debug mode
+            st.session_state["debug_mode"] = debug_mode
+            
+            # Validation callback for chain selection
+            def update_chain_selection():
+                """Update chain selection with validation"""
+                if chain_selection != "auto":
+                    validated_chains = self._validate_chain_input(chain_selection)
+                    if validated_chains != chain_selection:
+                        st.warning(f"Chain selection normalized to: {validated_chains}")
+                        self.session.set(SESSION_KEYS["USER_CHAIN_SELECTION"], validated_chains)
                 else:
-                    device_options.append("Force CPU")
-                    device_help = "Auto/Force CPU: Use CPU (no GPU detected)"
-
-                    # Show GPU installation hint if GPUs are available
-                    try:
-                        import subprocess
-
-                        result = subprocess.run(
-                            ["nvidia-smi"], capture_output=True, text=True
-                        )
-                        if result.returncode == 0:
-                            st.info(
-                                "**GPU Available**: Install PyTorch with CUDA to enable GPU acceleration"
-                            )
-                    except:
-                        pass
-
-                current_device = self.session.get(
-                    SESSION_KEYS["USER_DEVICE_PREFERENCE"], "auto"
-                )
-                # Map session values to display values for device selection
-                device_display_mapping = {
-                    "auto": "Auto",
-                    "gpu": "Force GPU",
-                    "cpu": "Force CPU",
-                }
-                display_device = device_display_mapping.get(current_device, "Auto")
-
-                device_pref = st.selectbox(
-                    "Compute Device:",
-                    options=device_options,
-                    index=(
-                        device_options.index(display_device)
-                        if display_device in device_options
-                        else 0
-                    ),
-                    help=device_help,
-                    key="device_preference_selectbox",
-                )
-
-                # Store device preference in session only if changed
-                device_mapping = {
-                    "Auto": "auto",
-                    "Force GPU": "gpu",
-                    "Force CPU": "cpu",
-                }
-                new_device_value = device_mapping[device_pref]
-                if (
-                    self.session.get(SESSION_KEYS["USER_DEVICE_PREFERENCE"])
-                    != new_device_value
-                ):
-                    self.session.set(
-                        SESSION_KEYS["USER_DEVICE_PREFERENCE"], new_device_value
-                    )
-
-                # KNN Threshold - simplified session state management
-                st.markdown("**Template Search Count**")
-                knn_threshold = st.slider(
-                    "Number of templates to search:",
-                    min_value=10,
-                    max_value=500,
-                    value=self.session.get(SESSION_KEYS["USER_KNN_THRESHOLD"], 100),
-                    step=10,
-                    help="Recommended: 100-200 for balanced speed/quality. More templates = slower but potentially better results.",
-                    key="knn_threshold_slider",
-                    on_change=lambda: self.session.set(
-                        SESSION_KEYS["USER_KNN_THRESHOLD"],
-                        st.session_state.knn_threshold_slider,
-                    ),
-                )
-                # Update session when value changes
-                self.session.set(SESSION_KEYS["USER_KNN_THRESHOLD"], knn_threshold)
-
-            with col2:
-                st.markdown("**Protein Configuration**")
-
-                # Chain Selection for PDB uploads - flexible input
-                current_chains = self.session.get(
-                    SESSION_KEYS["USER_CHAIN_SELECTION"], "auto"
-                )
-
-                # Display current chain selection in user-friendly format
-                if current_chains == "auto":
-                    display_value = ""
-                elif isinstance(current_chains, list):
-                    display_value = "+".join(current_chains)
-                else:
-                    display_value = str(current_chains)
-
-                def update_chain_selection():
-                    """Callback to validate and update chain selection"""
-                    chain_input = st.session_state.chain_input_field.strip()
-                    validated_chains = self._validate_chain_input(chain_input)
-                    self.session.set(
-                        SESSION_KEYS["USER_CHAIN_SELECTION"], validated_chains
-                    )
-
-                chain_input = st.text_input(
-                    "PDB Chain Selection:",
-                    value=display_value,
-                    help="Enter chain ID(s): A, B, A+B, A,B, AB, or leave empty for auto-detect. Supports multiple chains for concatenated embeddings.",
-                    key="chain_input_field",
-                    on_change=update_chain_selection,
-                    placeholder="e.g., A or A+B or A,B (empty = auto-detect)",
-                )
-
-                # Update session state immediately
-                validated_chains = self._validate_chain_input(chain_input)
-                if (
-                    self.session.get(SESSION_KEYS["USER_CHAIN_SELECTION"])
-                    != validated_chains
-                ):
-                    self.session.set(
-                        SESSION_KEYS["USER_CHAIN_SELECTION"], validated_chains
-                    )
-
-                # Similarity Threshold - simplified session state management
-                st.markdown("**Similarity Threshold**")
-                similarity_threshold = st.slider(
-                    "Minimum similarity for templates:",
-                    min_value=0.0,
-                    max_value=1.0,
-                    value=self.session.get(
-                        SESSION_KEYS["USER_SIMILARITY_THRESHOLD"], 0.5
-                    ),
-                    step=0.05,
-                    help="Recommended: 0.3-0.7 for good results. Higher = more stringent template selection.",
-                    key="similarity_threshold_slider",
-                    on_change=lambda: self.session.set(
-                        SESSION_KEYS["USER_SIMILARITY_THRESHOLD"],
-                        st.session_state.similarity_threshold_slider,
-                    ),
-                )
-                # Update session when value changes
-                self.session.set(
-                    SESSION_KEYS["USER_SIMILARITY_THRESHOLD"], similarity_threshold
-                )
-
-            # Show current settings status with better formatting
-            st.markdown("---")
-            st.markdown("**Current Configuration**")
-
-            status_col1, status_col2, status_col3 = st.columns(3)
-
-            with status_col1:
-                device_status = self.session.get(
-                    SESSION_KEYS["USER_DEVICE_PREFERENCE"], "auto"
-                )
-                if device_status == "auto":
-                    device_text = "Auto"
-                elif device_status == "gpu":
-                    device_text = "GPU"
-                else:
-                    device_text = "CPU"
-                st.markdown(f"**Device:** {device_text}")
-
-            with status_col2:
-                knn_count = self.session.get(SESSION_KEYS["USER_KNN_THRESHOLD"], 100)
-                st.markdown(f"**Templates:** {knn_count}")
-
-            with status_col3:
-                chain_choice = self.session.get(
-                    SESSION_KEYS["USER_CHAIN_SELECTION"], "auto"
-                )
-                if chain_choice == "auto":
-                    chain_display = "Auto"
-                elif isinstance(chain_choice, list) and len(chain_choice) > 1:
-                    chain_display = f"Chains {'+'.join(chain_choice)}"
-                else:
-                    chain_display = f"Chain {chain_choice if isinstance(chain_choice, str) else chain_choice[0]}"
-                st.markdown(f"**Chain:** {chain_display}")
+                    self.session.set(SESSION_KEYS["USER_CHAIN_SELECTION"], "auto")
+            
+            # Validate chain selection
+            update_chain_selection()
+            
+            # Show current settings
+            if debug_mode:
+                st.markdown("##### Current Settings")
+                st.write(f"Device: {device_pref}")
+                st.write(f"k-NN: {knn_threshold}")
+                st.write(f"Similarity: {similarity_threshold}")
+                st.write(f"Chain: {chain_selection}")
+                st.write(f"Debug Mode: {debug_mode}")
+                st.write(f"FAIR Panel: {show_fair_panel}")
+            
+            # Hardware info
+            hardware_info = self.session.get(SESSION_KEYS["HARDWARE_INFO"])
+            if hardware_info:
+                st.markdown("##### Hardware Information")
+                st.write(f"**Device Type:** {hardware_info.device_type}")
+                st.write(f"**CPU Count:** {hardware_info.cpu_count}")
+                st.write(f"**GPU Available:** {hardware_info.gpu_available}")
+                st.write(f"**Recommended Config:** {hardware_info.recommended_config}")
+            
+            # Performance monitoring
+            if hasattr(self, 'performance_monitor'):
+                stats = self.performance_monitor.get_statistics()
+                if stats:
+                    st.markdown("##### Performance Statistics")
+                    for component, component_stats in stats.items():
+                        if component_stats.get('count', 0) > 0:
+                            avg_time = component_stats.get('average', 0)
+                            st.write(f"**{component}:** {avg_time:.2f}s avg")
+            
+            # Memory usage
+            try:
+                from ..core.memory_manager import get_memory_manager
+                memory_manager = get_memory_manager()
+                memory_stats = memory_manager.get_memory_stats()
+                if memory_stats:
+                    st.markdown("##### Memory Usage")
+                    st.write(f"**Cache Items:** {memory_stats.get('cache_items', 0)}")
+                    st.write(f"**Cache Size:** {memory_stats.get('cache_size_mb', 0):.1f} MB")
+                    st.write(f"**Memory Usage:** {memory_stats.get('memory_usage_mb', 0):.1f} MB")
+            except ImportError:
+                pass
 
     def _render_action_button(self):
         """Render the main action button with loading states"""
@@ -770,29 +694,29 @@ class MainLayout:
                     # Store results in session
                     try:
                         poses = results.get("poses", {})
-                        self.session.set("poses", poses)
+                        self.session.set(SESSION_KEYS["POSES"], poses)
                         logger.info(f"Stored {len(poses)} poses")
 
                         template_info = results.get("template_info")
-                        self.session.set("template_info", template_info)
+                        self.session.set(SESSION_KEYS["TEMPLATE_INFO"], template_info)
                         logger.info(f"Stored template info: {template_info}")
 
                         mcs_info = results.get("mcs_info")
-                        self.session.set("mcs_info", mcs_info)
+                        self.session.set(SESSION_KEYS["MCS_INFO"], mcs_info)
                         logger.info(f"Stored MCS info: {mcs_info}")
 
                         all_ranked_poses = results.get("all_ranked_poses")
-                        self.session.set("all_ranked_poses", all_ranked_poses)
+                        self.session.set(SESSION_KEYS["ALL_RANKED_POSES"], all_ranked_poses)
 
                         # Store template and query molecules for visualization
                         template_mol = results.get("template_mol")
                         if template_mol:
-                            self.session.set("template_used", template_mol)
+                            self.session.set(SESSION_KEYS["TEMPLATE_USED"], template_mol)
                             logger.info("Stored template molecule")
 
                         query_mol = results.get("query_mol")
                         if query_mol:
-                            self.session.set("query_mol", query_mol)
+                            self.session.set(SESSION_KEYS["QUERY_MOL"], query_mol)
                             logger.info("Stored query molecule")
 
                         # Increment pipeline runs
