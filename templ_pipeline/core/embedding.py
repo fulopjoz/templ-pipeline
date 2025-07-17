@@ -32,6 +32,19 @@ from sklearn.metrics.pairwise import cosine_similarity
 # Initialize global variables for ESM model components (lazy-loaded)
 _esm_components = None
 
+# Check if ESM dependencies are available
+try:
+    import torch
+    # Fix torch.classes compatibility issue  
+    torch.classes.__path__ = []
+    from transformers import EsmModel, EsmTokenizer
+    ESM_AVAILABLE = True
+except ImportError:
+    ESM_AVAILABLE = False
+
+# ESM model configuration
+ESM_MAX_SEQUENCE_LENGTH = 1022
+
 
 # GPU Detection Functions
 def _detect_gpu() -> bool:
@@ -655,7 +668,7 @@ def get_sample_pdb_ids(
 
 class EmbeddingManager:
     """
-    Unified manager for protein embeddings, handling both pre-computed and on-demand embeddings.
+    Singleton manager for protein embeddings, handling both pre-computed and on-demand embeddings.
 
     This class manages:
     1. Loading pre-computed embeddings from npz files
@@ -664,6 +677,14 @@ class EmbeddingManager:
     4. Maintaining chain information for protein alignment
     5. Caching on-demand embeddings to disk to avoid regeneration
     """
+    
+    _instance = None
+    _initialized = False
+    
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super(EmbeddingManager, cls).__new__(cls)
+        return cls._instance
 
     def __init__(
         self,
@@ -675,6 +696,10 @@ class EmbeddingManager:
         shared_embedding_cache: Optional[str] = None,
     ):
         """Initialize the embedding manager with a path to pre-computed embeddings."""
+        # Skip initialization if already initialized (singleton pattern)
+        if self._initialized:
+            return
+            
         resolved_path = _resolve_embedding_path(embedding_path)
         self.embedding_path = resolved_path if resolved_path else ""
 
@@ -713,6 +738,9 @@ class EmbeddingManager:
         self._batch_queue = []
 
         self._load_embeddings()
+        
+        # Mark as initialized
+        self._initialized = True
 
     def load_embeddings(self):
         """Load and return the embeddings from the NPZ file (for external access)."""
@@ -998,18 +1026,19 @@ class EmbeddingManager:
             Tuple of (embedding array, chain_ids string used for the embedding)
         """
         # 0. Normalize pdb_id (e.g. PDB:1abc -> 1abc)
+        original_pdb_id = pdb_id
         pdb_id = pdb_id.upper().split(":")[-1]
+        
+        logger.debug(f"Embedding lookup for PDB ID '{pdb_id}' (original: '{original_pdb_id}')")
 
         # 1. Check in-memory pre-computed database
         if pdb_id in self.embedding_db:
-            logger.debug(f"Found embedding for {pdb_id} in pre-computed DB.")
+            logger.debug(f"Found embedding for {pdb_id} in pre-computed database ({len(self.embedding_db)} total embeddings)")
             return self.embedding_db[pdb_id], self.embedding_chain_data.get(pdb_id, "")
 
         # 2. Check in-memory on-demand generated embeddings
         if pdb_id in self.on_demand_embeddings:
-            # Potentially re-check if target_chain_id matters for on-demand ones too
-            # For now, assume on_demand_embeddings are keyed uniquely enough by pdb_id
-            logger.debug(f"Found embedding for {pdb_id} in on-demand memory.")
+            logger.debug(f"Found embedding for {pdb_id} in on-demand memory cache ({len(self.on_demand_embeddings)} cached)")
             return self.on_demand_embeddings[pdb_id], self.on_demand_chain_data.get(
                 pdb_id, ""
             )
@@ -1020,12 +1049,18 @@ class EmbeddingManager:
                 pdb_id, target_chain_id
             )
             if cached_emb is not None:
-                logger.debug(f"Loaded embedding for {pdb_id} from cache.")
+                logger.debug(f"Loaded embedding for {pdb_id} from disk cache")
                 self.on_demand_embeddings[pdb_id] = cached_emb  # Store in memory
                 self.on_demand_chain_data[pdb_id] = cached_chains_str
                 return cached_emb, cached_chains_str
+            else:
+                logger.debug(f"No embedding found in disk cache for {pdb_id}")
+        else:
+            logger.debug(f"Disk cache disabled for {pdb_id}")
 
         # 4. Generate embedding on-demand if PDB file path is provided
+        logger.info(f"No existing embedding found for {pdb_id}, attempting on-demand generation")
+        
         # Ensure pdb_file is valid if we need to generate
         actual_pdb_file_to_use = pdb_file
         if (
@@ -1034,9 +1069,8 @@ class EmbeddingManager:
             and not os.path.exists(pdb_id)
         ):
             # If only PDB ID is given and not found in DB/cache, we can't generate without a file.
-            # However, if pdb_id itself could be a path to a file (e.g. user inputs a path in PDB ID field)
-            logger.warning(
-                f"No PDB file provided for {pdb_id} to generate on-demand embedding, and not found in DB/cache."
+            logger.error(
+                f"Cannot generate embedding for {pdb_id}: No PDB file provided and not found in database/cache"
             )
             return None, None
         elif pdb_id.endswith(".pdb") and os.path.exists(
@@ -1049,7 +1083,10 @@ class EmbeddingManager:
         if actual_pdb_file_to_use and os.path.exists(actual_pdb_file_to_use):
             # Try to extract proper PDB ID from file if available
             if pdb_id.startswith("TEMP_"):
-                pdb_id = extract_pdb_id_from_file(actual_pdb_file_to_use)
+                extracted_id = extract_pdb_id_from_file(actual_pdb_file_to_use)
+                if extracted_id and not extracted_id.startswith("TEMP_"):
+                    logger.info(f"Updated PDB ID from '{pdb_id}' to '{extracted_id}' based on file header")
+                    pdb_id = extracted_id
 
             logger.info(
                 f"Generating on-demand embedding for {pdb_id} from file {actual_pdb_file_to_use}"
@@ -1077,13 +1114,15 @@ class EmbeddingManager:
                     )  # Save with list of chains
 
                 logger.info(
-                    f"Successfully generated and cached on-demand embedding for {pdb_id}"
+                    f"Successfully generated and cached on-demand embedding for {pdb_id} (shape: {embedding.shape})"
                 )
                 return embedding, chains_str
             else:
                 logger.error(f"Failed to calculate on-demand embedding for {pdb_id}")
+        else:
+            logger.error(f"PDB file not found or invalid: {actual_pdb_file_to_use}")
 
-        logger.warning(f"Embedding for {pdb_id} could not be found or generated.")
+        logger.error(f"Embedding for {pdb_id} could not be found or generated from any source")
         return None, None
 
     def find_neighbors(

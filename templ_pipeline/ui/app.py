@@ -48,22 +48,22 @@ def handle_health_check():
         # Check critical imports
         try:
             from templ_pipeline.ui.config.settings import get_config
-            health_status["config_import"] = "✅ OK"
+            health_status["config_import"] = "  OK"
         except ImportError as e:
-            health_status["config_import"] = f"❌ FAIL: {e}"
+            health_status["config_import"] = f"  FAIL: {e}"
             health_status["status"] = "unhealthy"
         
         try:
             from templ_pipeline.ui.core.session_manager import get_session_manager
-            health_status["session_manager_import"] = "✅ OK"
+            health_status["session_manager_import"] = "  OK"
         except ImportError as e:
-            health_status["session_manager_import"] = f"❌ FAIL: {e}"
+            health_status["session_manager_import"] = f"  FAIL: {e}"
             health_status["status"] = "unhealthy"
         
         if health_status["status"] == "healthy":
-            st.success("✅ TEMPL Pipeline Health Check: OK")
+            st.success("  TEMPL Pipeline Health Check: OK")
         else:
-            st.error("❌ TEMPL Pipeline Health Check: FAILED")
+            st.error("  TEMPL Pipeline Health Check: FAILED")
             
         st.json(health_status)
         st.stop()
@@ -152,7 +152,7 @@ def main():
     try:
         st.set_page_config(
             # page_title="TEMPL Pipeline",
-            page_icon="🧬",
+            page_icon="♟",
             layout="wide",
             initial_sidebar_state="expanded"
         )

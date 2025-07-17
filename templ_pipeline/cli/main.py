@@ -50,7 +50,7 @@ from .ux_config import (
     ExperienceLevel,
 )
 from .help_system import create_enhanced_parser, handle_help_request
-from .progress_indicators import progress_context, OperationType
+from .progress_indicators import progress_context, OperationType, simple_progress_wrapper
 
 # Import version information
 try:
@@ -811,15 +811,13 @@ def run_command(args):
         logger.error(f"Failed to import pipeline: {e}")
         return 1
 
-    logger.info("Running full TEMPL pipeline")
+    print("Starting TEMPL pipeline")
 
     try:
         # Set workers if not provided
         if not hasattr(args, "workers") or args.workers is None:
             hardware_config = _get_hardware_config()
             args.workers = hardware_config["n_workers"]
-            
-        logger.info(f"Using {args.workers} workers for parallel processing")
 
         # Initialize pipeline
         pipeline = TEMPLPipeline(
@@ -828,30 +826,33 @@ def run_command(args):
             run_id=getattr(args, "run_id", None),
         )
 
-        # Run pipeline
-        results = pipeline.run_full_pipeline(
-            protein_file=getattr(args, "protein_file", None),
-            protein_pdb_id=getattr(args, "protein_pdb_id", None),
-            ligand_smiles=getattr(args, "ligand_smiles", None),
-            ligand_file=getattr(args, "ligand_file", None),
-            num_templates=getattr(args, "num_templates", 100),
-            num_conformers=getattr(args, "num_conformers", 100),
-            n_workers=args.workers,
-            similarity_threshold=getattr(args, "similarity_threshold", None),
-            no_realign=getattr(args, "no_realign", False),
-            enable_optimization=getattr(args, "enable_optimization", False),
-        )
+        # Run pipeline with progress indication
+        def run_pipeline():
+            return pipeline.run_full_pipeline(
+                protein_file=getattr(args, "protein_file", None),
+                protein_pdb_id=getattr(args, "protein_pdb_id", None),
+                ligand_smiles=getattr(args, "ligand_smiles", None),
+                ligand_file=getattr(args, "ligand_file", None),
+                num_templates=getattr(args, "num_templates", 100),
+                num_conformers=getattr(args, "num_conformers", 100),
+                n_workers=args.workers,
+                similarity_threshold=getattr(args, "similarity_threshold", None),
+                no_realign=getattr(args, "no_realign", False),
+                enable_optimization=getattr(args, "enable_optimization", False),
+            )
+
+        results = simple_progress_wrapper("Running TEMPL pipeline", run_pipeline)
 
         # Report results
-        logger.info("Pipeline completed successfully!")
-        logger.info(f"Found {len(results.get('templates', []))} templates")
-        logger.info(f"Generated {len(results.get('poses', {}))} poses")
-        logger.info(f"Results saved to: {results.get('output_file', 'unknown')}")
+        print(f"Pipeline completed successfully!")
+        print(f"Found {len(results.get('templates', []))} templates")
+        print(f"Generated {len(results.get('poses', {}))} poses")
+        print(f"Results saved to: {results.get('output_file', 'unknown')}")
 
         return 0
 
     except Exception as e:
-        logger.error(f"Pipeline failed: {str(e)}")
+        print(f"Pipeline failed: {str(e)}")
         logger.debug(f"Full traceback: {traceback.format_exc()}")
         return 1
 
