@@ -46,9 +46,16 @@ def save_uploaded_file(uploaded_file, suffix=".pdb"):
     except Exception as e:
         logger.warning(f"Secure upload failed, using fallback: {e}")
 
-    # Original fallback method
+    # Memory-efficient fallback method
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        tmp.write(uploaded_file.getvalue())
+        # Write file in chunks to avoid memory issues
+        uploaded_file.seek(0)  # Reset file pointer
+        chunk_size = 8192  # 8KB chunks
+        while True:
+            chunk = uploaded_file.read(chunk_size)
+            if not chunk:
+                break
+            tmp.write(chunk)
         return tmp.name
 
 

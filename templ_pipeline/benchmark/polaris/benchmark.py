@@ -1145,15 +1145,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Set logging level",
     )
     p.add_argument(
-        "--save-poses",
+        "--no-save-poses",
         action="store_true",
-        help="Save predicted poses as SDF files for backtesting analysis",
+        help="Disable automatic saving of predicted poses as SDF files",
     )
     p.add_argument(
         "--poses-dir",
         type=str,
         default=None,
-        help="Directory to save predicted poses (default: benchmark_poses_<timestamp>)",
+        help="Directory to save predicted poses (default: workspace/raw_results/polaris/poses/)",
     )
     p.add_argument(
         "--output-dir",
@@ -1319,6 +1319,27 @@ def main(argv: List[str] | None = None):
         f"✓ Loaded datasets: {len(train_sars)} SARS train, {len(train_mers)} MERS train, {len(test_set)} test molecules"
     )
 
+    # Set up automatic pose saving (like time-split benchmark)
+    save_poses = not args.no_save_poses  # Default to True unless --no-save-poses is used
+    poses_output_dir = None
+    
+    if save_poses:
+        if args.poses_dir:
+            poses_output_dir = args.poses_dir
+        elif workspace_dir:
+            # Use workspace structure like time-split benchmark
+            poses_output_dir = str(Path(workspace_dir) / "raw_results" / "polaris" / "poses")
+        else:
+            # Fallback to timestamp-based directory  
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            poses_output_dir = f"benchmark_poses_polaris_{timestamp}"
+        
+        # Ensure poses output directory exists
+        Path(poses_output_dir).mkdir(parents=True, exist_ok=True)
+        logger.info(f"✓ Poses will be saved to: {poses_output_dir}")
+    else:
+        logger.info("✓ Pose saving disabled")
+
     all_results = {}
 
     # Determine what to run
@@ -1342,8 +1363,8 @@ def main(argv: List[str] | None = None):
                     sars_template_counts,
                     args.n_workers,
                     args.n_conformers,
-                    save_poses=getattr(args, 'save_poses', False),
-                    poses_output_dir=getattr(args, 'poses_dir', None),
+                    save_poses=save_poses,
+                    poses_output_dir=poses_output_dir,
                 )
 
             # MERS training evaluation with native templates (leave-one-out)
@@ -1358,8 +1379,8 @@ def main(argv: List[str] | None = None):
                     mers_template_counts,
                     args.n_workers,
                     args.n_conformers,
-                    save_poses=getattr(args, 'save_poses', False),
-                    poses_output_dir=getattr(args, 'poses_dir', None),
+                    save_poses=save_poses,
+                    poses_output_dir=poses_output_dir,
                 )
 
             # MERS training evaluation with combined SARS-aligned + MERS templates
@@ -1376,8 +1397,8 @@ def main(argv: List[str] | None = None):
                     cross_template_counts,
                     args.n_workers,
                     args.n_conformers,
-                    save_poses=getattr(args, 'save_poses', False),
-                    poses_output_dir=getattr(args, 'poses_dir', None),
+                    save_poses=save_poses,
+                    poses_output_dir=poses_output_dir,
                 )
 
         # Run test set evaluations
@@ -1413,8 +1434,8 @@ def main(argv: List[str] | None = None):
                             sars_template_counts,
                             args.n_workers,
                             args.n_conformers,
-                            save_poses=args.save_poses,
-                            poses_output_dir=args.poses_dir,
+                            save_poses=save_poses,
+                            poses_output_dir=poses_output_dir,
                         )
 
                 # 2. MERS test evaluation with native templates
@@ -1431,8 +1452,8 @@ def main(argv: List[str] | None = None):
                             mers_template_counts,
                             args.n_workers,
                             args.n_conformers,
-                            save_poses=args.save_poses,
-                            poses_output_dir=args.poses_dir,
+                            save_poses=save_poses,
+                            poses_output_dir=poses_output_dir,
                         )
 
                 # 3. MERS test evaluation with combined MERS + SARS-aligned templates
@@ -1455,8 +1476,8 @@ def main(argv: List[str] | None = None):
                             mers_cross_template_counts,
                             args.n_workers,
                             args.n_conformers,
-                            save_poses=args.save_poses,
-                            poses_output_dir=args.poses_dir,
+                            save_poses=save_poses,
+                            poses_output_dir=poses_output_dir,
                         )
 
     except KeyboardInterrupt:
@@ -1556,7 +1577,7 @@ def _save_pose(
         Path to saved SDF file
     """
     # Create organized directory structure
-    mol_dir = Path(poses_output_dir) / "poses" / molecule_name
+    mol_dir = Path(poses_output_dir) / molecule_name
     mol_dir.mkdir(parents=True, exist_ok=True)
     
     # Generate timestamp for unique filenames
