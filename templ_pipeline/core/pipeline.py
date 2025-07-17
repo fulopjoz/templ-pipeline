@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union, Any
+from datetime import datetime
 
 import numpy as np
 from rdkit import Chem
@@ -44,6 +45,7 @@ from .chemistry import (
     detect_and_substitute_organometallic,
     needs_uff_fallback,
 )
+from .output_manager import EnhancedOutputManager
 
 log = logging.getLogger(__name__)
 
@@ -117,6 +119,12 @@ class TEMPLPipeline:
         # Create output directory
         os.makedirs(self.output_dir, exist_ok=True)
         
+        # Initialize enhanced output manager
+        self.output_manager = EnhancedOutputManager(
+            base_output_dir=self.output_dir,
+            run_id=self.run_id
+        )
+        
         # Initialize embedding manager
         self._init_embedding_manager()
         
@@ -131,6 +139,12 @@ class TEMPLPipeline:
         except Exception as e:
             log.error(f"Failed to initialize embedding manager: {e}")
             raise
+
+    def _get_embedding_manager(self):
+        """Get the embedding manager instance."""
+        if self.embedding_manager is None:
+            self._init_embedding_manager()
+        return self.embedding_manager
     
     def load_target_data(self) -> bool:
         """Load target protein and ligand data."""
@@ -159,6 +173,9 @@ class TEMPLPipeline:
                     log.error(f"Failed to create target molecule from SMILES: {target_smiles}")
                     return False
                 log.info(f"Created target molecule from SMILES: {target_smiles}")
+                
+                # Try to load crystal molecule for RMSD calculation
+                self.crystal_mol = self._load_crystal_molecule(target_pdb_id)
                 
                 # Validate target molecule for peptides and other issues
                 pdb_id = getattr(self.config, 'protein_pdb_id', 'unknown')
@@ -212,6 +229,37 @@ class TEMPLPipeline:
         except Exception as e:
             log.error(f"Failed to load target data: {e}")
             return False
+    
+    def _load_crystal_molecule(self, pdb_id: str) -> Optional[Chem.Mol]:
+        """Load crystal molecule for RMSD calculation."""
+        try:
+            if not pdb_id:
+                return None
+                
+            # Try to find crystal ligand in processed SDF
+            ligands_sdf_gz = f"{getattr(self.config, 'data_dir', DEFAULT_DATA_DIR)}/ligands/templ_processed_ligands_v1.0.0.sdf.gz"
+            
+            if not os.path.exists(ligands_sdf_gz):
+                log.debug(f"Crystal ligand SDF not found: {ligands_sdf_gz}")
+                return None
+                
+            with gzip.open(ligands_sdf_gz, 'rb') as fh:
+                for mol in Chem.ForwardSDMolSupplier(fh, removeHs=False, sanitize=False):
+                    if not mol or not mol.GetNumConformers():
+                        continue
+                    
+                    # Check if this is our target
+                    mol_name = safe_name(mol, "").lower()
+                    if mol_name.startswith(pdb_id.lower()):
+                        log.info(f"Found crystal ligand for {pdb_id}")
+                        return Chem.Mol(mol)
+                        
+            log.debug(f"No crystal ligand found for {pdb_id}")
+            return None
+            
+        except Exception as e:
+            log.error(f"Failed to load crystal molecule: {e}")
+            return None
     
     def load_templates(self) -> bool:
         """Load template molecules from SDF file."""
@@ -398,6 +446,7 @@ class TEMPLPipeline:
                 return None
 
             n_workers = getattr(self.config, 'n_workers', DEFAULT_N_WORKERS)
+            enable_optimization = getattr(self, 'enable_optimization', True)
 
             if mcs_smarts == "*":
                 log.info("Using central atom embedding for conformer generation")
@@ -405,7 +454,8 @@ class TEMPLPipeline:
                     self.target_mol,
                     template_mol,
                     num_conformers,
-                    n_workers
+                    n_workers,
+                    enable_optimization
                 )
             else:
                 log.info(f"Using MCS-constrained embedding: {mcs_smarts}")
@@ -414,7 +464,8 @@ class TEMPLPipeline:
                     template_mol,
                     mcs_smarts,
                     num_conformers,
-                    n_workers
+                    n_workers,
+                    enable_optimization
                 )
             
             return conformers
@@ -431,10 +482,12 @@ class TEMPLPipeline:
                 return {}
                 
             n_workers = getattr(self.config, 'n_workers', DEFAULT_N_WORKERS)
+            no_realign = getattr(self, 'no_realign', False)
+            
             best_poses = select_best(
                 conformers, 
                 template_mol, 
-                no_realign=False,
+                no_realign=no_realign,
                 n_workers=n_workers
             )
             
@@ -490,7 +543,8 @@ class TEMPLPipeline:
                          ligand_smiles: str = None, ligand_file: str = None,
                          num_templates: int = 100, num_conformers: int = 50,
                          n_workers: int = 4, similarity_threshold: float = 0.9,
-                         exclude_pdb_ids: set = None, output_dir: str = None) -> dict:
+                         exclude_pdb_ids: set = None, output_dir: str = None,
+                         no_realign: bool = False, enable_optimization: bool = True) -> dict:
         """Run the full pipeline with CLI interface."""
         # Use provided output_dir or fall back to instance output_dir
         effective_output_dir = output_dir or self.output_dir
@@ -509,6 +563,8 @@ class TEMPLPipeline:
         
         self.config = config
         self.exclude_pdb_ids = exclude_pdb_ids or set()
+        self.no_realign = no_realign
+        self.enable_optimization = enable_optimization
         
         # Store poses during pipeline execution
         self.pipeline_poses = {}
@@ -516,12 +572,16 @@ class TEMPLPipeline:
         
         success = self.run()
         
+        # Get the timestamped output folder path
+        output_folder = str(self.output_manager.timestamped_folder) if self.output_manager.timestamped_folder else self.output_dir
+        
         return {
             "success": success,
             "templates": getattr(self, "templates", []),
             "poses": getattr(self, "pipeline_poses", {}),
             "template_info": getattr(self, "pipeline_template_info", {}),
-            "output_file": self.output_dir,
+            "output_file": output_folder,
+            "output_folder": output_folder,  # New field for timestamped folder
             "pipeline_config": config
         }
     
@@ -539,6 +599,9 @@ class TEMPLPipeline:
             if not query_pdb_id:
                 log.error("No protein PDB ID or file provided")
                 return False
+
+            # Setup enhanced output folder structure
+            self.output_manager.setup_output_folder(query_pdb_id)
 
             # Get target embedding and chains
             query_embedding, ref_chains = self.get_protein_embedding(query_pdb_id)
@@ -609,7 +672,7 @@ class TEMPLPipeline:
                 log.error("Target molecule is None, cannot proceed with MCS finding")
                 return False
 
-            best_template_idx, mcs_smarts, _ = find_mcs(self.target_mol, all_transformed_ligands, return_details=True)
+            best_template_idx, mcs_smarts, mcs_details = find_mcs(self.target_mol, all_transformed_ligands, return_details=True)
             best_template = all_transformed_ligands[best_template_idx]
             log.info(f"Best template found: {best_template.GetProp('template_pid')} with MCS: {mcs_smarts}")
 
@@ -639,10 +702,51 @@ class TEMPLPipeline:
                     "similarity_score": best_template.GetProp('similarity_score') if best_template.HasProp('similarity_score') else 'unknown'
                 }
 
-            output_name = safe_name(getattr(self.config, 'target_smiles', 'output'))
-            output_file = self.save_results(top_poses, f"{output_name}_top3_poses")
+            # Get crystal structure for RMSD calculation if available
+            crystal_mol = None
+            if hasattr(self, 'crystal_mol'):
+                crystal_mol = self.crystal_mol
             
-            log.info(f"Pipeline completed successfully. Top 3 poses saved to {output_file}")
+            # Generate all poses for comprehensive output
+            all_ranked_poses = select_best(
+                target_with_conformers, best_template, 
+                no_realign=getattr(self, 'no_realign', False),
+                n_workers=getattr(self.config, 'n_workers', 1),
+                return_all_ranked=True
+            )
+            
+            # Use enhanced output manager to save all files
+            top_poses_file = self.output_manager.save_top_poses(
+                top_poses, best_template, mcs_details, crystal_mol
+            )
+            
+            all_poses_file = self.output_manager.save_all_poses(
+                all_ranked_poses, best_template, mcs_details, crystal_mol
+            )
+            
+            template_file = self.output_manager.save_template(best_template)
+            
+            # Save structured pipeline results
+            pipeline_results = {
+                "target_pdb": query_pdb_id,
+                "template_info": self.pipeline_template_info,
+                "mcs_details": mcs_details,
+                "num_conformers": target_with_conformers.GetNumConformers(),
+                "top_poses_file": str(top_poses_file),
+                "all_poses_file": str(all_poses_file),
+                "template_file": str(template_file),
+                "timestamp": str(datetime.now())
+            }
+            
+            results_file = self.output_manager.save_pipeline_results(pipeline_results)
+            
+            log.info(f"Pipeline completed successfully.")
+            log.info(f"Files saved to: {self.output_manager.timestamped_folder}")
+            log.info(f"- Top 3 poses: {top_poses_file}")
+            log.info(f"- All poses: {all_poses_file}")
+            log.info(f"- Template: {template_file}")
+            log.info(f"- Results: {results_file}")
+            
             return True
 
         except Exception as e:

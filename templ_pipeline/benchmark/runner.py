@@ -220,8 +220,9 @@ class BenchmarkRunner:
                 for path in ligand_file_paths:
                     if path.exists():
                         try:
+                            # FIXED: Use direct loading with fresh cache to avoid corruption
                             self._molecule_cache = load_sdf_molecules_cached(
-                                path, memory_limit_gb=6.0
+                                path, cache=None, memory_limit_gb=6.0
                             )
                             if self._molecule_cache:
                                 self.log.info(
@@ -316,7 +317,7 @@ class BenchmarkRunner:
                             "Ligand data not found in database",
                             "ligand"
                         )
-                    log.warning(f"Could not load ligand data for {params.target_pdb}")
+                    self.log.warning(f"Could not load ligand data for {params.target_pdb}")
                     raise ValueError(f"Could not load ligand data for {params.target_pdb}")
             except Exception as e:
                 if error_tracker:

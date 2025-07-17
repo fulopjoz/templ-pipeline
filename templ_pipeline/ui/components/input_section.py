@@ -65,11 +65,31 @@ class InputSection:
         )
 
         if input_method == "SMILES":
-            smiles = st.text_input(
-                "SMILES String",
-                placeholder="Enter SMILES (e.g., C1CC(=O)N(C1)CC(=O)N )",
-                key="smiles_input",
-            )
+            # Define callback function for setting example SMILES
+            def set_example_smiles(smiles_value):
+                st.session_state.smiles_input = smiles_value
+            
+            # Create columns for input and example button
+            col1, col2 = st.columns([4, 1])
+            
+            with col1:
+                smiles = st.text_input(
+                    "SMILES String",
+                    placeholder="Enter SMILES string",
+                    key="smiles_input",
+                )
+            
+            with col2:
+                # Add some spacing to align with the input field
+                st.markdown("<br>", unsafe_allow_html=True)
+                example_smiles = "Cc1cn(cn1)c2cc(NC(=O)c3ccc(C)c(Nc4nccc(n4)c5cccnc5)c3)cc(c2)C(F)(F)F"
+                st.button(
+                    "Use Example", 
+                    key="use_example_smiles", 
+                    help="Fill with example SMILES",
+                    on_click=set_example_smiles,
+                    args=[example_smiles]
+                )
 
             if smiles:
                 # Import validation functions
@@ -88,7 +108,7 @@ class InputSection:
                             mol = None
                         self.session.set(SESSION_KEYS["QUERY_MOL"], mol)
                         self.session.set(SESSION_KEYS["INPUT_SMILES"], smiles)
-                        st.success("SMILES validated: {smiles}")
+                        st.success(f"SMILES validated: {smiles}")
                     else:
                         self.session.set(SESSION_KEYS["INPUT_SMILES"], None)
                         st.error(f"{msg}")
@@ -137,11 +157,31 @@ class InputSection:
         )
 
         if input_method == "PDB ID":
-            pdb_id = st.text_input(
-                "PDB ID",
-                placeholder="Enter 4-character PDB ID (e.g., 1iky)",
-                key="pdb_id_input",
-            )
+            # Define callback function for setting example PDB ID
+            def set_example_pdb(pdb_value):
+                st.session_state.pdb_id_input = pdb_value
+            
+            # Create columns for input and example button
+            col1, col2 = st.columns([4, 1])
+            
+            with col1:
+                pdb_id = st.text_input(
+                    "PDB ID",
+                    placeholder="Enter 4-character PDB ID",
+                    key="pdb_id_input",
+                )
+            
+            with col2:
+                # Add some spacing to align with the input field
+                st.markdown("<br>", unsafe_allow_html=True)
+                example_pdb = "2hyy"
+                st.button(
+                    "Use Example", 
+                    key="use_example_pdb", 
+                    help="Fill with example PDB ID",
+                    on_click=set_example_pdb,
+                    args=[example_pdb]
+                )
 
             if pdb_id:
                 if len(pdb_id) == 4 and pdb_id.isalnum():

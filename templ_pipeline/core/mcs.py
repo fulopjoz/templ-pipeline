@@ -621,45 +621,11 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: dict = N
     # Simple thread limiting to prevent resource exhaustion
     safe_threads = min(numThreads if numThreads > 0 else mp.cpu_count(), 3)
     
-    # Adaptive conformer count based on molecule size to prevent resource exhaustion
-    num_atoms = mol.GetNumAtoms()
-    if num_atoms > 100:
-        # Large molecules: use fewer conformers
-        adaptive_conformers = min(n_conformers, 50)
-        log.info(f"Large molecule ({num_atoms} atoms): reducing conformers from {n_conformers} to {adaptive_conformers}")
-    elif num_atoms > 50:
-        # Medium molecules: moderate reduction
-        adaptive_conformers = min(n_conformers, 100)
-        log.info(f"Medium molecule ({num_atoms} atoms): reducing conformers from {n_conformers} to {adaptive_conformers}")
-    else:
-        # Small molecules: use requested amount
-        adaptive_conformers = n_conformers
+    # Use fixed number of conformers regardless of molecule size
+    adaptive_conformers = 200
     
     try:
-        # Check available memory before conformer generation
-        try:
-            import psutil
-            available_gb = psutil.virtual_memory().available / (1024**3)
-            
-            # Estimate memory needed: ~0.5MB per atom per conformer for large molecules
-            estimated_memory_gb = (num_atoms * adaptive_conformers * 0.5) / 1024
-            
-            if estimated_memory_gb > available_gb * 0.5:  # Use max 50% of available memory (more conservative)
-                # Reduce conformers even more aggressively
-                safe_conformers = max(5, int(available_gb * 0.5 * 1024 / (num_atoms * 0.5)))
-                safe_conformers = min(safe_conformers, adaptive_conformers)
-                log.warning(f"Memory pressure: reducing conformers from {adaptive_conformers} to {safe_conformers}")
-                log.warning(f"Molecule has {num_atoms} atoms, estimated memory: {estimated_memory_gb:.2f}GB, available: {available_gb:.2f}GB")
-                adaptive_conformers = safe_conformers
-            elif estimated_memory_gb > available_gb * 0.3:  # More aggressive scaling for medium pressure
-                # Reduce conformers by 50% for medium pressure
-                safe_conformers = max(10, adaptive_conformers // 2)
-                log.warning(f"Medium memory pressure: reducing conformers from {adaptive_conformers} to {safe_conformers}")
-                adaptive_conformers = safe_conformers
-        except ImportError:
-            log.warning("psutil not available, cannot check memory before conformer generation")
-        except Exception as e:
-            log.warning(f"Memory check failed: {e}")
+                    # Skip memory check - always use 200 conformers
             
         # Try standard embedding with coordinate map
         if coordMap:
@@ -762,13 +728,13 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: dict = N
         return []
 
 
-def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: int = N_CONFS, n_workers_pipeline: int = 0) -> Optional[Chem.Mol]:
+def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: int = N_CONFS, n_workers_pipeline: int = 0, enable_optimization: bool = True) -> Optional[Chem.Mol]:
     """Generate N_CONFS conformations of tgt, locking MCS atoms to ref coords."""
     
     # Handle central atom fallback case
     if smarts == "*":
         log.info("Using central atom positioning for pose generation")
-        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline, enable_optimization)
     
     # Check if UFF fallback is needed for organometallic molecules
     use_uff = needs_uff_fallback(tgt)
@@ -862,9 +828,9 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
         ps = rdDistGeom.ETKDGv3()
         ps.randomSeed = 42
         ps.enforceChirality = False
-        # Resource-aware thread management to prevent "Resource temporarily unavailable" errors
-        max_threads = min(n_workers_pipeline if n_workers_pipeline > 0 else mp.cpu_count(), 3)
-        ps.numThreads = max_threads
+        # Reduce thread pressure to prevent memory allocation errors
+        # Use single thread for conformer generation to reduce thread-local storage pressure
+        ps.numThreads = 1
         
         # Progressive coordinate mapping - reduce constraints until embedding succeeds
         r = -1
@@ -875,34 +841,11 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
         log_coordinate_map(coordMap, "relaxed_coordinate_map")
         ps.SetCoordMap(coordMap)
         
-        # Enhanced error handling for conformer generation
+                # Enhanced error handling for conformer generation
         try:
-            # Check available memory before conformer generation
-            try:
-                import psutil
-                available_gb = psutil.virtual_memory().available / (1024**3)
-                num_atoms = target_h.GetNumAtoms()
-                
-                # Estimate memory needed: ~0.5MB per atom per conformer for large molecules
-                estimated_memory_gb = (num_atoms * n_conformers * 0.5) / 1024
-                
-                if estimated_memory_gb > available_gb * 0.5:  # Use max 50% of available memory (more conservative)
-                    # Reduce conformers adaptively
-                    safe_conformers = max(10, int(available_gb * 0.5 * 1024 / (num_atoms * 0.5)))
-                    safe_conformers = min(safe_conformers, n_conformers)
-                    log.warning(f"Reducing conformers from {n_conformers} to {safe_conformers} due to memory pressure")
-                    log.warning(f"Molecule has {num_atoms} atoms, estimated memory: {estimated_memory_gb:.2f}GB, available: {available_gb:.2f}GB")
-                    n_conformers = safe_conformers
-                elif estimated_memory_gb > available_gb * 0.3:  # More aggressive scaling for medium pressure
-                    # Reduce conformers by 50% for medium pressure
-                    safe_conformers = max(20, n_conformers // 2)
-                    log.warning(f"Medium memory pressure: reducing conformers from {n_conformers} to {safe_conformers}")
-                    n_conformers = safe_conformers
-            except ImportError:
-                log.warning("psutil not available, cannot check memory before conformer generation")
-            except Exception as e:
-                log.warning(f"Memory check failed: {e}")
-                
+            # Use fixed number of conformers regardless of molecule size
+            n_conformers = 200
+            
             r = rdDistGeom.EmbedMultipleConfs(target_h, n_conformers, ps)
         except Exception as e:
             log.error(f"RDKit EmbedMultipleConfs failed: {e}")
@@ -977,24 +920,21 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
         if not is_valid_after_alignment:
             log.warning("Molecular distortion detected after alignment")
         
-        # Skip minimization with constraints to prevent molecular distortion
-        # The ETKDGv3 embedding with alignment already provides good geometry
-        skip_minimization = len(tgt_idxs_h) > 0  # Skip if we have MCS constraints
-        
-        if skip_minimization:
-            log.info("Skipping force field minimization to prevent constraint-induced distortion")
-            log.info("ETKDGv3 embedding + alignment provides sufficient geometry optimization")
-        else:
-            # Minimize with constraints (only when no MCS constraints)
+        # Apply force field optimization if enabled
+        if enable_optimization:
+            log.info("Applying unconstrained force field optimization to whole molecule after MCS positioning")
             if use_uff:
-                minimize_with_uff(target_h, list(conf_ids), list(tgt_idxs_h))
+                minimize_with_uff(target_h, list(conf_ids), [])  # Empty list = unconstrained optimization
             else:
-                mmff_minimise_fixed_parallel(target_h, list(conf_ids), list(tgt_idxs_h), n_workers=n_workers_pipeline)
+                mmff_minimise_fixed_parallel(target_h, list(conf_ids), [], n_workers=n_workers_pipeline)  # Empty list = unconstrained optimization
             
             # Validate geometry after minimization
             is_valid_after_minimization = validate_molecular_geometry(target_h, "after_minimization", "info")
             if not is_valid_after_minimization:
                 log.warning("Molecular distortion detected after minimization")
+        else:
+            log.info("Skipping force field minimization (use --enable-optimization to enable)")
+            log.info("ETKDGv3 embedding + alignment provides sufficient geometry optimization")
         
         return target_h
         
@@ -1003,7 +943,7 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
         return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
 
 
-def central_atom_embed(tgt: Chem.Mol, ref: Chem.Mol, n_conformers: int, n_workers_pipeline: int = 0) -> Optional[Chem.Mol]:
+def central_atom_embed(tgt: Chem.Mol, ref: Chem.Mol, n_conformers: int, n_workers_pipeline: int = 0, enable_optimization: bool = True) -> Optional[Chem.Mol]:
     """Fallback embedding method using central atom positioning.
     
     Args:
@@ -1050,10 +990,17 @@ def central_atom_embed(tgt: Chem.Mol, ref: Chem.Mol, n_conformers: int, n_worker
                 pos = conf.GetAtomPosition(atom_idx)
                 conf.SetAtomPosition(atom_idx, pos + translation)
         
-        # Skip minimization for central atom fallback to prevent distortion
-        # The unconstrained embedding provides good geometry
-        log.info("Skipping force field minimization for central atom fallback to prevent distortion")
-        log.info("Unconstrained embedding provides sufficient geometry optimization")
+        # Apply force field optimization if enabled
+        if enable_optimization:
+            log.info("Applying force field optimization to central atom fallback conformers")
+            # Use UFF for organometallic molecules, MMFF for others
+            if needs_uff_fallback(tgt_copy):
+                minimize_with_uff(tgt_copy, list(range(tgt_copy.GetNumConformers())))
+            else:
+                mmff_minimise_fixed_parallel(tgt_copy, list(range(tgt_copy.GetNumConformers())), [], n_workers=n_workers_pipeline)
+        else:
+            log.info("Skipping force field minimization for central atom fallback (use --enable-optimization to enable)")
+            log.info("Unconstrained embedding provides sufficient geometry optimization")
         
         return tgt_copy
         

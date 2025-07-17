@@ -177,11 +177,12 @@ def get_optimized_worker_config(
     total_cpus = hardware_info.cpu_count  # Use all available CPUs
     memory_info = get_memory_info()
 
-    # Base configuration based on workload type - OPTIMIZED FOR MAXIMUM HARDWARE UTILIZATION
+    # Base configuration based on workload type - CONSERVATIVE FOR SYSTEM STABILITY
     if workload_type == "cpu_intensive":
-        # Use all CPUs for benchmark workloads, conservative for others
-        n_workers = total_cpus  # Use all CPUs for maximum throughput
-        internal_pipeline_workers = min(8, total_cpus // n_workers) if n_workers > 1 else 1
+        # CRITICAL FIX: Use conservative worker count to prevent resource exhaustion
+        # Previous: max 16 workers caused "cannot allocate memory for thread-local data" errors
+        n_workers = max(2, min(20, int(total_cpus * 0.75)))  # Use 75% of CPUs, max 20 workers
+        internal_pipeline_workers = min(2, total_cpus // n_workers) if n_workers > 1 else 1
 
     elif workload_type == "io_intensive":
         # Maximize parallel targets for I/O-bound tasks - remove artificial caps

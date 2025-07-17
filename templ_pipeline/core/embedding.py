@@ -1727,11 +1727,11 @@ def extract_pdb_id_from_path(file_path: str) -> Optional[str]:
 
     # Common patterns for PDB files
     patterns = [
-        r"^([0-9][a-zA-Z0-9]{3})_.*\.pdb$",  # 1iky_protein.pdb
-        r"^([0-9][a-zA-Z0-9]{3})\.pdb$",  # 1iky.pdb
-        r"^([0-9][a-zA-Z0-9]{3})_[A-Z]\.pdb$",  # 1iky_A.pdb
-        r".*_([0-9][a-zA-Z0-9]{3})\.pdb$",  # protein_1iky.pdb
-        r".*_([0-9][a-zA-Z0-9]{3})_.*\.pdb$",  # model_1iky_chain.pdb
+        r"^([0-9][a-zA-Z0-9]{3})_.*\.pdb$",
+        r"^([0-9][a-zA-Z0-9]{3})\.pdb$",
+        r"^([0-9][a-zA-Z0-9]{3})_[A-Z]\.pdb$",
+        r".*_([0-9][a-zA-Z0-9]{3})\.pdb$",
+        r".*_([0-9][a-zA-Z0-9]{3})_.*\.pdb$",
     ]
 
     for pattern in patterns:
