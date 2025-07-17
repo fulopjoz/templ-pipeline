@@ -76,6 +76,16 @@ class MolecularSessionManager:
         if not RDKIT_AVAILABLE or mol is None:
             return False
 
+        # Validate that mol is actually an RDKit molecule object, not a dictionary
+        if isinstance(mol, dict):
+            logger.error(f"Cannot store dictionary as molecule for key {key}: {type(mol)}")
+            return False
+            
+        # Validate RDKit molecule object
+        if not hasattr(mol, 'ToBinary') or not hasattr(mol, 'GetNumAtoms'):
+            logger.error(f"Invalid molecule object for key {key}: missing RDKit methods")
+            return False
+
         try:
             # Always store SMILES (lightweight fallback)
             smiles = Chem.MolToSmiles(mol)
@@ -230,21 +240,29 @@ class MolecularSessionManager:
             Dictionary of poses with scores or None
         """
         if not STREAMLIT_AVAILABLE:
+            logger.debug("Streamlit not available for pose retrieval")
             return None
 
         # Check if we have pose references
         if "best_poses_refs" not in st.session_state:
+            logger.debug("No best_poses_refs found in session state")
             return None
 
         try:
             poses = {}
             best_poses_refs = st.session_state["best_poses_refs"]
+            logger.debug(f"Found best_poses_refs: {type(best_poses_refs)}, length: {len(best_poses_refs) if isinstance(best_poses_refs, dict) else 'N/A'}")
 
             for method, pose_info in best_poses_refs.items():
+                logger.debug(f"Retrieving molecule for method {method}, key: {pose_info['key']}")
                 mol = self.get_molecule(pose_info["key"])
                 if mol:
                     poses[method] = (mol, pose_info["scores"])
+                    logger.debug(f"Successfully retrieved pose for method {method}")
+                else:
+                    logger.warning(f"Failed to retrieve molecule for method {method}, key: {pose_info['key']}")
 
+            logger.debug(f"Final poses dict: {type(poses)}, length: {len(poses)}")
             return poses if poses else None
 
         except Exception as e:
