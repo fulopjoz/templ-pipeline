@@ -180,30 +180,100 @@ def get_mcs_mol(mol1, mol2):
     return None, None
 
 
-def safe_get_mcs_mol(mcs_info):
-    """Safe access to MCS molecule from mcs_info with debugging"""
-    try:
-        if isinstance(mcs_info, (list, tuple)) and len(mcs_info) > 0:
-            return mcs_info[0]
-        elif isinstance(mcs_info, dict):
-            # Handle new dict format from pipeline
-            if "mcs_mol" in mcs_info:
-                return mcs_info["mcs_mol"]
-            elif "smarts" in mcs_info:
-                # Create mol from SMARTS if available
-                from .molecular_utils import get_rdkit_modules
+def safe_get_mcs_mol(mcs_data):
+    """Safely extract MCS molecule from various data formats with enhanced error handling"""
+    if mcs_data is None:
+        logger.debug("safe_get_mcs_mol: mcs_data is None")
+        return None
 
-                Chem, AllChem, Draw = get_rdkit_modules()
-                smarts = mcs_info["smarts"]
+    logger.debug(f"safe_get_mcs_mol: Processing mcs_data of type {type(mcs_data)}")
+
+    try:
+        from .molecular_utils import get_rdkit_modules
+        Chem, AllChem, Draw = get_rdkit_modules()
+    except ImportError as e:
+        logger.error(f"safe_get_mcs_mol: RDKit import failed: {e}")
+        return None
+
+    try:
+        # Handle different MCS data formats
+        if isinstance(mcs_data, dict):
+            logger.debug("safe_get_mcs_mol: Processing dictionary data")
+            
+            # Try to get MCS molecule directly
+            if "mcs_mol" in mcs_data:
+                mol = mcs_data["mcs_mol"]
+                if hasattr(mol, "HasProp") and hasattr(mol, "GetNumAtoms"):
+                    try:
+                        if mol.GetNumAtoms() > 0:
+                            return mol
+                    except:
+                        pass
+            
+            # Try to get from SMARTS
+            if "smarts" in mcs_data:
+                smarts = mcs_data["smarts"]
+                logger.debug(f"safe_get_mcs_mol: Creating molecule from SMARTS: {smarts}")
                 mol = Chem.MolFromSmarts(smarts)
-                if mol:
+                if mol is not None:
+                    try:
+                        # Try to sanitize and add 2D coordinates
+                        Chem.SanitizeMol(mol)
+                        AllChem.Compute2DCoords(mol)
+                        return mol
+                    except Exception as e:
+                        logger.warning(f"safe_get_mcs_mol: SMARTS sanitization failed: {e}")
+                        # Return unsanitized molecule
+                        return mol
+            
+            # Try to get from mcs_smarts key
+            if "mcs_smarts" in mcs_data:
+                smarts = mcs_data["mcs_smarts"]
+                logger.debug(f"safe_get_mcs_mol: Creating molecule from mcs_smarts: {smarts}")
+                mol = Chem.MolFromSmarts(smarts)
+                if mol is not None:
                     try:
                         Chem.SanitizeMol(mol)
                         AllChem.Compute2DCoords(mol)
                         return mol
-                    except:
-                        return None
-        return None
+                    except Exception as e:
+                        logger.warning(f"safe_get_mcs_mol: mcs_smarts sanitization failed: {e}")
+                        return mol
+
+        # Handle list/tuple format (legacy)
+        elif isinstance(mcs_data, (list, tuple)) and len(mcs_data) > 0:
+            logger.debug("safe_get_mcs_mol: Processing list/tuple data")
+            mol = mcs_data[0]
+            if hasattr(mol, "HasProp") and hasattr(mol, "GetNumAtoms"):
+                try:
+                    if mol.GetNumAtoms() > 0:
+                        return mol
+                except:
+                    pass
+
+        # Handle string format (SMARTS)
+        elif isinstance(mcs_data, str):
+            logger.debug(f"safe_get_mcs_mol: Processing string data: {mcs_data}")
+            mol = Chem.MolFromSmarts(mcs_data)
+            if mol is not None:
+                try:
+                    Chem.SanitizeMol(mol)
+                    AllChem.Compute2DCoords(mol)
+                    return mol
+                except Exception as e:
+                    logger.warning(f"safe_get_mcs_mol: String SMARTS sanitization failed: {e}")
+                    return mol
+
+        # Handle direct molecule object
+        elif hasattr(mcs_data, "HasProp") and hasattr(mcs_data, "GetNumAtoms"):
+            try:
+                if mcs_data.GetNumAtoms() > 0:
+                    return mcs_data
+            except:
+                pass
+
     except Exception as e:
-        logger.warning(f"MCS access failed: {e}")
-        return None
+        logger.warning(f"safe_get_mcs_mol: Error processing MCS data: {e}")
+
+    logger.debug("safe_get_mcs_mol: Unable to extract valid MCS molecule")
+    return None

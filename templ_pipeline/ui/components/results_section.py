@@ -440,13 +440,38 @@ class ResultsSection:
 
     def _render_template_comparison(self):
         """Render template molecule comparison in details section"""
-        template_mol = self.session.get("template_used")
-        query_mol = self.session.get("query_mol")
-        mcs_info = self.session.get("mcs_info")
+        template_mol = self.session.get(SESSION_KEYS["TEMPLATE_USED"])
+        query_mol = self.session.get(SESSION_KEYS["QUERY_MOL"])
+        mcs_info = self.session.get(SESSION_KEYS["MCS_INFO"])
 
         # Debug: Check what type of objects we have
         logger.info(f"template_mol type: {type(template_mol)}")
         logger.info(f"query_mol type: {type(query_mol)}")
+        logger.info(f"mcs_info type: {type(mcs_info)}")
+
+        # Debug helper to inspect session data
+        def debug_session_data():
+            """Debug helper to inspect session data for molecules"""
+            all_keys = list(self.session.get_all_settings().keys()) if hasattr(self.session, 'get_all_settings') else []
+            logger.info(f"All session keys: {all_keys}")
+            
+            # Check all SESSION_KEYS for molecule-related data
+            for key, value in SESSION_KEYS.items():
+                if "mol" in key.lower() or "mcs" in key.lower() or "template" in key.lower():
+                    data = self.session.get(value)
+                    logger.info(f"Session key {key} ({value}): {type(data)}")
+                    if hasattr(data, "__dict__"):
+                        logger.info(f"  Data attributes: {list(data.__dict__.keys())}")
+                    elif isinstance(data, dict):
+                        logger.info(f"  Dict keys: {list(data.keys())}")
+                    elif isinstance(data, (list, tuple)):
+                        logger.info(f"  List/tuple length: {len(data)}")
+                        if len(data) > 0:
+                            logger.info(f"  First element type: {type(data[0])}")
+
+        # Run debugging if we have issues
+        if template_mol is None or query_mol is None:
+            debug_session_data()
 
         # Handle different types of stored molecule data
         def safe_get_mol(mol_data):
@@ -475,25 +500,56 @@ class ResultsSection:
                         logger.warning(
                             "safe_get_mol: RDKit molecule object is invalid or empty"
                         )
+                        return None
             except Exception as e:
                 logger.warning(f"safe_get_mol: Error validating RDKit molecule: {e}")
+
+            # Handle binary data (common in pipeline results)
+            if isinstance(mol_data, bytes):
+                logger.debug("safe_get_mol: Processing binary data")
+                try:
+                    # Try to deserialize as RDKit molecule
+                    mol = Chem.Mol(mol_data)
+                    if mol is not None and mol.GetNumAtoms() > 0:
+                        logger.debug("safe_get_mol: Successfully deserialized binary data")
+                        return mol
+                except Exception as e:
+                    logger.warning(f"safe_get_mol: Binary deserialization failed: {e}")
+
+            # Handle string data (SMILES, Mol block, etc.)
+            if isinstance(mol_data, str):
+                logger.debug("safe_get_mol: Processing string data")
+                try:
+                    # Try as SMILES first
+                    mol = Chem.MolFromSmiles(mol_data)
+                    if mol is not None:
+                        logger.debug("safe_get_mol: Successfully parsed as SMILES")
+                        return mol
+                    
+                    # Try as Mol block
+                    mol = Chem.MolFromMolBlock(mol_data)
+                    if mol is not None:
+                        logger.debug("safe_get_mol: Successfully parsed as Mol block")
+                        return mol
+                        
+                except Exception as e:
+                    logger.warning(f"safe_get_mol: String parsing failed: {e}")
 
             # If it's a dictionary, try to extract the molecule
             if isinstance(mol_data, dict):
                 logger.debug("safe_get_mol: Processing dictionary data")
                 # Try common keys where molecule might be stored
-                for key in ["mol", "molecule", "rdkit_mol", "data"]:
+                for key in ["mol", "molecule", "rdkit_mol", "data", "mol_data"]:
                     if key in mol_data:
                         mol = mol_data[key]
                         logger.debug(
                             f"safe_get_mol: Found key '{key}' with type {type(mol)}"
                         )
-                        if hasattr(mol, "HasProp") and hasattr(mol, "GetNumAtoms"):
-                            try:
-                                if mol.GetNumAtoms() > 0:
-                                    return mol
-                            except:
-                                pass
+                        
+                        # Recursively process the extracted data
+                        result = safe_get_mol(mol)
+                        if result is not None:
+                            return result
 
                 # Try to recreate from SMILES if available
                 if "smiles" in mol_data:
@@ -516,6 +572,30 @@ class ResultsSection:
                         logger.warning(
                             f"safe_get_mol: Error creating molecule from SMILES: {e}"
                         )
+
+                # Try to recreate from mol block if available
+                if "mol_block" in mol_data:
+                    try:
+                        mol_block = mol_data["mol_block"]
+                        logger.debug("safe_get_mol: Attempting to create molecule from mol_block")
+                        mol = Chem.MolFromMolBlock(mol_block)
+                        if mol is not None:
+                            logger.debug(
+                                "safe_get_mol: Successfully created molecule from mol_block"
+                            )
+                            return mol
+                    except Exception as e:
+                        logger.warning(
+                            f"safe_get_mol: Error creating molecule from mol_block: {e}"
+                        )
+
+            # Handle list/tuple data (in case molecule is wrapped)
+            if isinstance(mol_data, (list, tuple)) and len(mol_data) > 0:
+                logger.debug("safe_get_mol: Processing list/tuple data")
+                # Try first element
+                result = safe_get_mol(mol_data[0])
+                if result is not None:
+                    return result
 
             # Try to use session SMILES as fallback
             try:
@@ -542,6 +622,95 @@ class ResultsSection:
             logger.error(
                 f"safe_get_mol: Unable to extract valid molecule from data: {type(mol_data)}"
             )
+            return None
+
+        # Enhanced MCS handling function
+        def safe_get_mcs_mol(mcs_data):
+            """Safely extract MCS molecule from various data formats"""
+            if mcs_data is None:
+                logger.debug("safe_get_mcs_mol: mcs_data is None")
+                return None
+
+            logger.debug(f"safe_get_mcs_mol: Processing mcs_data of type {type(mcs_data)}")
+
+            try:
+                from rdkit import Chem
+                from rdkit.Chem import AllChem
+            except ImportError as e:
+                logger.error(f"safe_get_mcs_mol: RDKit import failed: {e}")
+                return None
+
+            try:
+                # Handle different MCS data formats
+                if isinstance(mcs_data, dict):
+                    logger.debug("safe_get_mcs_mol: Processing dictionary data")
+                    
+                    # Try to get MCS molecule directly
+                    if "mcs_mol" in mcs_data:
+                        result = safe_get_mol(mcs_data["mcs_mol"])
+                        if result is not None:
+                            return result
+                    
+                    # Try to get from SMARTS
+                    if "smarts" in mcs_data:
+                        smarts = mcs_data["smarts"]
+                        logger.debug(f"safe_get_mcs_mol: Creating molecule from SMARTS: {smarts}")
+                        mol = Chem.MolFromSmarts(smarts)
+                        if mol is not None:
+                            try:
+                                # Try to sanitize and add 2D coordinates
+                                Chem.SanitizeMol(mol)
+                                AllChem.Compute2DCoords(mol)
+                                return mol
+                            except Exception as e:
+                                logger.warning(f"safe_get_mcs_mol: SMARTS sanitization failed: {e}")
+                                # Return unsanitized molecule
+                                return mol
+                    
+                    # Try to get from mcs_smarts key
+                    if "mcs_smarts" in mcs_data:
+                        smarts = mcs_data["mcs_smarts"]
+                        logger.debug(f"safe_get_mcs_mol: Creating molecule from mcs_smarts: {smarts}")
+                        mol = Chem.MolFromSmarts(smarts)
+                        if mol is not None:
+                            try:
+                                Chem.SanitizeMol(mol)
+                                AllChem.Compute2DCoords(mol)
+                                return mol
+                            except Exception as e:
+                                logger.warning(f"safe_get_mcs_mol: mcs_smarts sanitization failed: {e}")
+                                return mol
+
+                # Handle list/tuple format (legacy)
+                elif isinstance(mcs_data, (list, tuple)) and len(mcs_data) > 0:
+                    logger.debug("safe_get_mcs_mol: Processing list/tuple data")
+                    result = safe_get_mol(mcs_data[0])
+                    if result is not None:
+                        return result
+
+                # Handle string format (SMARTS)
+                elif isinstance(mcs_data, str):
+                    logger.debug(f"safe_get_mcs_mol: Processing string data: {mcs_data}")
+                    mol = Chem.MolFromSmarts(mcs_data)
+                    if mol is not None:
+                        try:
+                            Chem.SanitizeMol(mol)
+                            AllChem.Compute2DCoords(mol)
+                            return mol
+                        except Exception as e:
+                            logger.warning(f"safe_get_mcs_mol: String SMARTS sanitization failed: {e}")
+                            return mol
+
+                # Handle direct molecule object
+                else:
+                    result = safe_get_mol(mcs_data)
+                    if result is not None:
+                        return result
+
+            except Exception as e:
+                logger.warning(f"safe_get_mcs_mol: Error processing MCS data: {e}")
+
+            logger.debug("safe_get_mcs_mol: Unable to extract valid MCS molecule")
             return None
 
         if template_mol or query_mol:
@@ -580,6 +749,7 @@ class ResultsSection:
                     st.error(
                         "Error displaying molecule: Unable to parse template molecule data"
                     )
+                    logger.error(f"Template molecule visualization failed for data: {type(template_mol)}")
 
             with col3:
                 st.markdown("**Common Substructure**")
@@ -589,15 +759,65 @@ class ResultsSection:
                         display_molecule(mcs_mol, width=220, height=180)
                     else:
                         st.info("No significant MCS found")
+                        logger.debug(f"MCS molecule creation failed for data: {type(mcs_info)}")
                 else:
-                    st.info("MCS information not available")
+                    # Try to get MCS from template_info as fallback
+                    template_info = self.session.get(SESSION_KEYS["TEMPLATE_INFO"])
+                    if template_info and isinstance(template_info, dict) and template_info.get("mcs_smarts"):
+                        mcs_smarts = template_info["mcs_smarts"]
+                        logger.debug(f"Using MCS SMARTS from template_info: {mcs_smarts}")
+                        mcs_mol = safe_get_mcs_mol(mcs_smarts)
+                        if mcs_mol:
+                            display_molecule(mcs_mol, width=220, height=180)
+                        else:
+                            st.info("No significant MCS found")
+                    else:
+                        st.info("MCS information not available")
+                        logger.debug("No MCS information in session")
 
             # Additional template information
-            template_info = self.session.get("template_info")
-            if template_info and template_info.get("mcs_smarts"):
-                st.markdown(f"**MCS SMARTS:** `{template_info['mcs_smarts']}`")
+            template_info = self.session.get(SESSION_KEYS["TEMPLATE_INFO"])
+            if template_info:
+                # Display MCS SMARTS if available
+                if isinstance(template_info, dict) and template_info.get("mcs_smarts"):
+                    st.markdown(f"**MCS SMARTS:** `{template_info['mcs_smarts']}`")
+                
+                # Display additional template info
+                if isinstance(template_info, dict):
+                    if template_info.get("template_pdb"):
+                        st.markdown(f"**Template PDB:** {template_info['template_pdb']}")
+                    if template_info.get("ca_rmsd"):
+                        st.markdown(f"**CA RMSD:** {template_info['ca_rmsd']:.2f} Å")
+                    if template_info.get("name"):
+                        st.markdown(f"**Template Name:** {template_info['name']}")
+                    if template_info.get("atoms_matched"):
+                        st.markdown(f"**Atoms Matched:** {template_info['atoms_matched']}")
+                        
+            # Debug info display for troubleshooting (only in debug mode)
+            if st.session_state.get("debug_mode", False):
+                with st.expander("🔍 Debug Info - Molecule Data"):
+                    st.markdown("**Session Data Types:**")
+                    st.write(f"- Template: {type(template_mol)}")
+                    st.write(f"- Query: {type(query_mol)}")
+                    st.write(f"- MCS Info: {type(mcs_info)}")
+                    st.write(f"- Template Info: {type(template_info)}")
+                    
+                    if template_info and isinstance(template_info, dict):
+                        st.markdown("**Template Info Contents:**")
+                        for key, value in template_info.items():
+                            st.write(f"  - {key}: {value}")
+                    
+                    if mcs_info:
+                        st.markdown("**MCS Info Contents:**")
+                        if isinstance(mcs_info, dict):
+                            for key, value in mcs_info.items():
+                                st.write(f"  - {key}: {type(value)}")
+                        else:
+                            st.write(f"  - Type: {type(mcs_info)}")
+                            st.write(f"  - Value: {str(mcs_info)[:200]}...")
         else:
             st.info("Template comparison not available")
+            logger.debug("No template or query molecule data available for comparison")
 
     def _render_download_section(self):
         """Render download options with actual functionality"""
