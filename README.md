@@ -56,7 +56,16 @@ TEMPL requires pre-computed embeddings and ligand structures that are automatica
 - `templ_processed_ligands_v1.0.0.sdf.gz` (~10MB) - Processed ligand structures
 
 ### PDBbind Dataset
-For complete benchmarking, download PDBbind v2020 from the [official website](https://www.pdbbind-plus.org.cn/download) and place in `data/PDBBind/` with the standard directory structure.
+
+For benchmarking, download the following **freely available v2020** subsets from the [official PDBbind website](https://www.pdbbind-plus.org.cn/download):
+
+1. **Protein-ligand complexes: The general set minus refined set** (1.8 GB)
+   → `PDBbind_v2020_other_PL`
+
+2. **Protein-ligand complexes: The refined set** (658 MB)
+   → `PDBbind_v2020_refined`
+
+After downloading, extract both folders into `data/PDBBind/` using the standard directory structure.
 
 ---
 
@@ -65,10 +74,10 @@ For complete benchmarking, download PDBbind v2020 from the [official website](ht
 ### Command Line Interface
 ```bash
 # Basic pose prediction
-templ run --protein-file protein.pdb --ligand-smiles "CCO"
+templ run --protein-file protein.pdb --ligand-smiles "C1CC(=O)N(C1)CC(=O)N"
 
 # Using PDB ID
-templ run --protein-pdb-id 1iky --ligand-smiles "CCO"
+templ run --protein-pdb-id 1iky --ligand-smiles "C1CC(=O)N(C1)CC(=O)N"
 
 # Using SDF file
 templ run --protein-file protein.pdb --ligand-file ligand.sdf
