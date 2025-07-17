@@ -582,7 +582,7 @@ class ResultsSection:
                         if template_info.get("index") is not None:
                             total = template_info.get("total_templates", 1)
                             rank = template_info.get("index", 0) + 1
-                            st.markdown(f"**Template Rank:** {rank}/{total}")
+                            st.markdown(f"**Template Rank:** {rank}/{total_templates}")
                         if template_info.get("ca_rmsd"):
                             try:
                                 ca_rmsd_value = float(template_info['ca_rmsd'])
