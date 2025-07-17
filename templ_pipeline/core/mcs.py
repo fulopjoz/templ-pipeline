@@ -363,7 +363,7 @@ def find_mcs(tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False) 
             else:
                 log.warning(f"Rejecting small MCS (size={best_size}) at threshold {opts.similarityThreshold:.2f}")
         else:
-            log.warning(f"No MCS found at threshold {opts.similarityThreshold:.2f}, trying next threshold")
+            log.info(f"No MCS found at threshold {opts.similarityThreshold:.2f}, trying next threshold")
         
         # Reduce threshold by 0.1 for next iteration
         opts.similarityThreshold = round(opts.similarityThreshold - 0.1, 1)
@@ -843,9 +843,7 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
         
                 # Enhanced error handling for conformer generation
         try:
-            # Use fixed number of conformers regardless of molecule size
-            n_conformers = 200
-            
+            # Use the parameter-specified number of conformers
             r = rdDistGeom.EmbedMultipleConfs(target_h, n_conformers, ps)
         except Exception as e:
             log.error(f"RDKit EmbedMultipleConfs failed: {e}")

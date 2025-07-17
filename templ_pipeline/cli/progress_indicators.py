@@ -32,6 +32,29 @@ from .ux_config import VerbosityLevel, ExperienceLevel, get_ux_config
 logger = logging.getLogger(__name__)
 
 
+def simple_progress_wrapper(description: str, func: Callable, *args, **kwargs):
+    """Simple progress wrapper that shows a basic spinner or progress message."""
+    ux_config = get_ux_config()
+    verbosity = ux_config.get_verbosity_level()
+    
+    # Only show progress for normal verbosity or higher
+    if verbosity == VerbosityLevel.MINIMAL:
+        return func(*args, **kwargs)
+    
+    print(f"Starting: {description}")
+    start_time = time.time()
+    
+    try:
+        result = func(*args, **kwargs)
+        elapsed = time.time() - start_time
+        print(f"Completed: {description} ({elapsed:.1f}s)")
+        return result
+    except Exception as e:
+        elapsed = time.time() - start_time
+        print(f"Failed: {description} ({elapsed:.1f}s)")
+        raise
+
+
 class OperationType(Enum):
     """Types of operations for context-aware progress indication."""
 
@@ -443,4 +466,5 @@ __all__ = [
     "ProgressStyle",
     "show_hardware_status",
     "estimate_operation_time",
+    "simple_progress_wrapper",
 ]

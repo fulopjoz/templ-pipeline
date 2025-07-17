@@ -89,7 +89,7 @@ class SessionManager:
         return st.session_state.get(SESSION_KEYS["APP_INITIALIZED"], False)
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Get value from session state with optional default
+        """Get value from session state with memory-aware handling
 
         Args:
             key: Session key
@@ -98,35 +98,101 @@ class SessionManager:
         Returns:
             Value from session state or default
         """
-        return st.session_state.get(key, default)
+        # For molecule keys, try memory manager first
+        if key in self.large_object_keys:
+            try:
+                # Try to get from memory manager
+                memory_value = self.memory_manager.get_molecule(key)
+                if memory_value is not None:
+                    logger.debug(f"Retrieved {key} from memory manager")
+                    return memory_value
+                
+                # Try to get from memory manager for poses
+                if key == SESSION_KEYS["POSES"]:
+                    pose_results = self.memory_manager.get_pose_results()
+                    if pose_results:
+                        logger.debug(f"Retrieved poses from memory manager")
+                        return pose_results
+                        
+            except Exception as e:
+                logger.warning(f"Memory manager retrieval failed for {key}: {e}")
+        
+        # Fallback to session state
+        if key in st.session_state:
+            return st.session_state[key]
+        
+        # Return default
+        return self.defaults.get(key, default)
 
     def set(self, key: str, value: Any, track_large: bool = None) -> None:
-        """Set value in session state with optional memory tracking
+        """Set value in session state with memory-aware handling
 
         Args:
             key: Session key
-            value: Value to set
+            value: Value to store
             track_large: Whether to track as large object (auto-detected if None)
         """
-        # Store in session state
-        st.session_state[key] = value
-
-        # Auto-detect large objects
+        # Add debugging for poses
+        if key == SESSION_KEYS["POSES"]:
+            logger.info(f"Setting poses: {type(value)}, length: {len(value) if isinstance(value, dict) else 'N/A'}")
+            if isinstance(value, dict):
+                logger.info(f"Pose methods: {list(value.keys())}")
+        
+        # Auto-detect large objects if not specified
         if track_large is None:
-            track_large = key in self.large_object_keys
+            track_large = key in self.large_object_keys or self._is_large_object(value)
 
-        # Track large objects in memory manager
-        if track_large and value is not None:
-            self.memory_manager.store_large_object(
-                key,
-                value,
-                {"timestamp": datetime.now().isoformat(), "type": type(value).__name__},
-            )
+        # Store in memory manager for large objects and molecules
+        if track_large or key in self.large_object_keys:
+            try:
+                # Special handling for different data types
+                if key == SESSION_KEYS["QUERY_MOL"] and value is not None:
+                    success = self.memory_manager.store_molecule("query", value)
+                    if success:
+                        logger.debug(f"Stored query molecule in memory manager")
+                    # Also store in session state as fallback
+                    st.session_state[key] = value
+                    
+                elif key == SESSION_KEYS["TEMPLATE_USED"] and value is not None:
+                    success = self.memory_manager.store_molecule("template", value)
+                    if success:
+                        logger.debug(f"Stored template molecule in memory manager")
+                    # Also store in session state as fallback
+                    st.session_state[key] = value
+                    
+                elif key == SESSION_KEYS["POSES"] and value is not None:
+                    # Always store in session state first as fallback
+                    st.session_state[key] = value
+                    logger.info(f"Stored poses directly in session state as primary storage")
+                    
+                    # Also try to store in memory manager for optimization
+                    try:
+                        success = self.memory_manager.store_pose_results(value)
+                        if success:
+                            logger.info(f"Successfully stored poses in memory manager as secondary storage")
+                        else:
+                            logger.warning(f"Failed to store poses in memory manager, but session state storage succeeded")
+                    except Exception as mem_error:
+                        logger.warning(f"Memory manager storage failed for poses: {mem_error}, but session state storage succeeded")
+                    
+                else:
+                    # General large object storage
+                    success = self.memory_manager.store_large_object(key, value)
+                    if success:
+                        logger.debug(f"Stored {key} in memory manager")
+                    # Always store in session state as well for backward compatibility
+                    st.session_state[key] = value
+                    
+            except Exception as e:
+                logger.warning(f"Memory manager storage failed for {key}: {e}")
+                # Fallback to session state
+                st.session_state[key] = value
+        else:
+            # Direct storage for small objects
+            st.session_state[key] = value
 
-        # Trigger callbacks
+        # Track change
         self._trigger_callbacks(key, value)
-
-        logger.debug(f"Set session key: {key}")
 
     def update(self, updates: Dict[str, Any]) -> None:
         """Update multiple session values at once
@@ -170,6 +236,9 @@ class SessionManager:
 
         # Trigger memory cleanup
         self.memory_manager.cleanup_memory()
+        
+        # Cleanup temporary files
+        self._cleanup_temp_files()
 
     def has_key(self, key: str) -> bool:
         """Check if key exists in session state
@@ -239,7 +308,30 @@ class SessionManager:
         Returns:
             True if results are present
         """
-        return bool(self.get(SESSION_KEYS["POSES"]))
+        # First check session state directly
+        poses_in_session = st.session_state.get(SESSION_KEYS["POSES"], {})
+        if poses_in_session and isinstance(poses_in_session, dict) and len(poses_in_session) > 0:
+            logger.debug(f"Found poses in session state: {len(poses_in_session)} poses")
+            return True
+        
+        # Check memory manager for pose results
+        try:
+            memory_poses = self.memory_manager.get_pose_results()
+            if memory_poses and isinstance(memory_poses, dict) and len(memory_poses) > 0:
+                logger.debug(f"Found poses in memory manager: {len(memory_poses)} poses")
+                return True
+        except Exception as e:
+            logger.warning(f"Error checking memory manager for poses: {e}")
+        
+        # Check for pose references in session state (memory manager storage)
+        if "best_poses_refs" in st.session_state:
+            refs = st.session_state["best_poses_refs"]
+            if refs and isinstance(refs, dict) and len(refs) > 0:
+                logger.debug(f"Found pose references in session state: {len(refs)} references")
+                return True
+        
+        logger.debug("No poses found in session state or memory manager")
+        return False
 
     def increment_pipeline_runs(self) -> int:
         """Increment pipeline run counter
@@ -322,6 +414,71 @@ class SessionManager:
                     export_data[key] = "<non-serializable>"
 
         return export_data
+
+    def _is_large_object(self, value: Any) -> bool:
+        """Check if an object should be considered large
+
+        Args:
+            value: Object to check
+
+        Returns:
+            True if object is considered large
+        """
+        # Check for RDKit molecules
+        if hasattr(value, "ToBinary") and hasattr(value, "GetNumAtoms"):
+            return True
+            
+        # Check for pose dictionaries
+        if isinstance(value, dict) and value:
+            sample_key = next(iter(value))
+            sample_value = value[sample_key]
+            if isinstance(sample_value, tuple) and len(sample_value) == 2:
+                if hasattr(sample_value[0], "ToBinary"):
+                    return True
+        
+        # Check for large lists/tuples
+        if isinstance(value, (list, tuple)) and len(value) > 10:
+            return True
+            
+        # Check for large dictionaries
+        if isinstance(value, dict) and len(value) > 50:
+            return True
+            
+        return False
+
+    def _cleanup_temp_files(self):
+        """Clean up temporary files from uploads and processing"""
+        try:
+            import tempfile
+            import os
+            import glob
+            
+            # Get workspace directory from session
+            workspace_dir = self.get(SESSION_KEYS.get("WORKSPACE_DIR"))
+            if workspace_dir and os.path.exists(workspace_dir):
+                # Clean up uploaded files older than 1 hour
+                uploaded_dir = os.path.join(workspace_dir, "temp", "uploaded")
+                if os.path.exists(uploaded_dir):
+                    for file_path in glob.glob(os.path.join(uploaded_dir, "*")):
+                        try:
+                            if os.path.getctime(file_path) < (datetime.now().timestamp() - 3600):
+                                os.remove(file_path)
+                                logger.debug(f"Cleaned up old temp file: {file_path}")
+                        except Exception as e:
+                            logger.warning(f"Failed to cleanup temp file {file_path}: {e}")
+            
+            # Clean up system temp files with templ prefix
+            temp_dir = tempfile.gettempdir()
+            for file_path in glob.glob(os.path.join(temp_dir, "templ_*")):
+                try:
+                    if os.path.getctime(file_path) < (datetime.now().timestamp() - 3600):
+                        os.remove(file_path)
+                        logger.debug(f"Cleaned up old system temp file: {file_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to cleanup system temp file {file_path}: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Error during temp file cleanup: {e}")
 
 
 # Global session manager instance
