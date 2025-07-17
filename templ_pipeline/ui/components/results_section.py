@@ -22,7 +22,12 @@ from ..utils.export_utils import (
     create_all_conformers_sdf,
     extract_pdb_id_from_template,
 )
-from ..utils.visualization_utils import display_molecule, safe_get_mcs_mol
+from ..utils.visualization_utils import (
+    display_molecule, 
+    safe_get_mcs_mol,
+    get_molecule_from_session,
+    create_mcs_molecule_from_info
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +66,8 @@ class ResultsSection:
             self._render_best_pose(best_method, scores)
             self._render_score_details(scores)
 
-            # Template Details Section (NEW)
-            with st.expander("Template Details", expanded=False):
+            # Template Details Section (NEW) - Show first and expanded
+            with st.expander("Template Details", expanded=True):
                 self._render_template_comparison()
 
             # Downloads with actual functionality
@@ -70,20 +75,7 @@ class ResultsSection:
         else:
             st.error("No valid poses found in results")
 
-        # FAIR Metadata Trigger (NEW)
-        if (
-            self.config.features.get("fair_metadata")
-            or self.config.ui_settings.get("enable_fair_metadata")
-        ) and poses:
-            col1, col2 = st.columns([20, 1])
-            with col2:
-                if st.button(
-                    "Metadata",
-                    help="View Scientific Data & Metadata",
-                    key="fair_trigger",
-                ):
-                    st.session_state.show_fair_panel = True
-                    st.rerun()
+
 
     def _render_template_badge(self):
         """Display template information prominently"""
@@ -91,7 +83,16 @@ class ResultsSection:
         if template_info:
             template_pdb = template_info.get("name", "Unknown")
             template_rank = template_info.get("index", 0) + 1
-            total_templates = template_info.get("total_templates", 1)
+
+            # Check if custom templates are being used
+            if self.session.get(SESSION_KEYS["CUSTOM_TEMPLATES"]):
+                total_templates = template_info.get("total_templates", 1)
+            else:
+                # Get user-defined k-NN value from session for standard pipeline runs
+                total_templates = self.session.get(
+                    SESSION_KEYS["USER_KNN_THRESHOLD"], 100
+                )
+
             atoms_matched = template_info.get("atoms_matched", 0)
 
             # Create informative badge
@@ -193,63 +194,62 @@ class ResultsSection:
         # Display quality assessment with enhanced help
         st.markdown(f"**Quality Assessment:** :{color}[{quality}]")
         
-        # Enhanced help section with modern UI/UX
-        self._render_enhanced_help_section(combo_score, explanation)
+        # Enhanced help section with modern UI/UX - moved after template details
+        with st.expander("Scoring Guide & Scientific References", expanded=False):
+            self._render_enhanced_help_content(combo_score, explanation)
 
-    def _render_enhanced_help_section(self, combo_score: float, explanation: str):
-        """Render enhanced help section with modern UI/UX patterns
+    def _render_enhanced_help_content(self, combo_score: float, explanation: str):
+        """Render enhanced help content with modern UI/UX patterns
         
         Args:
             combo_score: Current combo score
             explanation: Context-specific explanation
         """
-        # Create help trigger with better UX - progressive disclosure
-        with st.expander("Scoring Guide & Scientific References", expanded=False):
-            # Add custom CSS for better styling
-            st.markdown("""
-            <style>
-            .help-tab-content {
-                padding: 10px 0;
-                line-height: 1.6;
-            }
-            .help-metric {
-                background-color: #f0f2f6;
-                padding: 8px 12px;
-                border-radius: 6px;
-                margin: 5px 0;
-                border-left: 4px solid #1f77b4;
-            }
-            .help-link {
-                color: #1f77b4;
-                text-decoration: none;
-                font-weight: 500;
-            }
-            .help-link:hover {
-                text-decoration: underline;
-                color: #0d5aa7;
-            }
-            </style>
-            """, unsafe_allow_html=True)
+        # Add custom CSS for better styling
+        st.markdown("""
+        <style>
+        .help-tab-content {
+            padding: 10px 0;
+            line-height: 1.6;
+        }
+        .help-metric {
+            background-color: #f0f2f6;
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin: 5px 0;
+            border-left: 4px solid #1f77b4;
+        }
+        .help-link {
+            color: #1f77b4;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .help-link:hover {
+            text-decoration: underline;
+            color: #0d5aa7;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        # Create tabbed interface for organized information
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "Quick Guide",
+            "Methodology", 
+            "References",
+            "Thresholds"
+        ])
+        
+        with tab1:
+            self._render_quick_guide(combo_score, explanation)
+        
+        with tab2:
+            self._render_methodology_section()
             
-            # Create tabbed interface for organized information
-            tab1, tab2, tab3, tab4 = st.tabs([
-                "Quick Guide",
-                "Methodology", 
-                "References",
-                "Thresholds"
-            ])
+        with tab3:
+            self._render_references_section()
             
-            with tab1:
-                self._render_quick_guide(combo_score, explanation)
-            
-            with tab2:
-                self._render_methodology_section()
-                
-            with tab3:
-                self._render_references_section()
-                
-            with tab4:
-                self._render_thresholds_section(combo_score)
+        with tab4:
+            self._render_thresholds_section(combo_score)
 
     def _render_quick_guide(self, combo_score: float, explanation: str):
         """Render quick guide tab with essential information"""
@@ -449,349 +449,146 @@ class ResultsSection:
         logger.info(f"query_mol type: {type(query_mol)}")
         logger.info(f"mcs_info type: {type(mcs_info)}")
 
-        # Debug helper to inspect session data
-        def debug_session_data():
-            """Debug helper to inspect session data for molecules"""
-            all_keys = list(self.session.get_all_settings().keys()) if hasattr(self.session, 'get_all_settings') else []
-            logger.info(f"All session keys: {all_keys}")
-            
-            # Check all SESSION_KEYS for molecule-related data
-            for key, value in SESSION_KEYS.items():
-                if "mol" in key.lower() or "mcs" in key.lower() or "template" in key.lower():
-                    data = self.session.get(value)
-                    logger.info(f"Session key {key} ({value}): {type(data)}")
-                    if hasattr(data, "__dict__"):
-                        logger.info(f"  Data attributes: {list(data.__dict__.keys())}")
-                    elif isinstance(data, dict):
-                        logger.info(f"  Dict keys: {list(data.keys())}")
-                    elif isinstance(data, (list, tuple)):
-                        logger.info(f"  List/tuple length: {len(data)}")
-                        if len(data) > 0:
-                            logger.info(f"  First element type: {type(data[0])}")
-
-        # Run debugging if we have issues
-        if template_mol is None or query_mol is None:
-            debug_session_data()
-
-        # Handle different types of stored molecule data
-        def safe_get_mol(mol_data):
-            """Safely extract RDKit mol from various data formats with enhanced error handling"""
-            if mol_data is None:
-                logger.debug("safe_get_mol: mol_data is None")
-                return None
-
-            logger.debug(f"safe_get_mol: Processing mol_data of type {type(mol_data)}")
-
-            # Try to import RDKit (with error handling)
-            try:
-                from rdkit import Chem
-            except ImportError as e:
-                logger.error(f"safe_get_mol: RDKit import failed: {e}")
-                return None
-
-            # If it's already an RDKit molecule, validate and return it
-            try:
-                if hasattr(mol_data, "HasProp") and hasattr(mol_data, "GetNumAtoms"):
-                    logger.debug("safe_get_mol: Found RDKit molecule object")
-                    # Validate the molecule is not None
-                    if mol_data is not None and mol_data.GetNumAtoms() > 0:
-                        return mol_data
-                    else:
-                        logger.warning(
-                            "safe_get_mol: RDKit molecule object is invalid or empty"
-                        )
-                        return None
-            except Exception as e:
-                logger.warning(f"safe_get_mol: Error validating RDKit molecule: {e}")
-
-            # Handle binary data (common in pipeline results)
-            if isinstance(mol_data, bytes):
-                logger.debug("safe_get_mol: Processing binary data")
-                try:
-                    # Try to deserialize as RDKit molecule
-                    mol = Chem.Mol(mol_data)
-                    if mol is not None and mol.GetNumAtoms() > 0:
-                        logger.debug("safe_get_mol: Successfully deserialized binary data")
-                        return mol
-                except Exception as e:
-                    logger.warning(f"safe_get_mol: Binary deserialization failed: {e}")
-
-            # Handle string data (SMILES, Mol block, etc.)
-            if isinstance(mol_data, str):
-                logger.debug("safe_get_mol: Processing string data")
-                try:
-                    # Try as SMILES first
-                    mol = Chem.MolFromSmiles(mol_data)
-                    if mol is not None:
-                        logger.debug("safe_get_mol: Successfully parsed as SMILES")
-                        return mol
-                    
-                    # Try as Mol block
-                    mol = Chem.MolFromMolBlock(mol_data)
-                    if mol is not None:
-                        logger.debug("safe_get_mol: Successfully parsed as Mol block")
-                        return mol
-                        
-                except Exception as e:
-                    logger.warning(f"safe_get_mol: String parsing failed: {e}")
-
-            # If it's a dictionary, try to extract the molecule
-            if isinstance(mol_data, dict):
-                logger.debug("safe_get_mol: Processing dictionary data")
-                # Try common keys where molecule might be stored
-                for key in ["mol", "molecule", "rdkit_mol", "data", "mol_data"]:
-                    if key in mol_data:
-                        mol = mol_data[key]
-                        logger.debug(
-                            f"safe_get_mol: Found key '{key}' with type {type(mol)}"
-                        )
-                        
-                        # Recursively process the extracted data
-                        result = safe_get_mol(mol)
-                        if result is not None:
-                            return result
-
-                # Try to recreate from SMILES if available
-                if "smiles" in mol_data:
-                    try:
-                        smiles = mol_data["smiles"]
-                        logger.debug(
-                            f"safe_get_mol: Attempting to create molecule from SMILES: {smiles}"
-                        )
-                        mol = Chem.MolFromSmiles(smiles)
-                        if mol is not None:
-                            logger.debug(
-                                "safe_get_mol: Successfully created molecule from SMILES"
-                            )
-                            return mol
-                        else:
-                            logger.warning(
-                                f"safe_get_mol: Failed to create molecule from SMILES: {smiles}"
-                            )
-                    except Exception as e:
-                        logger.warning(
-                            f"safe_get_mol: Error creating molecule from SMILES: {e}"
-                        )
-
-                # Try to recreate from mol block if available
-                if "mol_block" in mol_data:
-                    try:
-                        mol_block = mol_data["mol_block"]
-                        logger.debug("safe_get_mol: Attempting to create molecule from mol_block")
-                        mol = Chem.MolFromMolBlock(mol_block)
-                        if mol is not None:
-                            logger.debug(
-                                "safe_get_mol: Successfully created molecule from mol_block"
-                            )
-                            return mol
-                    except Exception as e:
-                        logger.warning(
-                            f"safe_get_mol: Error creating molecule from mol_block: {e}"
-                        )
-
-            # Handle list/tuple data (in case molecule is wrapped)
-            if isinstance(mol_data, (list, tuple)) and len(mol_data) > 0:
-                logger.debug("safe_get_mol: Processing list/tuple data")
-                # Try first element
-                result = safe_get_mol(mol_data[0])
-                if result is not None:
-                    return result
-
-            # Try to use session SMILES as fallback
-            try:
-                input_smiles = self.session.get(SESSION_KEYS["INPUT_SMILES"])
-                if input_smiles:
-                    logger.debug(
-                        f"safe_get_mol: Trying fallback with session SMILES: {input_smiles}"
-                    )
-                    mol = Chem.MolFromSmiles(input_smiles)
-                    if mol is not None:
-                        logger.debug(
-                            "safe_get_mol: Successfully created molecule from session SMILES"
-                        )
-                        return mol
-                    else:
-                        logger.warning(
-                            f"safe_get_mol: Failed to create molecule from session SMILES: {input_smiles}"
-                        )
-            except Exception as e:
-                logger.warning(
-                    f"safe_get_mol: Error using session SMILES fallback: {e}"
-                )
-
-            logger.error(
-                f"safe_get_mol: Unable to extract valid molecule from data: {type(mol_data)}"
-            )
-            return None
-
-        # Enhanced MCS handling function
-        def safe_get_mcs_mol(mcs_data):
-            """Safely extract MCS molecule from various data formats"""
-            if mcs_data is None:
-                logger.debug("safe_get_mcs_mol: mcs_data is None")
-                return None
-
-            logger.debug(f"safe_get_mcs_mol: Processing mcs_data of type {type(mcs_data)}")
-
-            try:
-                from rdkit import Chem
-                from rdkit.Chem import AllChem
-            except ImportError as e:
-                logger.error(f"safe_get_mcs_mol: RDKit import failed: {e}")
-                return None
-
-            try:
-                # Handle different MCS data formats
-                if isinstance(mcs_data, dict):
-                    logger.debug("safe_get_mcs_mol: Processing dictionary data")
-                    
-                    # Try to get MCS molecule directly
-                    if "mcs_mol" in mcs_data:
-                        result = safe_get_mol(mcs_data["mcs_mol"])
-                        if result is not None:
-                            return result
-                    
-                    # Try to get from SMARTS
-                    if "smarts" in mcs_data:
-                        smarts = mcs_data["smarts"]
-                        logger.debug(f"safe_get_mcs_mol: Creating molecule from SMARTS: {smarts}")
-                        mol = Chem.MolFromSmarts(smarts)
-                        if mol is not None:
-                            try:
-                                # Try to sanitize and add 2D coordinates
-                                Chem.SanitizeMol(mol)
-                                AllChem.Compute2DCoords(mol)
-                                return mol
-                            except Exception as e:
-                                logger.warning(f"safe_get_mcs_mol: SMARTS sanitization failed: {e}")
-                                # Return unsanitized molecule
-                                return mol
-                    
-                    # Try to get from mcs_smarts key
-                    if "mcs_smarts" in mcs_data:
-                        smarts = mcs_data["mcs_smarts"]
-                        logger.debug(f"safe_get_mcs_mol: Creating molecule from mcs_smarts: {smarts}")
-                        mol = Chem.MolFromSmarts(smarts)
-                        if mol is not None:
-                            try:
-                                Chem.SanitizeMol(mol)
-                                AllChem.Compute2DCoords(mol)
-                                return mol
-                            except Exception as e:
-                                logger.warning(f"safe_get_mcs_mol: mcs_smarts sanitization failed: {e}")
-                                return mol
-
-                # Handle list/tuple format (legacy)
-                elif isinstance(mcs_data, (list, tuple)) and len(mcs_data) > 0:
-                    logger.debug("safe_get_mcs_mol: Processing list/tuple data")
-                    result = safe_get_mol(mcs_data[0])
-                    if result is not None:
-                        return result
-
-                # Handle string format (SMARTS)
-                elif isinstance(mcs_data, str):
-                    logger.debug(f"safe_get_mcs_mol: Processing string data: {mcs_data}")
-                    mol = Chem.MolFromSmarts(mcs_data)
-                    if mol is not None:
-                        try:
-                            Chem.SanitizeMol(mol)
-                            AllChem.Compute2DCoords(mol)
-                            return mol
-                        except Exception as e:
-                            logger.warning(f"safe_get_mcs_mol: String SMARTS sanitization failed: {e}")
-                            return mol
-
-                # Handle direct molecule object
-                else:
-                    result = safe_get_mol(mcs_data)
-                    if result is not None:
-                        return result
-
-            except Exception as e:
-                logger.warning(f"safe_get_mcs_mol: Error processing MCS data: {e}")
-
-            logger.debug("safe_get_mcs_mol: Unable to extract valid MCS molecule")
-            return None
-
         if template_mol or query_mol:
             col1, col2, col3 = st.columns(3)
 
             with col1:
                 st.markdown("**Query Molecule**")
-                safe_query_mol = safe_get_mol(query_mol)
-                if safe_query_mol:
-                    display_molecule(safe_query_mol, width=220, height=180)
+                # Use utility function with fallback SMILES
+                input_smiles = self.session.get(SESSION_KEYS["INPUT_SMILES"])
+                query_molecule = get_molecule_from_session(
+                    self.session, SESSION_KEYS["QUERY_MOL"], fallback_smiles=input_smiles
+                )
+                
+                if query_molecule:
+                    display_molecule(query_molecule, width=220, height=180)
                 else:
-                    # Try to show SMILES as fallback
-                    input_smiles = self.session.get(SESSION_KEYS["INPUT_SMILES"])
+                    # Show fallback information
                     if input_smiles:
-                        st.error(
-                            "Error displaying molecule: Unable to parse query molecule data"
-                        )
+                        st.warning("Error displaying query molecule")
                         st.info(f"Query SMILES: `{input_smiles}`")
-                        logger.error(
-                            f"Query molecule visualization failed for SMILES: {input_smiles}"
-                        )
+                        
+                        # Try to create and display from SMILES directly
+                        try:
+                            from rdkit import Chem
+                            fallback_mol = Chem.MolFromSmiles(input_smiles)
+                            if fallback_mol:
+                                display_molecule(fallback_mol, width=220, height=180)
+                                st.success("Displayed from SMILES fallback")
+                        except Exception as e:
+                            logger.error(f"SMILES fallback visualization failed: {e}")
                     else:
-                        st.error(
-                            "Error displaying molecule: Unable to parse query molecule data"
-                        )
-                        logger.error(
-                            "Query molecule visualization failed - no SMILES available"
-                        )
+                        st.error("Query molecule data not available")
 
             with col2:
                 st.markdown("**Template**")
-                safe_template_mol = safe_get_mol(template_mol)
-                if safe_template_mol:
-                    display_molecule(safe_template_mol, width=220, height=180)
+                # Use utility function for template molecule
+                template_molecule = get_molecule_from_session(
+                    self.session, SESSION_KEYS["TEMPLATE_USED"]
+                )
+                
+                if template_molecule:
+                    display_molecule(template_molecule, width=220, height=180)
                 else:
-                    st.error(
-                        "Error displaying molecule: Unable to parse template molecule data"
-                    )
-                    logger.error(f"Template molecule visualization failed for data: {type(template_mol)}")
+                    # Enhanced fallback with template info
+                    template_info = self.session.get(SESSION_KEYS["TEMPLATE_INFO"])
+                    if template_info and isinstance(template_info, dict):
+                        template_name = template_info.get("name", "Unknown")
+                        template_smiles = template_info.get("template_smiles")
+                        
+                        if template_smiles:
+                            # Try to create and display template molecule from SMILES
+                            try:
+                                from rdkit import Chem
+                                fallback_template_mol = Chem.MolFromSmiles(template_smiles)
+                                if fallback_template_mol:
+                                    display_molecule(fallback_template_mol, width=220, height=180)
+                                    st.success(f"Template: {template_name}")
+                                else:
+                                    st.warning(f"Template: {template_name}")
+                                    st.code(f"SMILES: {template_smiles}")
+                            except Exception as e:
+                                logger.error(f"Template SMILES fallback visualization failed: {e}")
+                                st.warning(f"Template: {template_name}")
+                                st.code(f"SMILES: {template_smiles}")
+                        else:
+                            st.warning(f"Template: {template_name}")
+                            st.info("No molecular structure available")
+                    else:
+                        st.error("Template information not available")
 
             with col3:
                 st.markdown("**Common Substructure**")
-                if mcs_info:
-                    mcs_mol = safe_get_mcs_mol(mcs_info)
-                    if mcs_mol:
-                        display_molecule(mcs_mol, width=220, height=180)
-                    else:
-                        st.info("No significant MCS found")
-                        logger.debug(f"MCS molecule creation failed for data: {type(mcs_info)}")
+                
+                # Use utility function for MCS
+                mcs_molecule = create_mcs_molecule_from_info(mcs_info)
+                
+                if mcs_molecule:
+                    display_molecule(mcs_molecule, width=220, height=180)
+                    # Show atom count if available
+                    try:
+                        atom_count = mcs_molecule.GetNumAtoms()
+                        st.success(f"MCS found ({atom_count} atoms)")
+                    except:
+                        st.success("MCS structure displayed")
                 else:
                     # Try to get MCS from template_info as fallback
                     template_info = self.session.get(SESSION_KEYS["TEMPLATE_INFO"])
-                    if template_info and isinstance(template_info, dict) and template_info.get("mcs_smarts"):
-                        mcs_smarts = template_info["mcs_smarts"]
-                        logger.debug(f"Using MCS SMARTS from template_info: {mcs_smarts}")
-                        mcs_mol = safe_get_mcs_mol(mcs_smarts)
-                        if mcs_mol:
-                            display_molecule(mcs_mol, width=220, height=180)
+                    mcs_found = False
+                    
+                    if template_info and isinstance(template_info, dict):
+                        mcs_smarts = template_info.get("mcs_smarts")
+                        if mcs_smarts and len(mcs_smarts.strip()) > 0:
+                            mcs_mol_fallback = create_mcs_molecule_from_info(mcs_smarts)
+                            if mcs_mol_fallback:
+                                display_molecule(mcs_mol_fallback, width=220, height=180)
+                                try:
+                                    atom_count = mcs_mol_fallback.GetNumAtoms()
+                                    st.success(f"MCS found ({atom_count} atoms)")
+                                except:
+                                    st.success("MCS structure displayed")
+                                mcs_found = True
+                    
+                    if not mcs_found:
+                        # Show informative message about MCS status
+                        if mcs_info is None:
+                            st.info("No MCS analysis performed")
+                        elif isinstance(mcs_info, dict) and not any(mcs_info.get(key) for key in ["smarts", "mcs_smarts"]):
+                            st.info("No significant common substructure found")
                         else:
-                            st.info("No significant MCS found")
-                    else:
-                        st.info("MCS information not available")
-                        logger.debug("No MCS information in session")
+                            st.warning("Could not display MCS structure")
 
             # Additional template information
             template_info = self.session.get(SESSION_KEYS["TEMPLATE_INFO"])
             if template_info:
-                # Display MCS SMARTS if available
-                if isinstance(template_info, dict) and template_info.get("mcs_smarts"):
-                    st.markdown(f"**MCS SMARTS:** `{template_info['mcs_smarts']}`")
+                st.markdown("---")
                 
-                # Display additional template info
+                # Display MCS SMARTS if available
                 if isinstance(template_info, dict):
-                    if template_info.get("template_pdb"):
-                        st.markdown(f"**Template PDB:** {template_info['template_pdb']}")
-                    if template_info.get("ca_rmsd"):
-                        st.markdown(f"**CA RMSD:** {template_info['ca_rmsd']:.2f} Å")
-                    if template_info.get("name"):
-                        st.markdown(f"**Template Name:** {template_info['name']}")
-                    if template_info.get("atoms_matched"):
-                        st.markdown(f"**Atoms Matched:** {template_info['atoms_matched']}")
+                    mcs_smarts = template_info.get("mcs_smarts")
+                    if mcs_smarts and len(mcs_smarts.strip()) > 0:
+                        st.markdown(f"**MCS SMARTS:** `{mcs_smarts}`")
+                    
+                    # Display additional template info in columns
+                    info_col1, info_col2 = st.columns(2)
+                    
+                    with info_col1:
+                        if template_info.get("name"):
+                            st.markdown(f"**Template:** {template_info['name']}")
+                        if template_info.get("atoms_matched"):
+                            st.markdown(f"**Atoms Matched:** {template_info['atoms_matched']}")
+                    
+                    with info_col2:
+                        if template_info.get("index") is not None:
+                            total = template_info.get("total_templates", 1)
+                            rank = template_info.get("index", 0) + 1
+                            st.markdown(f"**Template Rank:** {rank}/{total}")
+                        if template_info.get("ca_rmsd"):
+                            try:
+                                ca_rmsd_value = float(template_info['ca_rmsd'])
+                                st.markdown(f"**CA RMSD:** {ca_rmsd_value:.2f} Å")
+                            except (ValueError, TypeError):
+                                st.markdown(f"**CA RMSD:** {template_info['ca_rmsd']} Å")
                         
             # Debug info display for troubleshooting (only in debug mode)
             if st.session_state.get("debug_mode", False):
@@ -811,10 +608,33 @@ class ResultsSection:
                         st.markdown("**MCS Info Contents:**")
                         if isinstance(mcs_info, dict):
                             for key, value in mcs_info.items():
-                                st.write(f"  - {key}: {type(value)}")
+                                if key == "smarts" or key == "mcs_smarts":
+                                    st.write(f"  - {key}: `{value}`")
+                                else:
+                                    st.write(f"  - {key}: {value} ({type(value)})")
                         else:
                             st.write(f"  - Type: {type(mcs_info)}")
                             st.write(f"  - Value: {str(mcs_info)[:200]}...")
+                    
+                    # Test molecule retrieval functions
+                    st.markdown("**Retrieval Function Tests:**")
+                    try:
+                        # Test template retrieval (functions already imported at top)
+                        test_template = get_molecule_from_session(self.session, SESSION_KEYS["TEMPLATE_USED"])
+                        st.write(f"  - Template retrieval test: {type(test_template)} ({'success' if test_template else 'failed'})")
+                        
+                        # Test MCS creation
+                        test_mcs = create_mcs_molecule_from_info(mcs_info)
+                        st.write(f"  - MCS creation test: {type(test_mcs)} ({'success' if test_mcs else 'failed'})")
+                        
+                        if test_mcs:
+                            try:
+                                st.write(f"  - MCS atoms: {test_mcs.GetNumAtoms()}")
+                            except:
+                                st.write("  - Could not get MCS atom count")
+                                
+                    except Exception as debug_error:
+                        st.write(f"  - Debug test error: {debug_error}")
         else:
             st.info("Template comparison not available")
             logger.debug("No template or query molecule data available for comparison")
@@ -823,8 +643,8 @@ class ResultsSection:
         """Render download options with actual functionality"""
         st.markdown("### Download Results")
 
-        poses = self.session.get("poses")
-        all_ranked = self.session.get("all_ranked_poses")
+        poses = self.session.get(SESSION_KEYS["POSES"])
+        all_ranked = self.session.get(SESSION_KEYS["ALL_RANKED_POSES"])
 
         col1, col2 = st.columns(2)
 
@@ -858,18 +678,35 @@ class ResultsSection:
                 try:
                     # Use the function from utils.export_utils
                     sdf_data, filename = create_all_conformers_sdf()
-                    st.download_button(
-                        f"All Conformers ({len(all_ranked)})",
-                        data=sdf_data,
-                        file_name=filename,
-                        mime="chemical/x-mdl-sdfile",
-                        help="Download all generated conformers ranked by combo score",
-                        use_container_width=True,
-                        key="download_all_functional",
-                    )
+                    
+                    # Check if the export was successful
+                    if filename == "error.sdf" or not sdf_data:
+                        st.button(
+                            "All Conformers (Error)",
+                            disabled=True,
+                            help="Error generating SDF file - check logs for details",
+                            use_container_width=True,
+                            key="download_all_error",
+                        )
+                    else:
+                        st.download_button(
+                            f"All Conformers ({len(all_ranked)})",
+                            data=sdf_data,
+                            file_name=filename,
+                            mime="chemical/x-mdl-sdfile",
+                            help="Download all generated conformers ranked by combo score",
+                            use_container_width=True,
+                            key="download_all_functional",
+                        )
                 except Exception as e:
                     logger.error(f"Error creating all conformers SDF: {e}")
-                    st.error("Failed to generate SDF file")
+                    st.button(
+                        "All Conformers (Error)",
+                        disabled=True,
+                        help=f"Error generating SDF file: {str(e)}",
+                        use_container_width=True,
+                        key="download_all_exception",
+                    )
             else:
                 st.button(
                     "All Conformers (N/A)",

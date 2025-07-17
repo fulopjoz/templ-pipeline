@@ -122,9 +122,9 @@ class MainLayout:
             # Render header
             render_header(self.config, self.session)
 
-            # Show system status if configured
+            # Show about section if configured
             if self.config.ui_settings.get("show_system_status", True):
-                self._render_system_status()
+                self._render_about_section()
 
             # Main content area
             self._render_main_content()
@@ -144,47 +144,66 @@ class MainLayout:
             logger.error(f"Error rendering main layout: {e}", exc_info=True)
             self._render_error_state(e)
 
-    def _render_system_status(self):
-        """Render system status section"""
-        with st.expander("System Information", expanded=False):
-            hardware_status = self.hardware_manager.get_status_summary()
-
-            col1, col2, col3 = st.columns(3)
-
+    def _render_about_section(self):
+        """Render About TEMPL section"""
+        with st.expander("About TEMPL", expanded=False):
+            # Main description
+            st.markdown("""
+            **TEMPL** is a template-based method for rapid protein-ligand pose prediction that leverages 
+            ligand similarity and template superposition for pose generation within known chemical space.
+            """)
+            
+            st.markdown("---")
+            
+            # Two-column layout for main content
+            col1, col2 = st.columns(2)
+            
             with col1:
-                st.markdown("**Hardware**")
-                hw = hardware_status["hardware"]
-                st.markdown(f"CPU: {hw['cpu_cores']} cores")
-                st.markdown(f"RAM: {hw['ram_gb']} GB")
-                st.markdown(f"GPU: {hw['gpu']}")
-                if hw["gpu"] != "Not available":
-                    st.markdown(f"VRAM: {hw['gpu_memory_gb']} GB")
-
+                st.markdown("**Key Features**")
+                st.markdown("""
+                * **MCS-driven alignment** - Uses maximal common substructure matching
+                * **Constrained embedding** - ETKDG v3 conformer generation  
+                * **Shape scoring** - Pharmacophore-based pose selection
+                * **Built-in benchmarks** - Polaris and time-split PDBbind
+                * **CPU-optimized** - Optional GPU acceleration available
+                """)
+                
+            
             with col2:
-                st.markdown("**Features**")
+                st.markdown("**How It Works**")
+                st.markdown("""
+                1. **Template Matching** - Find similar protein-ligand complexes
+                2. **MCS Detection** - Identify common substructures with reference ligands
+                3. **Conformer Generation** - Create poses using constrained embedding
+                4. **Pose Ranking** - Score using shape and pharmacophore alignment
+                5. **Limitations**: Novel scaffolds, allosteric sites, insufficient templates
+                """)
+            
+            st.markdown("---")
+            
+            # Compact system status at bottom
+            st.markdown("**System Status**")
+            hardware_status = self.hardware_manager.get_status_summary()
+            hw = hardware_status["hardware"]
+            perf = hardware_status["performance"]
+            
+            status_col1, status_col2, status_col3 = st.columns(3)
+            
+            with status_col1:
+                st.markdown(f"**Hardware:** {hw['cpu_cores']} cores, {hw['ram_gb']} GB RAM")
+                if hw["gpu"] != "Not available":
+                    st.markdown(f"**GPU:** {hw['gpu_memory_gb']} GB VRAM")
+            
+            with status_col2:
                 caps = hardware_status["capabilities"]
-
-                # Show feature availability with icons
-                features = [
-                    ("PyTorch", caps["torch_available"]),
-                    ("Transformers", caps["transformers_available"]),
-                    ("Embeddings", caps["embedding_available"]),
-                    ("FAIR Metadata", self.config.features["fair_metadata"]),
-                ]
-
-                for name, available in features:
-                    status = "Available" if available else "Not Available"
-                    st.markdown(f"{name}: {status}")
-
-            with col3:
-                st.markdown("**Performance**")
-                perf = hardware_status["performance"]
-                st.markdown(f"Workers: {perf['max_workers']}")
-                st.markdown(f"Device: {perf['device'].upper()}")
-                st.markdown(f"Batch Size: {perf['batch_size']}")
-
-                # Simple, functional cleanup button
-                if st.button("Clean Up Application", key="cleanup_btn", help="Clear caches and free up memory"):
+                embedding_status = "✓" if caps["embedding_available"] else "✗"
+                st.markdown(f"**Embeddings:** {embedding_status}")
+                st.markdown(f"**Device:** {perf['device'].upper()}")
+            
+            with status_col3:
+                st.markdown(f"**Workers:** {perf['max_workers']}")
+                # Subtle cleanup button
+                if st.button("Clean Up", key="cleanup_btn", help="Clear caches and free up memory"):
                     self._cleanup_application()
 
     def _cleanup_application(self):
@@ -277,11 +296,11 @@ class MainLayout:
                 col1, col2, col3 = st.columns([1, 6, 1])
                 with col1:
                     if st.session_state.show_workspace_sidebar:
-                        if st.button("◀️ Hide Workspace", key="hide_workspace", help="Hide workspace panel", type="secondary"):
+                        if st.button("Hide Workspace", key="hide_workspace", help="Hide workspace panel", type="secondary"):
                             st.session_state.show_workspace_sidebar = False
                             st.rerun()
                     else:
-                        if st.button("▶️ Show Workspace", key="show_workspace", help="Show workspace panel", type="secondary"):
+                        if st.button("Show Workspace", key="show_workspace", help="Show workspace panel", type="secondary"):
                             st.session_state.show_workspace_sidebar = True
                             st.rerun()
             
@@ -296,7 +315,10 @@ class MainLayout:
     def _render_main_content(self):
         """Render the main content area using native Streamlit tabs"""
         # Check if we have results to show
-        if self.session.has_results():
+        has_results = self.session.has_results()
+        logger.info(f"Main content rendering - has_results: {has_results}")
+        
+        if has_results:
             # Handle automatic tab switching after prediction completion
             active_tab_index = (
                 1 if st.session_state.get("prediction_just_completed", False) else 0
@@ -317,6 +339,7 @@ class MainLayout:
                 self.results_section.render()
         else:
             # Just show input area
+            logger.info("No results found - only showing input area")
             self._render_input_area()
 
     def _render_input_area(self):
@@ -466,7 +489,7 @@ class MainLayout:
             unsafe_allow_html=True,
         )
 
-        with st.expander("🔧 Advanced Settings", expanded=False):
+        with st.expander("Advanced Settings", expanded=False):
             st.markdown("##### Pipeline Configuration")
             
             # GPU/Device selection
@@ -498,8 +521,7 @@ class MainLayout:
                 help="Specify protein chain(s) to use (e.g., 'A', 'B', 'AB') or 'auto' for automatic selection"
             )
             
-            # Advanced options
-            st.markdown("##### Advanced Options")
+
             
             # Debug mode toggle
             debug_mode = st.checkbox(
@@ -513,6 +535,13 @@ class MainLayout:
                 "Show FAIR Metadata Panel",
                 value=self.session.get(SESSION_KEYS["SHOW_FAIR_PANEL"], False),
                 help="Display FAIR (Findable, Accessible, Interoperable, Reusable) metadata information"
+            )
+            
+            # Informational note about scoring process
+            st.markdown("##### Scoring Process")
+            st.info(
+                "**Note**: TEMPL uses sequential pose scoring to ensure all 200 conformers are processed reliably. "
+                "This prevents conformer loss due to parallel processing failures and guarantees complete results."
             )
             
             # Store settings in session
@@ -539,24 +568,7 @@ class MainLayout:
             # Validate chain selection
             update_chain_selection()
             
-            # Show current settings
-            if debug_mode:
-                st.markdown("##### Current Settings")
-                st.write(f"Device: {device_pref}")
-                st.write(f"k-NN: {knn_threshold}")
-                st.write(f"Similarity: {similarity_threshold}")
-                st.write(f"Chain: {chain_selection}")
-                st.write(f"Debug Mode: {debug_mode}")
-                st.write(f"FAIR Panel: {show_fair_panel}")
-            
-            # Hardware info
-            hardware_info = self.session.get(SESSION_KEYS["HARDWARE_INFO"])
-            if hardware_info:
-                st.markdown("##### Hardware Information")
-                st.write(f"**Device Type:** {hardware_info.device_type}")
-                st.write(f"**CPU Count:** {hardware_info.cpu_count}")
-                st.write(f"**GPU Available:** {hardware_info.gpu_available}")
-                st.write(f"**Recommended Config:** {hardware_info.recommended_config}")
+
             
             # Performance monitoring
             if hasattr(self, 'performance_monitor'):
@@ -568,18 +580,7 @@ class MainLayout:
                             avg_time = component_stats.get('average', 0)
                             st.write(f"**{component}:** {avg_time:.2f}s avg")
             
-            # Memory usage
-            try:
-                from ..core.memory_manager import get_memory_manager
-                memory_manager = get_memory_manager()
-                memory_stats = memory_manager.get_memory_stats()
-                if memory_stats:
-                    st.markdown("##### Memory Usage")
-                    st.write(f"**Cache Items:** {memory_stats.get('cache_items', 0)}")
-                    st.write(f"**Cache Size:** {memory_stats.get('cache_size_mb', 0):.1f} MB")
-                    st.write(f"**Memory Usage:** {memory_stats.get('memory_usage_mb', 0):.1f} MB")
-            except ImportError:
-                pass
+
 
     def _render_action_button(self):
         """Render the main action button with loading states"""
@@ -694,33 +695,92 @@ class MainLayout:
                     # Store results in session
                     try:
                         poses = results.get("poses", {})
-                        self.session.set(SESSION_KEYS["POSES"], poses)
-                        logger.info(f"Stored {len(poses)} poses")
+                        logger.info(f"Storing {len(poses)} poses in session")
+                        logger.debug(f"Poses keys: {list(poses.keys()) if poses else 'None'}")
+                        
+                        # Validate poses before storing
+                        if poses and isinstance(poses, dict):
+                            # Check if poses contain valid data
+                            valid_poses = {}
+                            for method, pose_data in poses.items():
+                                if isinstance(pose_data, tuple) and len(pose_data) == 2:
+                                    mol, scores = pose_data
+                                    if hasattr(mol, 'ToBinary') and isinstance(scores, dict):
+                                        valid_poses[method] = pose_data
+                                    else:
+                                        logger.warning(f"Invalid pose data for method {method}: mol={type(mol)}, scores={type(scores)}")
+                                else:
+                                    logger.warning(f"Invalid pose structure for method {method}: {type(pose_data)}")
+                            
+                            if valid_poses:
+                                self.session.set(SESSION_KEYS["POSES"], valid_poses)
+                                logger.info(f"Stored {len(valid_poses)} valid poses")
+                            else:
+                                logger.error("No valid poses found to store")
+                        else:
+                            logger.error(f"Invalid poses data structure: {type(poses)}")
+                            self.session.set(SESSION_KEYS["POSES"], poses)  # Store anyway for debugging
 
                         template_info = results.get("template_info")
                         self.session.set(SESSION_KEYS["TEMPLATE_INFO"], template_info)
                         logger.info(f"Stored template info: {template_info}")
+                        logger.info(f"Template info type: {type(template_info)}")
 
                         mcs_info = results.get("mcs_info")
                         self.session.set(SESSION_KEYS["MCS_INFO"], mcs_info)
                         logger.info(f"Stored MCS info: {mcs_info}")
+                        logger.info(f"MCS info type: {type(mcs_info)}")
 
                         all_ranked_poses = results.get("all_ranked_poses")
+                        logger.info(f"DEBUG: Storing all_ranked_poses: type={type(all_ranked_poses)}, length={len(all_ranked_poses) if hasattr(all_ranked_poses, '__len__') else 'N/A'}")
                         self.session.set(SESSION_KEYS["ALL_RANKED_POSES"], all_ranked_poses)
+                        
+                        # Verify storage immediately
+                        stored_all_ranked = self.session.get(SESSION_KEYS["ALL_RANKED_POSES"])
+                        logger.info(f"DEBUG: Verified stored all_ranked_poses: type={type(stored_all_ranked)}, length={len(stored_all_ranked) if hasattr(stored_all_ranked, '__len__') else 'N/A'}")
 
                         # Store template and query molecules for visualization
                         template_mol = results.get("template_mol")
                         if template_mol:
                             self.session.set(SESSION_KEYS["TEMPLATE_USED"], template_mol)
                             logger.info("Stored template molecule")
+                            logger.info(f"Template molecule type: {type(template_mol)}")
+                        else:
+                            logger.warning("No template molecule in results")
 
                         query_mol = results.get("query_mol")
                         if query_mol:
                             self.session.set(SESSION_KEYS["QUERY_MOL"], query_mol)
                             logger.info("Stored query molecule")
+                        else:
+                            logger.warning("No query molecule in results")
 
                         # Increment pipeline runs
                         self.session.increment_pipeline_runs()
+                        
+                        # Verify results are stored properly
+                        stored_poses = self.session.get(SESSION_KEYS["POSES"])
+                        has_results = self.session.has_results()
+                        logger.info(f"Verification - Has results: {has_results}")
+                        logger.info(f"Verification - Stored poses: {type(stored_poses)} with {len(stored_poses) if isinstance(stored_poses, dict) else 'N/A'} entries")
+                        
+                        # Additional debugging
+                        logger.info(f"Verification - Session state poses: {type(st.session_state.get(SESSION_KEYS['POSES']))}")
+                        logger.info(f"Verification - Session state poses length: {len(st.session_state.get(SESSION_KEYS['POSES'], {}))}")
+                        logger.info(f"Verification - Best poses refs in session: {'best_poses_refs' in st.session_state}")
+                        if "best_poses_refs" in st.session_state:
+                            refs = st.session_state["best_poses_refs"]
+                            logger.info(f"Verification - Best poses refs: {type(refs)}, length: {len(refs) if isinstance(refs, dict) else 'N/A'}")
+                        
+                        if not has_results:
+                            logger.error("CRITICAL: Session shows no results despite successful storage attempt")
+                            # Force store in session state directly as fallback
+                            st.session_state[SESSION_KEYS["POSES"]] = poses
+                            logger.info("Forced direct storage in session state as fallback")
+                            
+                            # Try to verify again
+                            has_results_after_force = self.session.has_results()
+                            logger.info(f"Has results after forced storage: {has_results_after_force}")
 
                     except Exception as e:
                         logger.error(f"Failed to store results: {e}", exc_info=True)
