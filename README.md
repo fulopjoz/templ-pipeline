@@ -15,8 +15,7 @@ TEMPL is a template-based method for rapid protein–ligand pose prediction that
 - Built-in benchmarks (Polaris, time-split PDBbind)
 - CPU-only by default with optional GPU acceleration
 
-**Scope:** Optimized for rapid pose prediction within known chemical space. Performance may be limited for novel scaffolds, allosteric sites, or targets with insufficient template coverage.
-
+**⚠️ Scope:** Optimized for rapid pose prediction within known chemical space. Performance may be limited for novel scaffolds, allosteric sites, or targets with insufficient template coverage.
 ---
 
 ## Installation
@@ -54,7 +53,7 @@ TEMPL requires pre-computed embeddings and ligand structures that are automatica
 - `templ_protein_embeddings_v1.0.0.npz` (~90MB) - Protein embeddings
 - `templ_processed_ligands_v1.0.0.sdf.gz` (~10MB) - Processed ligand structures
 
-### Optional: PDBbind Dataset
+### PDBbind Dataset
 For complete benchmarking, download PDBbind v2020 from the [official website](https://www.pdbbind-plus.org.cn/download) and place in `data/PDBBind/` with the standard directory structure.
 
 ---
@@ -83,11 +82,12 @@ python run_streamlit_app.py
 
 ### Benchmarking
 ```bash
-# Quick benchmark
-templ benchmark polaris --quick
-
 # Full benchmark
-templ benchmark polaris --n-workers 8
+templ benchmark polaris
+templ benchmark time-split # PDBBind dataset
+
+# Partial benchmark
+templ benchmark time-split --test-only
 ```
 
 ---
