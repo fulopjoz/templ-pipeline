@@ -388,27 +388,22 @@ class TEMPLUXConfig:
         """Get contextual help hints based on current context and user patterns."""
         hints = []
 
-        # Beginner-specific hints
+        # Beginner-specific hints - only show if arguments are actually missing
         if self.get_effective_experience_level() == ExperienceLevel.BEGINNER:
-            if (
-                command == "run"
-                and not partial_args.get("ligand-smiles")
-                and not partial_args.get("ligand-file")
-            ):
-                hints.append(
-                    "TIP: You need either --ligand-smiles or --ligand-file to specify your query molecule"
-                )
+            if command == "run":
+                # Only show ligand hint if no ligand input is provided
+                if not partial_args.get("ligand_smiles") and not partial_args.get("ligand_file"):
+                    hints.append(
+                        "TIP: You need either --ligand-smiles or --ligand-file to specify your query molecule"
+                    )
 
-            if (
-                command == "run"
-                and not partial_args.get("protein-file")
-                and not partial_args.get("protein-pdb-id")
-            ):
-                hints.append(
-                    "TIP: You need either --protein-file or --protein-pdb-id to specify your target protein"
-                )
+                # Only show protein hint if no protein input is provided
+                if not partial_args.get("protein_file") and not partial_args.get("protein_pdb_id"):
+                    hints.append(
+                        "TIP: You need either --protein-file or --protein-pdb-id to specify your target protein"
+                    )
 
-        # Performance hints
+        # Performance hints - only for advanced users and when workers not specified
         if self.should_show_performance_hints():
             if command in ["run", "generate-poses"] and not partial_args.get("workers"):
                 hints.append(
@@ -488,7 +483,7 @@ def configure_logging_for_verbosity(
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
-    # Create console handler - use WARNING+ for cleaner output
+    # Create console handler - suppress most logging for cleaner CLI output
     console_handler = logging.StreamHandler()
     
     if verbosity == VerbosityLevel.MINIMAL:
@@ -497,14 +492,14 @@ def configure_logging_for_verbosity(
         console_handler.setLevel(logging.WARNING)
         console_handler.setFormatter(minimal_formatter)
     elif verbosity == VerbosityLevel.NORMAL:
-        root_logger.setLevel(logging.INFO)
+        root_logger.setLevel(logging.CRITICAL)  # Suppress all logging except critical
         cli_logger.setLevel(logging.INFO)
-        console_handler.setLevel(logging.WARNING)  # Changed from INFO to WARNING
+        console_handler.setLevel(logging.CRITICAL)  # Only show critical errors on console
         console_handler.setFormatter(normal_formatter)
     elif verbosity == VerbosityLevel.DETAILED:
         root_logger.setLevel(logging.INFO)
         cli_logger.setLevel(logging.DEBUG)
-        console_handler.setLevel(logging.INFO)  # Keep INFO for detailed mode
+        console_handler.setLevel(logging.WARNING)  # Show warnings and errors
         console_handler.setFormatter(detailed_formatter)
     elif verbosity == VerbosityLevel.DEBUG:
         root_logger.setLevel(logging.DEBUG)
@@ -513,6 +508,17 @@ def configure_logging_for_verbosity(
         console_handler.setFormatter(detailed_formatter)
 
     root_logger.addHandler(console_handler)
+    
+    # Suppress specific noisy loggers for cleaner CLI output
+    if verbosity in [VerbosityLevel.MINIMAL, VerbosityLevel.NORMAL]:
+        # Suppress embedding module warnings
+        embedding_logger = logging.getLogger("templ_pipeline.core.embedding")
+        embedding_logger.setLevel(logging.CRITICAL)
+        
+        # Suppress other potentially noisy loggers
+        for logger_name in ["templ_pipeline.core", "rdkit", "sklearn"]:
+            noisy_logger = logging.getLogger(logger_name)
+            noisy_logger.setLevel(logging.CRITICAL)
     
     # Add file handler if log file path is provided
     if log_file_path:

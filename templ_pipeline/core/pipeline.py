@@ -146,6 +146,39 @@ class TEMPLPipeline:
             self._init_embedding_manager()
         return self.embedding_manager
     
+    def _extract_pdb_id_from_path(self, file_path: str) -> Optional[str]:
+        """Extract PDB ID from file path with enhanced pattern matching."""
+        if not file_path:
+            return None
+            
+        # Extract filename from path
+        filename = os.path.basename(file_path)
+        
+        # Enhanced patterns for PDB ID extraction
+        import re
+        
+        # Multiple patterns to handle various filename formats
+        patterns = [
+            r'^([0-9][a-zA-Z0-9]{3})_',        # 2hyy_protein.pdb, 1abc_complex.pdb
+            r'^([0-9][a-zA-Z0-9]{3})\.',       # 2hyy.pdb, 1abc.cif
+            r'^([0-9][a-zA-Z0-9]{3})$',        # 2hyy, 1abc (no extension)
+            r'_([0-9][a-zA-Z0-9]{3})_',        # protein_2hyy_complex.pdb
+            r'_([0-9][a-zA-Z0-9]{3})\.',       # protein_2hyy.pdb
+            r'([0-9][a-zA-Z0-9]{3})',          # General pattern anywhere in filename
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, filename, re.IGNORECASE)
+            if match:
+                candidate = match.group(1).lower()
+                # Validate that it's a proper PDB ID format
+                if len(candidate) == 4 and candidate[0].isdigit() and candidate[1:].isalnum():
+                    log.info(f"Extracted PDB ID '{candidate}' from filename '{filename}' using pattern '{pattern}'")
+                    return candidate
+        
+        log.debug(f"No PDB ID found in filename '{filename}'")
+        return None
+
     def load_target_data(self) -> bool:
         """Load target protein and ligand data."""
         try:
@@ -157,6 +190,13 @@ class TEMPLPipeline:
             if not pdb_to_load and target_pdb_id:
                 # Find the path from the ID
                 pdb_to_load = pdb_path(target_pdb_id, getattr(self.config, 'data_dir', DEFAULT_DATA_DIR))
+
+            # If we have a file path but no PDB ID, try to extract it from the filename
+            if pdb_to_load and not target_pdb_id:
+                extracted_id = self._extract_pdb_id_from_path(pdb_to_load)
+                if extracted_id:
+                    target_pdb_id = extracted_id
+                    log.info(f"Extracted PDB ID '{target_pdb_id}' from filename")
 
             if pdb_to_load and os.path.exists(pdb_to_load):
                 self.reference_protein = load_reference_protein(pdb_to_load)
@@ -178,7 +218,7 @@ class TEMPLPipeline:
                 self.crystal_mol = self._load_crystal_molecule(target_pdb_id)
                 
                 # Validate target molecule for peptides and other issues
-                pdb_id = getattr(self.config, 'protein_pdb_id', 'unknown')
+                pdb_id = target_pdb_id or getattr(self.config, 'protein_pdb_id', 'unknown')
                 peptide_threshold = getattr(self.config, 'peptide_threshold', 8)
                 
                 is_valid, validation_msg = validate_target_molecule(
@@ -249,8 +289,8 @@ class TEMPLPipeline:
                         continue
                     
                     # Check if this is our target
-                    mol_name = safe_name(mol, "").lower()
-                    if mol_name.startswith(pdb_id.lower()):
+                    mol_name = safe_name(mol, "")
+                    if mol_name and mol_name.lower().startswith(pdb_id.lower()):
                         log.info(f"Found crystal ligand for {pdb_id}")
                         return Chem.Mol(mol)
                         
@@ -298,15 +338,58 @@ class TEMPLPipeline:
             log.error(f"Failed to load templates: {e}")
             return False
     
-    def get_protein_embedding(self, pdb_id: str) -> Tuple[Optional[np.ndarray], Optional[List[str]]]:
-        """Get protein embedding for PDB ID and the chains used."""
+    def get_protein_embedding(self, pdb_id: str, pdb_file: str = None) -> Tuple[Optional[np.ndarray], Optional[List[str]]]:
+        """Get protein embedding for PDB ID and the chains used.
+        
+        When PDB file is provided:
+        1. Extract PDB ID from file if not provided
+        2. Check if extracted PDB ID exists in embedding database
+        3. Use existing embedding if found, otherwise generate from file
+        """
         try:
             if self.embedding_manager is None:
                 log.error("Embedding manager not initialized")
                 return None, None
             
-            pdb_file = pdb_path(pdb_id, getattr(self.config, 'data_dir', DEFAULT_DATA_DIR))
-            embedding, chains_str = self.embedding_manager.get_embedding(pdb_id, pdb_file=pdb_file)
+            # If PDB file is provided, try to extract PDB ID for database lookup
+            if pdb_file and os.path.exists(pdb_file):
+                # Extract PDB ID from file if not provided or if provided ID is temporary
+                if not pdb_id or pdb_id.startswith("TEMP_"):
+                    extracted_pdb_id = self._extract_pdb_id_from_path(pdb_file)
+                    if extracted_pdb_id:
+                        pdb_id = extracted_pdb_id
+                        log.info(f"Extracted PDB ID '{pdb_id}' from uploaded file")
+                
+                # Check if extracted/provided PDB ID exists in embedding database
+                if pdb_id and self.embedding_manager.has_embedding(pdb_id):
+                    log.info(f"Using existing embedding for PDB ID '{pdb_id}' from database")
+                    embedding, chains_str = self.embedding_manager.get_embedding(pdb_id)
+                    if embedding is not None:
+                        chains = chains_str.split(',') if chains_str else []
+                        return embedding, chains
+                
+                # If no existing embedding found, generate from uploaded file
+                log.info(f"Generating embedding from uploaded file for PDB ID '{pdb_id}'")
+                embedding, chains_str = self.embedding_manager.get_embedding(pdb_id, pdb_file=pdb_file)
+            
+            # Handle PDB ID without file (database lookup)
+            elif pdb_id:
+                # Check existing embeddings first
+                if self.embedding_manager.has_embedding(pdb_id):
+                    log.info(f"Using existing embedding for PDB ID '{pdb_id}' from database")
+                    embedding, chains_str = self.embedding_manager.get_embedding(pdb_id)
+                else:
+                    # Try to find PDB file in database
+                    pdb_file_path = pdb_path(pdb_id, getattr(self.config, 'data_dir', DEFAULT_DATA_DIR))
+                    if pdb_file_path and os.path.exists(pdb_file_path):
+                        log.info(f"Generating embedding for PDB ID '{pdb_id}' from database file")
+                        embedding, chains_str = self.embedding_manager.get_embedding(pdb_id, pdb_file=pdb_file_path)
+                    else:
+                        log.error(f"PDB ID '{pdb_id}' not found in embedding database or file system")
+                        return None, None
+            else:
+                log.error("No PDB ID or file provided")
+                return None, None
             
             if embedding is not None:
                 chains = chains_str.split(',') if chains_str else []
@@ -569,6 +652,7 @@ class TEMPLPipeline:
         # Store poses during pipeline execution
         self.pipeline_poses = {}
         self.pipeline_template_info = {}
+        self.pipeline_all_ranked_poses = []
         
         success = self.run()
         
@@ -580,6 +664,7 @@ class TEMPLPipeline:
             "templates": getattr(self, "templates", []),
             "poses": getattr(self, "pipeline_poses", {}),
             "template_info": getattr(self, "pipeline_template_info", {}),
+            "all_ranked_poses": getattr(self, "pipeline_all_ranked_poses", []),
             "output_file": output_folder,
             "output_folder": output_folder,  # New field for timestamped folder
             "pipeline_config": config
@@ -596,15 +681,29 @@ class TEMPLPipeline:
                 return False
 
             query_pdb_id = getattr(self.config, 'protein_pdb_id', None) or getattr(self.config, 'target_pdb', None)
+            
+            # If no PDB ID is found but we have a file path, try to extract it
             if not query_pdb_id:
-                log.error("No protein PDB ID or file provided")
-                return False
+                target_pdb_file = getattr(self.config, 'target_pdb', None)
+                if target_pdb_file:
+                    extracted_id = self._extract_pdb_id_from_path(target_pdb_file)
+                    if extracted_id:
+                        query_pdb_id = extracted_id
+                        log.info(f"Using extracted PDB ID '{query_pdb_id}' for pipeline execution")
+                    else:
+                        # Use the filename without extension as fallback
+                        query_pdb_id = os.path.splitext(os.path.basename(target_pdb_file))[0]
+                        log.info(f"Using filename '{query_pdb_id}' as fallback PDB ID")
+                else:
+                    log.error("No protein PDB ID or file provided")
+                    return False
 
             # Setup enhanced output folder structure
             self.output_manager.setup_output_folder(query_pdb_id)
 
             # Get target embedding and chains
-            query_embedding, ref_chains = self.get_protein_embedding(query_pdb_id)
+            target_pdb_file = getattr(self.config, 'target_pdb', None)
+            query_embedding, ref_chains = self.get_protein_embedding(query_pdb_id, pdb_file=target_pdb_file)
             if query_embedding is None:
                 log.error(f"Failed to get/generate protein embedding for {query_pdb_id}")
                 return False
@@ -683,9 +782,44 @@ class TEMPLPipeline:
                 return False
             log.info(f"Generated {target_with_conformers.GetNumConformers()} conformers.")
 
-            top_poses = self.score_conformers(target_with_conformers, best_template)
-            if not top_poses:
+            # Score conformers efficiently (single scoring call)
+            n_workers = getattr(self.config, 'n_workers', DEFAULT_N_WORKERS)
+            no_realign = getattr(self, 'no_realign', False)
+            
+            # Get all ranked poses first (comprehensive results)
+            all_ranked_poses = select_best(
+                target_with_conformers, best_template, 
+                no_realign=no_realign,
+                n_workers=n_workers,
+                return_all_ranked=True
+            )
+            
+            if not all_ranked_poses:
                 log.error("Failed to rank and select poses.")
+                return False
+            
+            # Store all ranked poses for CLI interface
+            self.pipeline_all_ranked_poses = all_ranked_poses.copy()
+            
+            # Extract top poses by metric from all_ranked_poses (avoid redundant scoring)
+            top_poses = {}
+            metrics = ['shape', 'color', 'combo']
+            
+            for metric in metrics:
+                # Find best pose for this metric from all ranked poses
+                best_pose = None
+                best_score = -1
+                
+                for conf_id, scores, mol in all_ranked_poses:
+                    if metric in scores and scores[metric] > best_score:
+                        best_score = scores[metric]
+                        best_pose = (mol, scores)
+                
+                if best_pose:
+                    top_poses[metric] = best_pose
+            
+            if not top_poses:
+                log.error("Failed to extract top poses by metric.")
                 return False
 
             # Store poses for CLI interface
@@ -706,14 +840,6 @@ class TEMPLPipeline:
             crystal_mol = None
             if hasattr(self, 'crystal_mol'):
                 crystal_mol = self.crystal_mol
-            
-            # Generate all poses for comprehensive output
-            all_ranked_poses = select_best(
-                target_with_conformers, best_template, 
-                no_realign=getattr(self, 'no_realign', False),
-                n_workers=getattr(self.config, 'n_workers', 1),
-                return_all_ranked=True
-            )
             
             # Use enhanced output manager to save all files
             top_poses_file = self.output_manager.save_top_poses(
