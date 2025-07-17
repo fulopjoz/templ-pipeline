@@ -15,7 +15,9 @@ TEMPL is a template-based method for rapid protein–ligand pose prediction that
 - Built-in benchmarks (Polaris, time-split PDBbind)
 - CPU-only by default with optional GPU acceleration
 
-**⚠️ Scope:** Optimized for rapid pose prediction within known chemical space. Performance may be limited for novel scaffolds, allosteric sites, or targets with insufficient template coverage.
+**⚠️ Scope:** 
+* Optimized for rapid pose prediction within known chemical space. Performance may be limited for novel scaffolds, allosteric sites, or targets with insufficient template coverage.
+
 ---
 
 ## Installation
