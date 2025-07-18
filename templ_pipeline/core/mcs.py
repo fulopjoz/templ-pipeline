@@ -323,7 +323,7 @@ def find_mcs(tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False) 
         
         for i, r in enumerate(refs):
             try:
-                mcr = rdRascalMCES.FindMCES(tgt, r, opts)
+                mcr = rdRascalMCES.FindMCES(tgt, Chem.RemoveHs(r), opts)
                 if mcr:
                     mcs_mol = mcr[0]
                     atom_matches = mcs_mol.atomMatches()
