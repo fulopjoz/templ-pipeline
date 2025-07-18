@@ -11,7 +11,6 @@ from .runner import (
     BenchmarkResult,
 )
 from .timesplit import run_timesplit_benchmark
-from .timesplit_stream import run_timesplit_streaming
 
 __all__ = [
     "run_templ_pipeline_for_benchmark",
@@ -19,5 +18,4 @@ __all__ = [
     "BenchmarkParams",
     "BenchmarkResult",
     "run_timesplit_benchmark",
-    "run_timesplit_streaming",
 ]
