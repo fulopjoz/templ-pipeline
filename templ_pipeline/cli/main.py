@@ -1229,7 +1229,7 @@ def benchmark_command(args):
 
     elif args.suite == "time-split":
         try:
-            from templ_pipeline.benchmark.timesplit_stream import run_timesplit_streaming
+            from templ_pipeline.benchmark.timesplit import run_timesplit_benchmark
 
             # Determine which splits to run
             splits_to_run = []
@@ -1250,10 +1250,6 @@ def benchmark_command(args):
                 log_level = "DEBUG"
             else:
                 log_level = "INFO"
-            
-            # Suppress warnings before starting benchmark
-            from templ_pipeline.core.benchmark_logging import suppress_benchmark_warnings
-            suppress_benchmark_warnings()
 
             # Use benchmark logging context for clean terminal output
             with benchmark_logging_context(
@@ -1267,14 +1263,14 @@ def benchmark_command(args):
                 logger.info(f"Workspace directory: {workspace_dir}/")
                 logger.info(f"Logs will be written to: {logs_dir}")
 
-                # Setup quiet mode for terminal output only  
-                # For clean progress bars, we want quiet=False so progress bars show up
-                # but all logging goes to files due to the logging context
-                quiet_mode = False
-
                 # Use workspace subdirectory for timesplit results
                 timesplit_results_dir = workspace_dir / "raw_results" / "timesplit"
                 timesplit_results_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Setup poses directory
+                poses_dir = None
+                if hasattr(args, "save_poses") and args.save_poses:
+                    poses_dir = str(workspace_dir / "raw_results" / "timesplit" / "poses")
                 
                 # Discover data directory dynamically
                 import os
@@ -1308,55 +1304,19 @@ def benchmark_command(args):
                 
                 logger.info(f"Using data directory: {data_dir}")
                 
-                # Load the target PDBs for the selected splits
-                from templ_pipeline.benchmark.timesplit_stream import load_timesplit_pdb_list
-                
-                target_pdbs = []
-                for split in splits_to_run:
-                    try:
-                        target_pdbs.extend(load_timesplit_pdb_list(split))
-                    except Exception as exc:
-                        logger.error(f"Failed to load '{split}' split: {exc}")
-                        return 1
-                
-                # Apply max_pdbs limit if specified
-                if hasattr(args, "max_pdbs") and args.max_pdbs:
-                    target_pdbs = target_pdbs[:args.max_pdbs]
-                    
-                if not target_pdbs:
-                    logger.error("No target PDBs found for selected splits")
-                    return 1
-
-                logger.info(f"Processing {len(target_pdbs)} targets from splits: {', '.join(splits_to_run)}")
-
-                # Prepare kwargs for run_timesplit_streaming
-                streaming_kwargs = {
-                    "target_pdbs": target_pdbs,
-                    "data_dir": data_dir,
-                    "results_dir": str(timesplit_results_dir),
-                    "quiet": quiet_mode,
-                }
-
-                if hasattr(args, "n_workers") and args.n_workers:
-                    streaming_kwargs["max_workers"] = args.n_workers
-                if hasattr(args, "n_conformers") and args.n_conformers:
-                    streaming_kwargs["n_conformers"] = args.n_conformers
-                if hasattr(args, "template_knn") and args.template_knn:
-                    streaming_kwargs["template_knn"] = args.template_knn
-                if hasattr(args, "max_ram_gb") and args.max_ram_gb:
-                    streaming_kwargs["max_ram_gb"] = args.max_ram_gb
-                if hasattr(args, "per_worker_ram_gb") and args.per_worker_ram_gb:
-                    streaming_kwargs["per_worker_ram_gb"] = args.per_worker_ram_gb
-                if hasattr(args, "peptide_threshold") and args.peptide_threshold:
-                    streaming_kwargs["peptide_threshold"] = args.peptide_threshold
-                if hasattr(args, "pipeline_timeout") and args.pipeline_timeout:
-                    streaming_kwargs["timeout"] = args.pipeline_timeout
-
-                # Call the streaming function directly
-                run_timesplit_streaming(**streaming_kwargs)
-                
-                # Streaming function doesn't return a result dict, so create one
-                result = {"success": True, "results_dir": str(timesplit_results_dir)}
+                # Run the new timesplit benchmark
+                result = run_timesplit_benchmark(
+                    splits_to_run=splits_to_run,
+                    n_workers=args.n_workers,
+                    n_conformers=args.n_conformers,
+                    template_knn=getattr(args, "template_knn", 100),
+                    max_pdbs=getattr(args, "max_pdbs", None),
+                    data_dir=data_dir,
+                    results_dir=str(timesplit_results_dir),
+                    poses_output_dir=poses_dir,
+                    timeout=getattr(args, "timeout", 180),
+                    quiet=False,  # Let progress bars show
+                )
 
                 # Generate unified summary for Timesplit results
                 if result.get("success", False):
