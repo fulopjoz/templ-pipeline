@@ -306,6 +306,15 @@ def set_global_molecule_cache(molecules: List[Any]):
     _GLOBAL_MOLECULE_CACHE["molecules"] = molecules
 
 
+def clear_global_molecule_cache():
+    """Clear the global molecule cache."""
+    global _GLOBAL_MOLECULE_CACHE
+    if _GLOBAL_MOLECULE_CACHE is not None:
+        _GLOBAL_MOLECULE_CACHE.clear()
+        logger.info("Cleared global molecule cache")
+    _GLOBAL_MOLECULE_CACHE = None
+
+
 def create_shared_molecule_cache(molecules: List[Any], cache_dir: Optional[Path] = None) -> str:
     """Create a shared molecule cache file for multiprocessing.
     

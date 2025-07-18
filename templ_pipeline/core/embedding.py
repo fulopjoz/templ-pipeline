@@ -1874,6 +1874,123 @@ def get_templates_with_progressive_fallback(
     return [], float("inf"), False
 
 
+def clear_embedding_cache(clear_model_cache: bool = True, clear_disk_cache: bool = True, clear_memory_cache: bool = True) -> Dict[str, bool]:
+    """Clear all types of embedding caches.
+    
+    This function provides a comprehensive way to clear all embedding-related caches:
+    1. Global ESM model cache (_esm_components)
+    2. EmbeddingManager disk cache (cached .npz files)
+    3. EmbeddingManager memory cache (in-memory embeddings)
+    
+    Args:
+        clear_model_cache: Whether to clear the global ESM model cache
+        clear_disk_cache: Whether to clear the disk cache directory
+        clear_memory_cache: Whether to clear in-memory embeddings
+    
+    Returns:
+        Dictionary with success status for each cache type cleared
+    """
+    results = {}
+    
+    # Clear global ESM model cache
+    if clear_model_cache:
+        try:
+            global _esm_components
+            if _esm_components is not None:
+                # Clear GPU memory if using CUDA
+                if ESM_AVAILABLE:
+                    try:
+                        import torch
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except ImportError:
+                        pass
+                
+                _esm_components = None
+                logger.info("Cleared global ESM model cache")
+                results["model_cache"] = True
+            else:
+                logger.info("Global ESM model cache was already empty")
+                results["model_cache"] = True
+        except Exception as e:
+            logger.error(f"Failed to clear global ESM model cache: {str(e)}")
+            results["model_cache"] = False
+    else:
+        results["model_cache"] = None  # Not requested
+    
+    # Clear EmbeddingManager caches
+    if clear_disk_cache or clear_memory_cache:
+        try:
+            # Get the singleton instance if it exists
+            if hasattr(EmbeddingManager, '_instance') and EmbeddingManager._instance is not None:
+                manager = EmbeddingManager._instance
+                
+                # Clear disk cache
+                if clear_disk_cache:
+                    disk_result = manager.clear_cache()
+                    results["disk_cache"] = disk_result
+                else:
+                    results["disk_cache"] = None  # Not requested
+                
+                # Clear memory cache
+                if clear_memory_cache:
+                    try:
+                        # Clear the in-memory embedding databases
+                        manager.embedding_db.clear()
+                        manager.embedding_chain_data.clear()
+                        manager.on_demand_embeddings.clear()
+                        manager.on_demand_chain_data.clear()
+                        manager.pdb_to_uniprot.clear()
+                        manager._batch_queue.clear()
+                        
+                        # Reset initialization flag to allow re-initialization
+                        EmbeddingManager._initialized = False
+                        
+                        logger.info("Cleared EmbeddingManager memory cache")
+                        results["memory_cache"] = True
+                    except Exception as e:
+                        logger.error(f"Failed to clear EmbeddingManager memory cache: {str(e)}")
+                        results["memory_cache"] = False
+                else:
+                    results["memory_cache"] = None  # Not requested
+            else:
+                # No manager instance exists
+                if clear_disk_cache:
+                    # Try to clear disk cache by creating a temporary manager
+                    try:
+                        temp_manager = EmbeddingManager()
+                        disk_result = temp_manager.clear_cache()
+                        results["disk_cache"] = disk_result
+                    except Exception as e:
+                        logger.error(f"Failed to clear disk cache via temporary manager: {str(e)}")
+                        results["disk_cache"] = False
+                else:
+                    results["disk_cache"] = None
+                
+                if clear_memory_cache:
+                    logger.info("No EmbeddingManager instance exists, memory cache already empty")
+                    results["memory_cache"] = True
+                else:
+                    results["memory_cache"] = None
+        except Exception as e:
+            logger.error(f"Failed to access EmbeddingManager for cache clearing: {str(e)}")
+            if clear_disk_cache:
+                results["disk_cache"] = False
+            if clear_memory_cache:
+                results["memory_cache"] = False
+    
+    # Log summary
+    cleared_caches = [k for k, v in results.items() if v is True]
+    if cleared_caches:
+        logger.info(f"Successfully cleared caches: {', '.join(cleared_caches)}")
+    
+    failed_caches = [k for k, v in results.items() if v is False]
+    if failed_caches:
+        logger.warning(f"Failed to clear caches: {', '.join(failed_caches)}")
+    
+    return results
+
+
 class EmbeddingEngine:
     """Object-oriented wrapper for embedding functionality."""
 
