@@ -1,22 +1,84 @@
-# Exclude large data directory completely
-data
+# Build artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Include only minimal essential data
-!data-minimal
-
-# Development and testing
-tests
-htmlcov
-.coverage
-.pytest_cache
-*.egg-info
-
-# Git and version control
-.git
+# Development files
+.git/
 .gitignore
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.venv/
+venv/
+ENV/
+env/
 
-# Documentation and examples
-examples
+# Documentation
+docs/
+*.md
+!README.md
+
+# Test files
+tests/
+test_*/
+*_test.py
+test_*.py
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+*.log
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Large benchmark and output files
+benchmark_workspace_*/
+output/
+memory-bank/
+
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# Custom deployment files (will be copied separately)
+custom_modes/
+examples/
+error_tracking/
+
+# Data directory structure - copy structure but not large files
+data/**/*.npz
+data/**/*.sdf.gz
+data/**/*.tar.gz
+data/PDBBind/**
+data/polaris/**
 templ_benchmark_results_polaris
 memory-bank
 project_brief.txt

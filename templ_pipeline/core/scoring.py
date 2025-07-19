@@ -815,6 +815,7 @@ def select_best(
     no_realign: bool = False,
     n_workers: int = 1,
     return_all_ranked: bool = False,
+    align_metric: str = "combo",
 ) -> Union[
     Dict[str, Tuple[Chem.Mol, Dict[str, float]]],
     List[Tuple[Chem.Mol, Dict[str, float], int]],
@@ -1007,8 +1008,14 @@ def select_best(
         logger.warning("No valid scoring results obtained")
         return {} if not return_all_ranked else []
 
-    # Sort by combo score (descending)
-    all_results.sort(key=lambda x: x[1].get("combo", 0.0), reverse=True)
+    # Sort by specified metric (descending)
+    # Validate align_metric parameter
+    valid_metrics = ["shape", "color", "combo"]
+    if align_metric not in valid_metrics:
+        logger.warning(f"Invalid align_metric '{align_metric}', using 'combo' as default")
+        align_metric = "combo"
+    
+    all_results.sort(key=lambda x: x[1].get(align_metric, 0.0), reverse=True)
 
     if return_all_ranked:
         return all_results
