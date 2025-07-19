@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: templ-pipeline-svc
+  labels:
+    app: templ-pipeline
+spec:
+  type: ClusterIP
+  ports:
+  - name: streamlit-port
+    port: 80
+    targetPort: 8501
+    protocol: TCP
+  selector:
+    app: templ-pipeline

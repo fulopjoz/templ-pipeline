@@ -357,6 +357,10 @@ def run_templ_pipeline_single(
     n_workers: int = 1,
     save_poses: bool = False,
     poses_output_dir: Optional[str] = None,
+    unconstrained: bool = False,
+    align_metric: str = "combo",
+    enable_optimization: bool = False,
+    no_realign: bool = False,
 ) -> Dict:
     """Run TEMPL pipeline for a single molecule with comprehensive result tracking.
     
@@ -412,10 +416,18 @@ def run_templ_pipeline_single(
         template_mol = filtered_templates[idx]
         result["template_used"] = safe_name(template_mol, f"template_{idx}")
 
-        # Generate constrained conformers (using same algorithm as TEMPLPipeline)
-        confs = constrained_embed(
-            query_noH, template_mol, smarts, n_conformers, n_workers
-        )
+        # Generate conformers (constrained or unconstrained based on ablation flag)
+        if unconstrained:
+            # Use unconstrained embedding for ablation study
+            from templ_pipeline.core.mcs import central_atom_embed
+            confs = central_atom_embed(
+                query_noH, template_mol, n_conformers, n_workers, enable_optimization
+            )
+        else:
+            # Generate constrained conformers (using same algorithm as TEMPLPipeline)
+            confs = constrained_embed(
+                query_noH, template_mol, smarts, n_conformers, n_workers, enable_optimization
+            )
         result["n_conformers_generated"] = confs.GetNumConformers()
 
         if confs.GetNumConformers() == 0:
@@ -425,7 +437,7 @@ def run_templ_pipeline_single(
 
         # Select best poses (using same algorithm as TEMPLPipeline)
         best_poses = select_best(
-            confs, template_mol, no_realign=False, n_workers=n_workers
+            confs, template_mol, no_realign=no_realign, n_workers=n_workers, align_metric=align_metric
         )
 
         # Calculate RMSD to reference
@@ -499,6 +511,10 @@ def evaluate_with_leave_one_out(
     n_conformers: int = 200,
     save_poses: bool = False,
     poses_output_dir: Optional[str] = None,
+    unconstrained: bool = False,
+    align_metric: str = "combo",
+    enable_optimization: bool = False,
+    no_realign: bool = False,
 ) -> Dict:
     """Enhanced leave-one-out evaluation."""
 
@@ -548,6 +564,10 @@ def evaluate_with_leave_one_out(
                         1,
                         save_poses,
                         poses_output_dir,
+                        unconstrained,
+                        align_metric,
+                        enable_optimization,
+                        no_realign,
                     ],
                     timeout=MOLECULE_TIMEOUT,
                 )
@@ -629,6 +649,10 @@ def evaluate_with_leave_one_out(
                     1,
                     save_poses,
                     poses_output_dir,
+                    unconstrained,
+                    align_metric,
+                    enable_optimization,
+                    no_realign,
                 )
                 future_to_mol[future] = (mol_name, query_mol)
 
@@ -707,6 +731,10 @@ def evaluate_with_templates(
     n_conformers: int = 200,
     save_poses: bool = False,
     poses_output_dir: Optional[str] = None,
+    unconstrained: bool = False,
+    align_metric: str = "combo",
+    enable_optimization: bool = False,
+    no_realign: bool = False,
 ) -> Dict:
     """Enhanced evaluation with templates."""
 
@@ -747,7 +775,7 @@ def evaluate_with_templates(
 
                 future = pool.schedule(
                     run_templ_pipeline_single,
-                    args=[query_mol, template_mols, query_mol, None, n_conformers, 1, save_poses, poses_output_dir],
+                    args=[query_mol, template_mols, query_mol, None, n_conformers, 1, save_poses, poses_output_dir, unconstrained, align_metric, enable_optimization, no_realign],
                     timeout=MOLECULE_TIMEOUT,
                 )
                 futures.append((future, mol_name, query_mol))
@@ -828,6 +856,10 @@ def evaluate_with_templates(
                     1,
                     save_poses,
                     poses_output_dir,
+                    unconstrained,
+                    align_metric,
+                    enable_optimization,
+                    no_realign,
                 )
                 future_to_mol[future] = (mol_name, query_mol)
 
@@ -1167,6 +1199,30 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Workspace directory for organized logging and file management",
     )
+    
+    # Ablation study arguments
+    p.add_argument(
+        "--unconstrained",
+        action="store_true",
+        help="Skip MCS and constrained embedding (unconstrained conformer generation)",
+    )
+    p.add_argument(
+        "--align-metric",
+        choices=["shape", "color", "combo"],
+        default="combo",
+        help="Shape alignment metric (default: combo)",
+    )
+    p.add_argument(
+        "--enable-optimization",
+        action="store_true",
+        help="Enable force field optimization (MMFF/UFF)",
+    )
+    p.add_argument(
+        "--no-realign",
+        action="store_true",
+        help="Disable pose realignment (use AlignMol scores only for ranking)",
+    )
+    
     return p
 
 
@@ -1365,6 +1421,10 @@ def main(argv: List[str] | None = None):
                     args.n_conformers,
                     save_poses=save_poses,
                     poses_output_dir=poses_output_dir,
+                    unconstrained=args.unconstrained,
+                    align_metric=args.align_metric,
+                    enable_optimization=args.enable_optimization,
+                    no_realign=args.no_realign,
                 )
 
             # MERS training evaluation with native templates (leave-one-out)
@@ -1381,6 +1441,10 @@ def main(argv: List[str] | None = None):
                     args.n_conformers,
                     save_poses=save_poses,
                     poses_output_dir=poses_output_dir,
+                    unconstrained=args.unconstrained,
+                    align_metric=args.align_metric,
+                    enable_optimization=args.enable_optimization,
+                    no_realign=args.no_realign,
                 )
 
             # MERS training evaluation with combined SARS-aligned + MERS templates
@@ -1399,6 +1463,10 @@ def main(argv: List[str] | None = None):
                     args.n_conformers,
                     save_poses=save_poses,
                     poses_output_dir=poses_output_dir,
+                    unconstrained=args.unconstrained,
+                    align_metric=args.align_metric,
+                    enable_optimization=args.enable_optimization,
+                    no_realign=args.no_realign,
                 )
 
         # Run test set evaluations
@@ -1436,6 +1504,10 @@ def main(argv: List[str] | None = None):
                             args.n_conformers,
                             save_poses=save_poses,
                             poses_output_dir=poses_output_dir,
+                            unconstrained=args.unconstrained,
+                            align_metric=args.align_metric,
+                            enable_optimization=args.enable_optimization,
+                            no_realign=args.no_realign,
                         )
 
                 # 2. MERS test evaluation with native templates
@@ -1454,6 +1526,10 @@ def main(argv: List[str] | None = None):
                             args.n_conformers,
                             save_poses=save_poses,
                             poses_output_dir=poses_output_dir,
+                            unconstrained=args.unconstrained,
+                            align_metric=args.align_metric,
+                            enable_optimization=args.enable_optimization,
+                            no_realign=args.no_realign,
                         )
 
                 # 3. MERS test evaluation with combined MERS + SARS-aligned templates
@@ -1478,6 +1554,10 @@ def main(argv: List[str] | None = None):
                             args.n_conformers,
                             save_poses=save_poses,
                             poses_output_dir=poses_output_dir,
+                            unconstrained=args.unconstrained,
+                            align_metric=args.align_metric,
+                            enable_optimization=args.enable_optimization,
+                            no_realign=args.no_realign,
                         )
 
     except KeyboardInterrupt:

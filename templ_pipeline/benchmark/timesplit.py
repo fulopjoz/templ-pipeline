@@ -173,11 +173,15 @@ def _process_single_target(args: Tuple) -> Dict:
     """Process a single target PDB in an isolated subprocess.
     
     Uses the same pattern as polaris benchmark for reliable memory management.
-    Includes explicit memory cleanup to prevent accumulation.
+    Includes explicit memory cleanup and monitoring to prevent accumulation.
     """
     target_pdb, config_dict = args
     
     start_time = time.time()
+    
+    # Monitor initial memory state
+    process = psutil.Process()
+    initial_memory = process.memory_info().rss / (1024**3)  # GB
     
     # Suppress worker logging to prevent console pollution
     from templ_pipeline.core.benchmark_logging import suppress_worker_logging
@@ -198,6 +202,7 @@ def _process_single_target(args: Tuple) -> Dict:
                     break
                 # Explicit cleanup of split_pdbs
                 del split_pdbs
+                gc.collect()  # Force cleanup
             except Exception:
                 continue
         
@@ -206,6 +211,11 @@ def _process_single_target(args: Tuple) -> Dict:
         
         # Get time-based exclusions
         exclusions = get_timesplit_template_exclusions(target_pdb, target_split)
+        
+        # Monitor memory before pipeline execution
+        pre_pipeline_memory = process.memory_info().rss / (1024**3)
+        if pre_pipeline_memory > 4.0:  # Warning threshold
+            logging.warning(f"High memory usage before pipeline: {pre_pipeline_memory:.1f}GB for {target_pdb}")
         
         # Run pipeline using benchmark infrastructure
         result = run_templ_pipeline_for_benchmark(
@@ -218,6 +228,10 @@ def _process_single_target(args: Tuple) -> Dict:
             timeout=config_dict.get("timeout", MOLECULE_TIMEOUT),
             data_dir=config_dict.get("data_dir"),
             poses_output_dir=config_dict.get("poses_output_dir"),
+            unconstrained=config_dict.get("unconstrained", False),
+            align_metric=config_dict.get("align_metric", "combo"),
+            enable_optimization=config_dict.get("enable_optimization", False),
+            no_realign=config_dict.get("no_realign", False),
         )
         
         # Ensure result is a dictionary
@@ -229,6 +243,14 @@ def _process_single_target(args: Tuple) -> Dict:
         result["target_split"] = target_split
         result["exclusions_count"] = len(exclusions)
         result["runtime_total"] = time.time() - start_time
+        
+        # Monitor final memory state
+        final_memory = process.memory_info().rss / (1024**3)
+        result["memory_usage"] = {
+            "initial_gb": initial_memory,
+            "final_gb": final_memory,
+            "peak_delta_gb": final_memory - initial_memory
+        }
         
         # Explicit cleanup before returning
         del exclusions
@@ -243,6 +265,11 @@ def _process_single_target(args: Tuple) -> Dict:
             "pdb_id": target_pdb,
             "target_split": target_split,
             "runtime_total": time.time() - start_time,
+            "memory_usage": {
+                "initial_gb": initial_memory,
+                "final_gb": process.memory_info().rss / (1024**3),
+                "peak_delta_gb": process.memory_info().rss / (1024**3) - initial_memory
+            }
         }
         
         # Cleanup on error
@@ -261,6 +288,21 @@ def _process_single_target(args: Tuple) -> Dict:
             _clear_worker_caches()
         except Exception:
             pass  # Don't let cleanup errors crash the worker
+
+
+def _clear_worker_caches():
+    """Clear worker-specific caches to prevent memory accumulation."""
+    try:
+        # Clear RDKit caches if available
+        import rdkit
+        if hasattr(rdkit, 'Chem'):
+            # Clear any RDKit molecule caches
+            pass
+    except ImportError:
+        pass
+    
+    # Force garbage collection
+    gc.collect()
 
 
 def _get_memory_info() -> Dict[str, float]:
@@ -522,76 +564,97 @@ def _process_chunk(
     
     mp_context = mp.get_context("spawn")
     
-    with ScopedResourceManager() as resource_manager, \
-         ProcessPoolExecutor(max_workers=n_workers, mp_context=mp_context) as executor:
-        
-        # Submit all tasks for this chunk
-        future_to_pdb = {}
-        for pdb_id in chunk_pdbs:
-            future = executor.submit(_process_single_target, (pdb_id, config_dict))
-            future_to_pdb[future] = pdb_id
-        
-        # Initialize progress tracking
-        processed_count = 0
-        success_count = 0
-        failed_count = 0
-        
-        if not quiet:
-            desc = f"Chunk {chunk_number}"
-            tqdm_config = ProgressConfig.get_tqdm_config(desc)
-            tqdm_config['total'] = len(future_to_pdb)
-            progress_bar = tqdm(**tqdm_config)
-        else:
-            progress_bar = None
-        
-        # Collect results
-        for future in as_completed(future_to_pdb):
-            pdb_id = future_to_pdb[future]
-            
-            try:
-                result = future.result(timeout=config_dict.get("timeout", MOLECULE_TIMEOUT))
-                
-            except Exception as e:
-                result = {
-                    "success": False,
-                    "error": f"Pipeline error: {str(e)}",
-                    "pdb_id": pdb_id,
-                    "runtime_total": 0,
-                    "timeout": False,
-                }
-            
-            # Stream result to file immediately
-            with output_jsonl.open("a", encoding="utf-8") as fh:
-                json.dump(result, fh)
-                fh.write("\n")
-            
-            # Update counters
-            processed_count += 1
-            if result.get("success"):
-                success_count += 1
-            else:
-                failed_count += 1
-            
-            # Memory management
-            del result
-            
-            # Enhanced memory monitoring and cleanup
-            memory_info = _get_memory_info()
-            resource_manager.periodic_cleanup(processed_count)
-            
-            # Update progress bar
-            if progress_bar:
-                success_rate = (success_count / processed_count * 100) if processed_count > 0 else 0
-                postfix = ProgressConfig.get_postfix_format(success_rate, failed_count)
-                postfix["mem"] = f"{memory_info['percent']:.1f}%"
-                postfix["free"] = f"{memory_info['available_gb']:.1f}GB"
-                progress_bar.set_postfix(postfix)
-                progress_bar.update(1)
-        
-        if progress_bar:
-            progress_bar.close()
+    # Add worker recycling to prevent memory accumulation
+    recycle_interval = max(10, len(chunk_pdbs) // 4)  # Recycle workers every 25% of chunk
+    current_batch = 0
     
-    return processed_count, success_count, failed_count
+    with ScopedResourceManager() as resource_manager:
+        
+        # Process in batches with worker recycling
+        batch_size = min(recycle_interval, len(chunk_pdbs))
+        for batch_start in range(0, len(chunk_pdbs), batch_size):
+            batch_end = min(batch_start + batch_size, len(chunk_pdbs))
+            batch_pdbs = chunk_pdbs[batch_start:batch_end]
+            current_batch += 1
+            
+            logging.info(f"Processing batch {current_batch} with {len(batch_pdbs)} targets (worker recycling)")
+            
+            with ProcessPoolExecutor(max_workers=n_workers, mp_context=mp_context) as executor:
+        
+                # Submit all tasks for this batch
+                future_to_pdb = {}
+                for pdb_id in batch_pdbs:
+                    future = executor.submit(_process_single_target, (pdb_id, config_dict))
+                    future_to_pdb[future] = pdb_id
+                
+                # Initialize progress tracking for this batch
+                batch_processed = 0
+                batch_success = 0
+                batch_failed = 0
+                
+                if not quiet:
+                    desc = f"Chunk {chunk_number} - Batch {current_batch}"
+                    tqdm_config = ProgressConfig.get_tqdm_config(desc)
+                    tqdm_config['total'] = len(future_to_pdb)
+                    progress_bar = tqdm(**tqdm_config)
+                else:
+                    progress_bar = None
+                
+                # Collect results for this batch
+                for future in as_completed(future_to_pdb):
+                    pdb_id = future_to_pdb[future]
+                    
+                    try:
+                        result = future.result(timeout=config_dict.get("timeout", MOLECULE_TIMEOUT))
+                        
+                    except Exception as e:
+                        result = {
+                            "success": False,
+                            "error": f"Pipeline error: {str(e)}",
+                            "pdb_id": pdb_id,
+                            "runtime_total": 0,
+                            "timeout": False,
+                        }
+                    
+                    # Stream result to file immediately
+                    with output_jsonl.open("a", encoding="utf-8") as fh:
+                        json.dump(result, fh)
+                        fh.write("\n")
+                    
+                    # Update batch counters
+                    batch_processed += 1
+                    if result.get("success"):
+                        batch_success += 1
+                    else:
+                        batch_failed += 1
+                    
+                    # Memory management
+                    del result
+                    
+                    # Enhanced memory monitoring and cleanup
+                    memory_info = _get_memory_info()
+                    resource_manager.periodic_cleanup(batch_processed)
+                    
+                    # Update progress bar
+                    if progress_bar:
+                        success_rate = (batch_success / batch_processed * 100) if batch_processed > 0 else 0
+                        postfix = ProgressConfig.get_postfix_format(success_rate, batch_failed)
+                        postfix["mem"] = f"{memory_info['percent']:.1f}%"
+                        postfix["free"] = f"{memory_info['available_gb']:.1f}GB"
+                        progress_bar.set_postfix(postfix)
+                        progress_bar.update(1)
+                
+                if progress_bar:
+                    progress_bar.close()
+                
+                # Log batch completion and force garbage collection
+                logging.info(f"Batch {current_batch} completed: {batch_success}/{batch_processed} successful")
+                gc.collect()
+            
+            # End of executor context - workers are recycled here
+    
+    # Return total counts across all batches
+    return batch_processed, batch_success, batch_failed
 
 
 # -----------------------------------------------------------------------------
@@ -611,6 +674,10 @@ def run_timesplit_benchmark(
     timeout: int = MOLECULE_TIMEOUT,
     quiet: bool = False,
     use_chunked_processing: bool = True,
+    unconstrained: bool = False,
+    align_metric: str = "combo",
+    enable_optimization: bool = False,
+    no_realign: bool = False,
 ) -> Dict:
     """Run time-split benchmark using polaris ProcessPoolExecutor pattern."""
     
@@ -685,6 +752,10 @@ def run_timesplit_benchmark(
         "timeout": timeout,
         "data_dir": data_dir,
         "poses_output_dir": poses_output_dir,
+        "unconstrained": unconstrained,
+        "align_metric": align_metric,
+        "enable_optimization": enable_optimization,
+        "no_realign": no_realign,
     }
     
     # Initialize benchmark info (no results accumulation)
@@ -853,6 +924,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable chunked processing",
     )
     
+    # Ablation study arguments
+    parser.add_argument(
+        "--unconstrained",
+        action="store_true",
+        help="Skip MCS and constrained embedding (unconstrained conformer generation)",
+    )
+    parser.add_argument(
+        "--align-metric",
+        choices=["shape", "color", "combo"],
+        default="combo",
+        help="Shape alignment metric (default: combo)",
+    )
+    parser.add_argument(
+        "--enable-optimization",
+        action="store_true",
+        help="Enable force field optimization (MMFF/UFF)",
+    )
+    parser.add_argument(
+        "--no-realign",
+        action="store_true",
+        help="Use AlignMol scores only for ranking, disable pose realignment",
+    )
+    
     return parser
 
 
@@ -882,6 +976,10 @@ def main(argv: List[str] = None) -> int:
             timeout=args.timeout,
             quiet=args.quiet,
             use_chunked_processing=args.chunked_processing,
+            unconstrained=args.unconstrained,
+            align_metric=args.align_metric,
+            enable_optimization=args.enable_optimization,
+            no_realign=args.no_realign,
         )
         
         return 0 if result["success"] else 1
