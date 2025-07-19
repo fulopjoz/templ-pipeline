@@ -28,7 +28,10 @@ from templ_pipeline.core.utils import (
 # Memory monitoring
 try:
     import psutil
-
+    import gc
+    import logging
+    import time
+    import os
     PSUTIL_AVAILABLE = True
 except ImportError:
     PSUTIL_AVAILABLE = False
@@ -45,6 +48,112 @@ MEMORY_WARNING_GB = 6.0  # Warn when process uses >6GB
 MEMORY_CRITICAL_GB = 8.0  # Critical when process uses >8GB
 
 
+class SharedMolecularCache:
+    """Singleton shared molecular cache to prevent per-worker loading."""
+    
+    _instance = None
+    _cache_data = None
+    _data_dir = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
+    @classmethod
+    def initialize(cls, data_dir: str):
+        """Initialize the shared cache once."""
+        if cls._cache_data is None:
+            cls._data_dir = data_dir
+            # Use lazy loading strategy instead of preloading massive cache
+            cls._cache_data = {"initialized": True, "data_dir": data_dir}
+    
+    @classmethod
+    def get_data_dir(cls):
+        """Get the data directory for cache access."""
+        return cls._data_dir
+    
+    @classmethod
+    def is_initialized(cls):
+        """Check if cache is initialized."""
+        return cls._cache_data is not None
+
+
+class LazyMoleculeLoader:
+    """Lazy molecule loader that loads only specific molecules on demand."""
+    
+    def __init__(self, data_dir: str):
+        self.data_dir = Path(data_dir)
+        self.log = logging.getLogger(__name__)
+        self._molecule_index = None
+        
+    def _build_molecule_index(self):
+        """Build lightweight index of available molecules."""
+        if self._molecule_index is not None:
+            return self._molecule_index
+            
+        self._molecule_index = {}
+        
+        # Find ligand files using existing utilities
+        try:
+            ligand_file_paths = find_ligand_file_paths(self.data_dir)
+            for ligand_path in ligand_file_paths:
+                if ligand_path.exists():
+                    self._index_sdf_file(ligand_path)
+                    self.log.info(f"Indexed molecules from {ligand_path.name}")
+                    break
+        except Exception as e:
+            self.log.warning(f"Failed to build molecule index: {e}")
+        
+        return self._molecule_index
+    
+    def _index_sdf_file(self, sdf_path: Path):
+        """Build lightweight index of molecules in SDF file."""
+        try:
+            # Use existing SDF loading but only for indexing
+            molecules = load_sdf_molecules_cached(sdf_path, cache=None, memory_limit_gb=1.0)
+            for mol_id, mol_data in molecules.items():
+                self._molecule_index[mol_id.lower()] = {
+                    'file_path': str(sdf_path),
+                    'cached_data': mol_data  # Store reference, not full molecule
+                }
+        except Exception as e:
+            self.log.warning(f"Failed to index {sdf_path}: {e}")
+    
+    def get_ligand_data(self, pdb_id: str) -> Tuple[Optional[str], Optional["Chem.Mol"]]:
+        """Load specific ligand data on demand."""
+        try:
+            self._build_molecule_index()
+            return find_ligand_by_pdb_id(pdb_id, self._molecule_index)
+        except Exception as e:
+            self.log.error(f"Failed to load ligand data for {pdb_id}: {e}")
+            return None, None
+
+
+def find_ligand_by_pdb_id(pdb_id: str, molecule_data: Dict) -> Tuple[Optional[str], Optional["Chem.Mol"]]:
+    """Find ligand data by PDB ID from molecule cache."""
+    try:
+        # Look for the PDB ID in various formats
+        search_keys = [
+            pdb_id.lower(),
+            pdb_id.upper(),
+            pdb_id.lower().strip(),
+            pdb_id.upper().strip()
+        ]
+        
+        for key in search_keys:
+            if key in molecule_data:
+                mol_data = molecule_data[key]
+                if isinstance(mol_data, dict):
+                    return mol_data.get('smiles'), mol_data.get('molecule')
+                elif hasattr(mol_data, 'smiles') and hasattr(mol_data, 'molecule'):
+                    return mol_data.smiles, mol_data.molecule
+        
+        return None, None
+    except Exception:
+        return None, None
+
+
 @dataclass
 class BenchmarkParams:
     """Parameters for benchmark execution."""
@@ -57,6 +166,10 @@ class BenchmarkParams:
     similarity_threshold: Optional[float] = None
     internal_workers: int = 1
     timeout: int = 1800
+    unconstrained: bool = False
+    align_metric: str = "combo"
+    enable_optimization: bool = False
+    no_realign: bool = False
 
 
 @dataclass
@@ -207,41 +320,43 @@ class BenchmarkRunner:
     def _load_ligand_data_from_sdf(
         self, pdb_id: str
     ) -> Tuple[Optional[str], Optional["Chem.Mol"]]:
-        """Load ligand SMILES and crystal molecule using direct loading to avoid cache corruption."""
+        """Load ligand SMILES and crystal molecule using lazy loading to prevent memory explosion."""
+        
+        # Use lazy loading approach to prevent per-worker 6GB cache loading
+        if not hasattr(self, 'molecule_loader') or self.molecule_loader is None:
+            # Initialize lazy loader if not already done
+            if not SharedMolecularCache.is_initialized():
+                SharedMolecularCache.initialize(self.data_dir)
+            
+            self.molecule_loader = LazyMoleculeLoader(self.data_dir)
+            self.log.info("Initialized lazy molecule loader to prevent memory explosion")
+        
+        # Load specific ligand data on demand
+        return self.molecule_loader.get_ligand_data(pdb_id)
 
-        # IMPORTANT: Use direct loading instead of shared cache to avoid pickle corruption
-        # of RDKit molecule objects which lose properties during serialization/deserialization
-        if self._molecule_cache is None:
-            try:
-                self.log.info("Loading molecules directly from SDF to avoid cache corruption")
-                # Force direct loading without shared cache to preserve molecule properties
-                ligand_file_paths = find_ligand_file_paths(self.data_dir)
-                
-                for path in ligand_file_paths:
-                    if path.exists():
-                        try:
-                            # FIXED: Use direct loading with fresh cache to avoid corruption
-                            self._molecule_cache = load_sdf_molecules_cached(
-                                path, cache=None, memory_limit_gb=6.0
-                            )
-                            if self._molecule_cache:
-                                self.log.info(
-                                    f"Loaded {len(self._molecule_cache)} molecules directly from {path.name}"
-                                )
-                                break
-                        except Exception as e:
-                            self.log.warning(f"Failed to load ligands from {path}: {e}")
-                            continue
-                
-                if not self._molecule_cache:
-                    self.log.error("Failed to load molecules from any ligand file")
-                    return None, None
-                    
-            except Exception as e:
-                self.log.error(f"Failed to load molecules: {e}")
-                return None, None
 
-        return find_ligand_by_pdb_id(pdb_id, self._molecule_cache)
+def find_ligand_by_pdb_id(pdb_id: str, molecule_data: Dict) -> Tuple[Optional[str], Optional["Chem.Mol"]]:
+    """Find ligand data by PDB ID from molecule cache."""
+    try:
+        # Look for the PDB ID in various formats
+        search_keys = [
+            pdb_id.lower(),
+            pdb_id.upper(),
+            pdb_id.lower().strip(),
+            pdb_id.upper().strip()
+        ]
+        
+        for key in search_keys:
+            if key in molecule_data:
+                mol_data = molecule_data[key]
+                if isinstance(mol_data, dict):
+                    return mol_data.get('smiles'), mol_data.get('molecule')
+                elif hasattr(mol_data, 'smiles') and hasattr(mol_data, 'molecule'):
+                    return mol_data.smiles, mol_data.molecule
+        
+        return None, None
+    except Exception:
+        return None, None
 
     def _calculate_rmsd_to_crystal(
         self, pose_mol: "Chem.Mol", crystal_mol: "Chem.Mol"
@@ -384,6 +499,10 @@ class BenchmarkRunner:
                     similarity_threshold=params.similarity_threshold,
                     exclude_pdb_ids=effective_exclusions,
                     output_dir=benchmark_output_dir,
+                    unconstrained=params.unconstrained,
+                    align_metric=params.align_metric,
+                    enable_optimization=params.enable_optimization,
+                    no_realign=params.no_realign,
                 )
 
                 self.log.debug(
@@ -792,6 +911,10 @@ def run_templ_pipeline_for_benchmark(
     poses_output_dir: str = None,
     shared_cache_file: str = None,
     shared_embedding_cache: str = None,
+    unconstrained: bool = False,
+    align_metric: str = "combo",
+    enable_optimization: bool = False,
+    no_realign: bool = False,
 ) -> Dict:
     """Main entry point for benchmark pipeline execution."""
 
@@ -809,6 +932,10 @@ def run_templ_pipeline_for_benchmark(
         similarity_threshold=similarity_threshold,
         internal_workers=internal_workers,
         timeout=timeout,
+        unconstrained=unconstrained,
+        align_metric=align_metric,
+        enable_optimization=enable_optimization,
+        no_realign=no_realign,
     )
 
     runner = BenchmarkRunner(

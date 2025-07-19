@@ -305,6 +305,22 @@ def setup_parser():
         action="store_true",
         help="Use raw conformers (no shape alignment)",
     )
+    generate_poses_parser.add_argument(
+        "--unconstrained",
+        action="store_true",
+        help="Skip MCS and constrained embedding for unconstrained conformer generation",
+    )
+    generate_poses_parser.add_argument(
+        "--align-metric",
+        choices=["shape", "color", "combo"],
+        default="combo",
+        help="Shape alignment metric for pose scoring (default: combo)",
+    )
+    generate_poses_parser.add_argument(
+        "--enable-optimization",
+        action="store_true",
+        help="Enable force field optimization (optimization disabled by default)",
+    )
 
     # Full pipeline command
     run_parser = subparsers.add_parser("run", help="Run full TEMPL pipeline")
@@ -375,6 +391,17 @@ def setup_parser():
         "--enable-optimization",
         action="store_true",
         help="Enable force field optimization (optimization disabled by default)",
+    )
+    run_parser.add_argument(
+        "--unconstrained",
+        action="store_true",
+        help="Skip MCS and constrained embedding for unconstrained conformer generation",
+    )
+    run_parser.add_argument(
+        "--align-metric",
+        choices=["shape", "color", "combo"],
+        default="combo",
+        help="Shape alignment metric for pose scoring (default: combo)",
     )
 
     # Benchmark command ---------------------------------------------------
@@ -507,6 +534,28 @@ def setup_parser():
         type=int,
         default=8,
         help="Maximum number of amino acid residues before considering a molecule a large peptide to skip (default: 8)",
+    )
+    # Ablation study flags
+    benchmark_parser.add_argument(
+        "--unconstrained",
+        action="store_true",
+        help="Skip MCS and constrained embedding for unconstrained conformer generation",
+    )
+    benchmark_parser.add_argument(
+        "--align-metric",
+        choices=["shape", "color", "combo"],
+        default="combo",
+        help="Shape alignment metric for pose scoring (default: combo)",
+    )
+    benchmark_parser.add_argument(
+        "--enable-optimization",
+        action="store_true",
+        help="Enable force field optimization (optimization disabled by default)",
+    )
+    benchmark_parser.add_argument(
+        "--no-realign",
+        action="store_true",
+        help="Disable pose realignment for scoring-only mode",
     )
     benchmark_parser.set_defaults(func=benchmark_command)
 
@@ -839,6 +888,8 @@ def run_command(args):
                 similarity_threshold=getattr(args, "similarity_threshold", None),
                 no_realign=getattr(args, "no_realign", False),
                 enable_optimization=getattr(args, "enable_optimization", False),
+                unconstrained=getattr(args, "unconstrained", False),
+                align_metric=getattr(args, "align_metric", "combo"),
             )
 
         results = simple_progress_wrapper("Running TEMPL pipeline", run_pipeline)
@@ -1215,6 +1266,16 @@ def benchmark_command(args):
                         default_poses_dir = workspace_dir / "predicted_poses"
                         default_poses_dir.mkdir(exist_ok=True)
                         benchmark_args.extend(["--poses-dir", str(default_poses_dir)])
+                
+                # Add ablation study flags
+                if hasattr(args, "unconstrained") and args.unconstrained:
+                    benchmark_args.append("--unconstrained")
+                if hasattr(args, "align_metric") and args.align_metric:
+                    benchmark_args.extend(["--align-metric", args.align_metric])
+                if hasattr(args, "enable_optimization") and args.enable_optimization:
+                    benchmark_args.append("--enable-optimization")
+                if hasattr(args, "no_realign") and args.no_realign:
+                    benchmark_args.append("--no-realign")
 
                 result = benchmark_main(benchmark_args)
 
@@ -1316,6 +1377,10 @@ def benchmark_command(args):
                     poses_output_dir=poses_dir,
                     timeout=getattr(args, "timeout", 180),
                     quiet=False,  # Let progress bars show
+                    unconstrained=getattr(args, "unconstrained", False),
+                    align_metric=getattr(args, "align_metric", "combo"),
+                    enable_optimization=getattr(args, "enable_optimization", False),
+                    no_realign=getattr(args, "no_realign", False),
                 )
 
                 # Generate unified summary for Timesplit results

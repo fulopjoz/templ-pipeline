@@ -87,6 +87,12 @@ class PipelineConfig:
     use_cache: bool = True
     enable_batching: bool = True
     max_batch_size: int = 8
+    no_realign: bool = False
+    enable_optimization: bool = True
+    
+    # Ablation study options
+    unconstrained: bool = False
+    align_metric: str = "combo"
     
     def __post_init__(self):
         """Set default paths if not provided."""
@@ -530,8 +536,10 @@ class TEMPLPipeline:
 
             n_workers = getattr(self.config, 'n_workers', DEFAULT_N_WORKERS)
             enable_optimization = getattr(self, 'enable_optimization', True)
+            unconstrained = getattr(self, 'unconstrained', False)
 
-            if mcs_smarts == "*":
+            # Force unconstrained embedding if ablation flag is set
+            if unconstrained or mcs_smarts == "*":
                 log.info("Using central atom embedding for conformer generation")
                 conformers = central_atom_embed(
                     self.target_mol,
@@ -566,12 +574,14 @@ class TEMPLPipeline:
                 
             n_workers = getattr(self.config, 'n_workers', DEFAULT_N_WORKERS)
             no_realign = getattr(self, 'no_realign', False)
+            align_metric = getattr(self, 'align_metric', 'combo')
             
             best_poses = select_best(
                 conformers, 
                 template_mol, 
                 no_realign=no_realign,
-                n_workers=n_workers
+                n_workers=n_workers,
+                align_metric=align_metric
             )
             
             return best_poses
@@ -627,7 +637,8 @@ class TEMPLPipeline:
                          num_templates: int = 100, num_conformers: int = 50,
                          n_workers: int = 4, similarity_threshold: float = 0.9,
                          exclude_pdb_ids: set = None, output_dir: str = None,
-                         no_realign: bool = False, enable_optimization: bool = True) -> dict:
+                         no_realign: bool = False, enable_optimization: bool = True,
+                         unconstrained: bool = False, align_metric: str = "combo") -> dict:
         """Run the full pipeline with CLI interface."""
         # Use provided output_dir or fall back to instance output_dir
         effective_output_dir = output_dir or self.output_dir
@@ -641,13 +652,19 @@ class TEMPLPipeline:
             n_confs=num_conformers,
             n_workers=n_workers,
             sim_threshold=similarity_threshold,
-            num_templates=num_templates
+            num_templates=num_templates,
+            no_realign=no_realign,
+            enable_optimization=enable_optimization,
+            unconstrained=unconstrained,
+            align_metric=align_metric
         )
         
         self.config = config
         self.exclude_pdb_ids = exclude_pdb_ids or set()
         self.no_realign = no_realign
         self.enable_optimization = enable_optimization
+        self.unconstrained = unconstrained
+        self.align_metric = align_metric
         
         # Store poses during pipeline execution
         self.pipeline_poses = {}
@@ -785,13 +802,15 @@ class TEMPLPipeline:
             # Score conformers efficiently (single scoring call)
             n_workers = getattr(self.config, 'n_workers', DEFAULT_N_WORKERS)
             no_realign = getattr(self, 'no_realign', False)
+            align_metric = getattr(self, 'align_metric', 'combo')
             
             # Get all ranked poses first (comprehensive results)
             all_ranked_poses = select_best(
                 target_with_conformers, best_template, 
                 no_realign=no_realign,
                 n_workers=n_workers,
-                return_all_ranked=True
+                return_all_ranked=True,
+                align_metric=align_metric
             )
             
             if not all_ranked_poses:
