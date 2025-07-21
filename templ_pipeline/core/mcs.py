@@ -728,7 +728,7 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: dict = N
         return []
 
 
-def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: int = N_CONFS, n_workers_pipeline: int = 0, enable_optimization: bool = True) -> Optional[Chem.Mol]:
+def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: int = N_CONFS, n_workers_pipeline: int = 0, enable_optimization: bool = False) -> Optional[Chem.Mol]:
     """Generate N_CONFS conformations of tgt, locking MCS atoms to ref coords."""
     
     # Handle central atom fallback case
@@ -745,12 +745,12 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
     num_atoms = tgt.GetNumAtoms()
     if num_atoms > 150:
         log.warning(f"Extremely large molecule ({num_atoms} atoms) - skipping constrained embedding and using central atom fallback")
-        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline, enable_optimization)
     
     patt = Chem.MolFromSmarts(smarts)
     if patt is None:
         log.warning(f"Invalid SMARTS pattern: {smarts}, falling back to central atom")
-        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline, enable_optimization)
     
     tgt_idxs = tgt.GetSubstructMatch(patt)
     ref_idxs = ref.GetSubstructMatch(patt)
@@ -758,7 +758,7 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
     # Check for valid MCS match
     if not tgt_idxs or not ref_idxs or len(tgt_idxs) != len(ref_idxs) or len(tgt_idxs) < 3:
         log.warning(f"Invalid MCS match for constrained embedding. Target idx: {tgt_idxs}, Ref idx: {ref_idxs}. Proceeding with central atom embedding.")
-        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline, enable_optimization)
     
     # Use robust hydrogen addition for the target
     try:
@@ -786,7 +786,7 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
     tgt_idxs_h = target_h.GetSubstructMatch(patt)
     if not tgt_idxs_h:
         log.warning("MCS match failed after hydrogen addition, falling back to central atom")
-        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline, enable_optimization)
     
     # Validate index lengths before zip operation to prevent "zip() argument 2 is longer than argument 1" error
     if len(tgt_idxs_h) != len(ref_idxs):
@@ -794,7 +794,7 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
         log.warning(f"Target indices: {tgt_idxs_h}")
         log.warning(f"Reference indices: {ref_idxs}")
         log.warning("This indicates MCS matching inconsistency, falling back to central atom")
-        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline, enable_optimization)
     
     # Build coordinate map for constrained embedding
     coordMap = {}
@@ -809,7 +809,7 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
     
     if len(coordMap) < 3:
         log.warning("Insufficient coordinate constraints for embedding, falling back to central atom")
-        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline, enable_optimization)
 
     # Log coordinate map details for debugging
     log_coordinate_map(coordMap, "initial_coordinate_map")
@@ -819,7 +819,7 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
     
     if len(coordMap) < 3:
         log.warning("Insufficient coordinate constraints after relaxation, falling back to central atom")
-        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline, enable_optimization)
     
     log.info(f"Using {len(coordMap)} constraints after relaxation")
     
@@ -850,7 +850,7 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
             log.error(f"Target molecule info: atoms={target_h.GetNumAtoms()}, heavy_atoms={target_h.GetNumHeavyAtoms()}")
             log.error(f"Coordinate map size: {len(coordMap)} constraints")
             log.error("Falling back to central atom embedding")
-            return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+            return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline, enable_optimization)
         
         if r != -1:
             log.info(f"Embedding succeeded with relaxed constraints, generated {len(r)} conformers")
@@ -881,14 +881,14 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
         
         if r == -1:
             log.warning("Progressive embedding failed, falling back to central atom")
-            return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+            return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline, enable_optimization)
         
         conf_ids = r
         
         # Check if we actually generated conformers
         if len(conf_ids) == 0:
             log.warning("Embedding succeeded but generated 0 conformers, falling back to central atom")
-            return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+            return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline, enable_optimization)
         
         log.info(f"Constrained embedding succeeded: {len(conf_ids)} conformers")
         
@@ -938,10 +938,10 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
         
     except Exception as e:
         log.error(f"Constrained embedding failed: {e}")
-        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline)
+        return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline, enable_optimization)
 
 
-def central_atom_embed(tgt: Chem.Mol, ref: Chem.Mol, n_conformers: int, n_workers_pipeline: int = 0, enable_optimization: bool = True) -> Optional[Chem.Mol]:
+def central_atom_embed(tgt: Chem.Mol, ref: Chem.Mol, n_conformers: int, n_workers_pipeline: int = 0, enable_optimization: bool = False) -> Optional[Chem.Mol]:
     """Fallback embedding method using central atom positioning.
     
     Args:
