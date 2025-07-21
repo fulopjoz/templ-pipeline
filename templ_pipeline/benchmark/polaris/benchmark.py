@@ -46,6 +46,8 @@ from templ_pipeline.benchmark.runner import run_templ_pipeline_for_benchmark
 from templ_pipeline.core.pipeline import TEMPLPipeline
 import tempfile
 import os
+import psutil
+import resource
 
 try:
     from spyrmsd.molecule import Molecule
@@ -251,6 +253,7 @@ def run_templ_pipeline_single_unified(
     n_workers: int = 1,
     save_poses: bool = False,
     poses_output_dir: Optional[str] = None,
+    allowed_pdb_ids: Optional[set] = None,
 ) -> Dict:
     """Run TEMPL pipeline for a single molecule using unified TEMPLPipeline infrastructure.
     
@@ -292,6 +295,7 @@ def run_templ_pipeline_single_unified(
                 ligand_smiles=query_smiles,
                 num_conformers=n_conformers,
                 n_workers=n_workers,
+                allowed_pdb_ids=allowed_pdb_ids,
             )
             
             if pipeline_result.get("success", False) and "poses" in pipeline_result and pipeline_result["poses"]:
@@ -361,6 +365,7 @@ def run_templ_pipeline_single(
     align_metric: str = "combo",
     enable_optimization: bool = False,
     no_realign: bool = False,
+    allowed_pdb_ids: Optional[set] = None,
 ) -> Dict:
     """Run TEMPL pipeline for a single molecule with comprehensive result tracking.
     
@@ -515,6 +520,8 @@ def evaluate_with_leave_one_out(
     align_metric: str = "combo",
     enable_optimization: bool = False,
     no_realign: bool = False,
+    allowed_pdb_ids: Optional[set] = None,
+    per_worker_ram_gb: float = 4.0,
 ) -> Dict:
     """Enhanced leave-one-out evaluation."""
 
@@ -547,6 +554,14 @@ def evaluate_with_leave_one_out(
     }
 
     # Process molecules with timeout handling and progress bar
+    def worker_wrapper(*args, **kwargs):
+        try:
+            max_bytes = int(per_worker_ram_gb * 1024 ** 3)
+            resource.setrlimit(resource.RLIMIT_AS, (max_bytes, max_bytes))
+        except Exception as e:
+            logging.warning(f"Could not set memory limit: {e}")
+        return run_templ_pipeline_single(*args, **kwargs)
+
     if PEBBLE_AVAILABLE:
         with ProcessPool(max_workers=n_workers) as pool:
             futures = []
@@ -554,7 +569,7 @@ def evaluate_with_leave_one_out(
                 mol_name = safe_name(query_mol, f"mol_{i}")
 
                 future = pool.schedule(
-                    run_templ_pipeline_single,
+                    worker_wrapper,
                     args=[
                         query_mol,
                         template_pool,
@@ -568,6 +583,7 @@ def evaluate_with_leave_one_out(
                         align_metric,
                         enable_optimization,
                         no_realign,
+                        allowed_pdb_ids,
                     ],
                     timeout=MOLECULE_TIMEOUT,
                 )
@@ -640,7 +656,7 @@ def evaluate_with_leave_one_out(
                 mol_name = safe_name(query_mol, f"mol_{i}")
 
                 future = executor.submit(
-                    run_templ_pipeline_single,
+                    worker_wrapper,
                     query_mol,
                     template_pool,
                     query_mol,
@@ -653,6 +669,7 @@ def evaluate_with_leave_one_out(
                     align_metric,
                     enable_optimization,
                     no_realign,
+                    allowed_pdb_ids,
                 )
                 future_to_mol[future] = (mol_name, query_mol)
 
@@ -735,6 +752,8 @@ def evaluate_with_templates(
     align_metric: str = "combo",
     enable_optimization: bool = False,
     no_realign: bool = False,
+    allowed_pdb_ids: Optional[set] = None,
+    per_worker_ram_gb: float = 4.0,
 ) -> Dict:
     """Enhanced evaluation with templates."""
 
@@ -767,6 +786,14 @@ def evaluate_with_templates(
     }
 
     # Process molecules with timeout handling and progress bar
+    def worker_wrapper(*args, **kwargs):
+        try:
+            max_bytes = int(per_worker_ram_gb * 1024 ** 3)
+            resource.setrlimit(resource.RLIMIT_AS, (max_bytes, max_bytes))
+        except Exception as e:
+            logging.warning(f"Could not set memory limit: {e}")
+        return run_templ_pipeline_single(*args, **kwargs)
+
     if PEBBLE_AVAILABLE:
         with ProcessPool(max_workers=n_workers) as pool:
             futures = []
@@ -774,8 +801,8 @@ def evaluate_with_templates(
                 mol_name = safe_name(query_mol, f"mol_{i}")
 
                 future = pool.schedule(
-                    run_templ_pipeline_single,
-                    args=[query_mol, template_mols, query_mol, None, n_conformers, 1, save_poses, poses_output_dir, unconstrained, align_metric, enable_optimization, no_realign],
+                    worker_wrapper,
+                    args=[query_mol, template_mols, query_mol, None, n_conformers, 1, save_poses, poses_output_dir, unconstrained, align_metric, enable_optimization, no_realign, allowed_pdb_ids],
                     timeout=MOLECULE_TIMEOUT,
                 )
                 futures.append((future, mol_name, query_mol))
@@ -847,7 +874,7 @@ def evaluate_with_templates(
                 mol_name = safe_name(query_mol, f"mol_{i}")
 
                 future = executor.submit(
-                    run_templ_pipeline_single,
+                    worker_wrapper,
                     query_mol,
                     template_mols,
                     query_mol,
@@ -860,6 +887,7 @@ def evaluate_with_templates(
                     align_metric,
                     enable_optimization,
                     no_realign,
+                    allowed_pdb_ids,
                 )
                 future_to_mol[future] = (mol_name, query_mol)
 
@@ -1223,6 +1251,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable pose realignment (use AlignMol scores only for ranking)",
     )
     
+    p.add_argument(
+        "--allowed-pdb-ids",
+        type=str,
+        default=None,
+        help="Comma-separated list of allowed PDB IDs for filtering templates (optional)",
+    )
+    
+    p.add_argument(
+        "--per-worker-ram-gb",
+        type=float,
+        default=4.0,
+        help="Maximum RAM (GiB) per worker process (prevents memory explosion, default: 4.0)",
+    )
+    
     return p
 
 
@@ -1270,6 +1312,11 @@ def main(argv: List[str] | None = None):
     argv = argv or sys.argv[1:]
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    # Parse allowed_pdb_ids argument if provided
+    allowed_pdb_ids = None
+    if getattr(args, "allowed_pdb_ids", None):
+        allowed_pdb_ids = set(x.strip() for x in args.allowed_pdb_ids.split(",") if x.strip())
 
     # Override OUTPUT_DIR if specified
     if args.output_dir != OUTPUT_DIR:
@@ -1425,6 +1472,8 @@ def main(argv: List[str] | None = None):
                     align_metric=args.align_metric,
                     enable_optimization=args.enable_optimization,
                     no_realign=args.no_realign,
+                    allowed_pdb_ids=allowed_pdb_ids,
+                    per_worker_ram_gb=args.per_worker_ram_gb,
                 )
 
             # MERS training evaluation with native templates (leave-one-out)
@@ -1445,6 +1494,8 @@ def main(argv: List[str] | None = None):
                     align_metric=args.align_metric,
                     enable_optimization=args.enable_optimization,
                     no_realign=args.no_realign,
+                    allowed_pdb_ids=allowed_pdb_ids,
+                    per_worker_ram_gb=args.per_worker_ram_gb,
                 )
 
             # MERS training evaluation with combined SARS-aligned + MERS templates
@@ -1467,6 +1518,8 @@ def main(argv: List[str] | None = None):
                     align_metric=args.align_metric,
                     enable_optimization=args.enable_optimization,
                     no_realign=args.no_realign,
+                    allowed_pdb_ids=allowed_pdb_ids,
+                    per_worker_ram_gb=args.per_worker_ram_gb,
                 )
 
         # Run test set evaluations
@@ -1508,6 +1561,8 @@ def main(argv: List[str] | None = None):
                             align_metric=args.align_metric,
                             enable_optimization=args.enable_optimization,
                             no_realign=args.no_realign,
+                            allowed_pdb_ids=allowed_pdb_ids,
+                            per_worker_ram_gb=args.per_worker_ram_gb,
                         )
 
                 # 2. MERS test evaluation with native templates
@@ -1530,6 +1585,8 @@ def main(argv: List[str] | None = None):
                             align_metric=args.align_metric,
                             enable_optimization=args.enable_optimization,
                             no_realign=args.no_realign,
+                            allowed_pdb_ids=allowed_pdb_ids,
+                            per_worker_ram_gb=args.per_worker_ram_gb,
                         )
 
                 # 3. MERS test evaluation with combined MERS + SARS-aligned templates
@@ -1558,6 +1615,8 @@ def main(argv: List[str] | None = None):
                             align_metric=args.align_metric,
                             enable_optimization=args.enable_optimization,
                             no_realign=args.no_realign,
+                            allowed_pdb_ids=allowed_pdb_ids,
+                            per_worker_ram_gb=args.per_worker_ram_gb,
                         )
 
     except KeyboardInterrupt:

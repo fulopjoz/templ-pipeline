@@ -488,11 +488,10 @@ def setup_parser():
         help="Maximum RAM (GiB) before throttling worker submission (time-split only)",
     )
     benchmark_parser.add_argument(
-        "--per-worker-ram",
-        dest="per_worker_ram_gb",
+        "--per-worker-ram-gb",
         type=float,
         default=4.0,
-        help="Hard memory cap per worker in GiB (time-split only)",
+        help="Maximum RAM (GiB) per worker process (prevents memory explosion, default: 4.0)",
     )
     # Advanced hardware optimization arguments
     benchmark_parser.add_argument(
@@ -1045,130 +1044,53 @@ def _generate_unified_summary(workspace_dir, benchmark_type):
 
 
 def _optimize_hardware_config(args):
-    """Optimize hardware configuration based on CLI arguments and system capabilities."""
-    base_config = _get_hardware_config()
-    
-    # Start with base configuration
-    config = {
-        "n_workers": base_config["n_workers"],
-        "profile": getattr(args, "hardware_profile", "auto"),
-        "strategy": getattr(args, "worker_strategy", "auto"),
-        "memory_optimized": False,
-        "total_memory_gb": 0,
-    }
-    
+    """Simplified hardware config: decide n_workers and memory based on args and system."""
     try:
-        # Get system information for optimization with timeout protection
         import psutil
-        import time
-        
-        # Single psutil call with error handling
-        try:
-            virtual_memory = psutil.virtual_memory()
-            system_memory_gb = virtual_memory.total / (1024**3)
-        except Exception as e:
-            logger.warning(f"Failed to get memory info: {e}")
-            system_memory_gb = 8.0  # Fallback
-        
-        try:
-            cpu_count = psutil.cpu_count(logical=False)  # Physical cores
-            logical_cpus = psutil.cpu_count(logical=True)  # Logical cores (with hyperthreading)
-        except Exception as e:
-            logger.warning(f"Failed to get CPU info: {e}")
-            cpu_count = 4  # Fallback
-            logical_cpus = 4
-        
-        config["total_memory_gb"] = system_memory_gb
-        
-        # Apply CPU limit if specified
-        if hasattr(args, "cpu_limit") and args.cpu_limit:
-            cpu_count = min(cpu_count, args.cpu_limit)
-            logical_cpus = min(logical_cpus, args.cpu_limit)
-        
-        # Apply memory limit if specified
-        if hasattr(args, "memory_limit") and args.memory_limit:
-            system_memory_gb = min(system_memory_gb, args.memory_limit)
-            config["memory_optimized"] = True
-        
-        # Determine hyperthreading usage
-        use_hyperthreading = getattr(args, "enable_hyperthreading", False)
-        effective_cpus = logical_cpus if use_hyperthreading else cpu_count
-        
-        # Apply hardware profile
-        if config["profile"] == "conservative":
-            # Use 50% of available resources
-            config["n_workers"] = max(1, effective_cpus // 2)
-            if not hasattr(args, "max_ram_gb") or args.max_ram_gb is None:
-                args.max_ram_gb = system_memory_gb * 0.5
-        elif config["profile"] == "balanced":
-            # Use 75% of available resources (default)
-            config["n_workers"] = max(1, int(effective_cpus * 0.75))
-            if not hasattr(args, "max_ram_gb") or args.max_ram_gb is None:
-                args.max_ram_gb = system_memory_gb * 0.75
-        elif config["profile"] == "aggressive":
-            # Use 90% of available resources
-            config["n_workers"] = max(1, int(effective_cpus * 0.9))
-            if not hasattr(args, "max_ram_gb") or args.max_ram_gb is None:
-                args.max_ram_gb = system_memory_gb * 0.9
-        else:  # auto
-            # Use heuristics based on workload type - BENCHMARK OPTIMIZED
-            if args.suite == "polaris":
-                # Polaris is compute-intensive - use all cores
-                config["n_workers"] = max(1, effective_cpus)
-                config["strategy"] = "cpu-bound"
-            elif args.suite == "time-split":
-                # CRITICAL FIX: Use conservative worker count for time-split to prevent resource exhaustion
-                # Full parallelization causes "cannot allocate memory for thread-local data" errors
-                config["n_workers"] = min(20, max(1, effective_cpus // 2))  # Allow up to 20 workers for 24-core systems
-                config["strategy"] = "cpu-bound"
-            
-            if not hasattr(args, "max_ram_gb") or args.max_ram_gb is None:
-                args.max_ram_gb = system_memory_gb * 0.8
-        
-        # Apply worker strategy optimizations
-        if config["strategy"] == "io-bound":
-            # I/O bound can benefit from more workers
-            config["n_workers"] = min(config["n_workers"] * 2, effective_cpus)
-        elif config["strategy"] == "cpu-bound":
-            # CPU-bound benchmarks should use all available cores
-            config["n_workers"] = effective_cpus
-        elif config["strategy"] == "memory-bound":
-            # Memory bound should be more conservative
-            memory_per_worker = getattr(args, "per_worker_ram_gb", 4.0)
-            max_workers_by_memory = max(1, int(system_memory_gb * 0.8 / memory_per_worker))
-            config["n_workers"] = min(config["n_workers"], max_workers_by_memory)
-        
-        # Override with explicit n_workers if provided
-        if hasattr(args, "n_workers") and args.n_workers:
-            config["n_workers"] = args.n_workers
-        
-        # Ensure minimum of 1 worker
-        config["n_workers"] = max(1, config["n_workers"])
-        
-        # Apply memory optimizations for timesplit
-        if args.suite == "time-split":
-            # Ensure memory per worker is reasonable
-            if not hasattr(args, "per_worker_ram_gb") or not args.per_worker_ram_gb:
-                args.per_worker_ram_gb = min(4.0, system_memory_gb / config["n_workers"] * 0.8)
-            
-            # Set up memory throttling
-            if not hasattr(args, "max_ram_gb") or not args.max_ram_gb:
-                args.max_ram_gb = system_memory_gb * 0.8
-        
+        total_mem_gb = psutil.virtual_memory().total / (1024 ** 3)
+        physical_cpus = psutil.cpu_count(logical=False) or 4
+        logical_cpus = psutil.cpu_count(logical=True) or physical_cpus
     except ImportError:
-        # Fallback if psutil not available
-        logger.warning("Advanced hardware optimization unavailable (psutil not installed)")
-        config["n_workers"] = base_config["n_workers"]
-        if hasattr(args, "n_workers") and args.n_workers:
-            config["n_workers"] = args.n_workers
-    except Exception as e:
-        # Catch any other errors and use fallback
-        logger.warning(f"Hardware optimization failed: {e}")
-        config["n_workers"] = base_config["n_workers"]
-        if hasattr(args, "n_workers") and args.n_workers:
-            config["n_workers"] = args.n_workers
-    
-    return config
+        total_mem_gb = 8.0
+        physical_cpus = logical_cpus = 4
+
+    # Defaults
+    profile = getattr(args, "hardware_profile", "auto")
+    suite = getattr(args, "suite", "polaris")
+    use_hyper = getattr(args, "enable_hyperthreading", False)
+    cpu_limit = getattr(args, "cpu_limit", None)
+    mem_limit = getattr(args, "memory_limit", None)
+    per_worker_ram = getattr(args, "per_worker_ram_gb", 4.0)
+
+    cpus = logical_cpus if use_hyper else physical_cpus
+    if cpu_limit:
+        cpus = min(cpus, cpu_limit)
+    mem = min(total_mem_gb, mem_limit) if mem_limit else total_mem_gb
+
+    # Use all CPUs, but cap by RAM
+    n_workers = cpus
+    n_workers = min(n_workers, int(mem // per_worker_ram))
+    n_workers = max(1, n_workers)
+
+    # Special case for time-split
+    if suite == "time-split":
+        n_workers = min(n_workers, 32)  # Cap at 32 for safety
+        max_ram_gb = mem * 0.8
+    else:
+        max_ram_gb = mem * 0.9
+
+    # User override
+    if getattr(args, "n_workers", None):
+        n_workers = args.n_workers
+
+    return {
+        "n_workers": n_workers,
+        "max_ram_gb": max_ram_gb,
+        "total_memory_gb": total_mem_gb,
+        "profile": profile,
+        "strategy": "auto",
+        "per_worker_ram_gb": per_worker_ram,
+    }
 
 
 def benchmark_command(args):
@@ -1176,6 +1098,7 @@ def benchmark_command(args):
     # Apply hardware optimization based on CLI arguments
     hardware_config = _optimize_hardware_config(args)
     args.n_workers = hardware_config["n_workers"]
+    args.per_worker_ram_gb = hardware_config["per_worker_ram_gb"]
     
     # Log hardware optimization decisions
     logger.info(f"Hardware optimization: {hardware_config['profile']} profile")
@@ -1381,6 +1304,7 @@ def benchmark_command(args):
                     align_metric=getattr(args, "align_metric", "combo"),
                     enable_optimization=getattr(args, "enable_optimization", False),
                     no_realign=getattr(args, "no_realign", False),
+                    per_worker_ram_gb=getattr(args, "per_worker_ram_gb", 4.0),
                 )
 
                 # Generate unified summary for Timesplit results

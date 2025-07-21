@@ -86,72 +86,48 @@ class LazyMoleculeLoader:
         self.data_dir = Path(data_dir)
         self.log = logging.getLogger(__name__)
         self._molecule_index = None
+        self._molecules_list = None
         
     def _build_molecule_index(self):
-        """Build lightweight index of available molecules."""
-        if self._molecule_index is not None:
-            return self._molecule_index
+        """Load molecules from SDF file if not already loaded."""
+        if self._molecules_list is not None:
+            return
             
-        self._molecule_index = {}
-        
         # Find ligand files using existing utilities
         try:
             ligand_file_paths = find_ligand_file_paths(self.data_dir)
             for ligand_path in ligand_file_paths:
                 if ligand_path.exists():
                     self._index_sdf_file(ligand_path)
-                    self.log.info(f"Indexed molecules from {ligand_path.name}")
+                    self.log.info(f"Loaded molecules from {ligand_path.name}")
                     break
         except Exception as e:
-            self.log.warning(f"Failed to build molecule index: {e}")
-        
-        return self._molecule_index
+            self.log.warning(f"Failed to load molecules: {e}")
+            self._molecules_list = []
     
     def _index_sdf_file(self, sdf_path: Path):
-        """Build lightweight index of molecules in SDF file."""
+        """Load molecules from SDF file."""
         try:
-            # Use existing SDF loading but only for indexing
-            molecules = load_sdf_molecules_cached(sdf_path, cache=None, memory_limit_gb=1.0)
-            for mol_id, mol_data in molecules.items():
-                self._molecule_index[mol_id.lower()] = {
-                    'file_path': str(sdf_path),
-                    'cached_data': mol_data  # Store reference, not full molecule
-                }
+            # Load molecules as list using existing utility with adequate memory limit
+            self._molecules_list = load_sdf_molecules_cached(sdf_path, cache=None, memory_limit_gb=6.0)
+            self.log.info(f"Loaded {len(self._molecules_list)} molecules from {sdf_path.name}")
         except Exception as e:
-            self.log.warning(f"Failed to index {sdf_path}: {e}")
+            self.log.warning(f"Failed to load molecules from {sdf_path}: {e}")
+            self._molecules_list = []
     
     def get_ligand_data(self, pdb_id: str) -> Tuple[Optional[str], Optional["Chem.Mol"]]:
         """Load specific ligand data on demand."""
         try:
             self._build_molecule_index()
-            return find_ligand_by_pdb_id(pdb_id, self._molecule_index)
+            if hasattr(self, '_molecules_list') and self._molecules_list:
+                # Use the existing utility function that works correctly
+                return find_ligand_by_pdb_id(pdb_id, self._molecules_list)
+            else:
+                self.log.error(f"No molecules loaded for ligand search")
+                return None, None
         except Exception as e:
             self.log.error(f"Failed to load ligand data for {pdb_id}: {e}")
             return None, None
-
-
-def find_ligand_by_pdb_id(pdb_id: str, molecule_data: Dict) -> Tuple[Optional[str], Optional["Chem.Mol"]]:
-    """Find ligand data by PDB ID from molecule cache."""
-    try:
-        # Look for the PDB ID in various formats
-        search_keys = [
-            pdb_id.lower(),
-            pdb_id.upper(),
-            pdb_id.lower().strip(),
-            pdb_id.upper().strip()
-        ]
-        
-        for key in search_keys:
-            if key in molecule_data:
-                mol_data = molecule_data[key]
-                if isinstance(mol_data, dict):
-                    return mol_data.get('smiles'), mol_data.get('molecule')
-                elif hasattr(mol_data, 'smiles') and hasattr(mol_data, 'molecule'):
-                    return mol_data.smiles, mol_data.molecule
-        
-        return None, None
-    except Exception:
-        return None, None
 
 
 @dataclass
@@ -170,6 +146,7 @@ class BenchmarkParams:
     align_metric: str = "combo"
     enable_optimization: bool = False
     no_realign: bool = False
+    allowed_pdb_ids: Optional[Set[str]] = None  # NEW: restrict template search
 
 
 @dataclass
@@ -287,7 +264,11 @@ class BenchmarkRunner:
             if self.poses_output_dir:
                 output_dir = self.poses_output_dir
             else:
-                output_dir = self.data_dir / "benchmark_output"
+                # Default to a subdirectory in the data_dir
+                output_dir = self.data_dir / "benchmark_outputs"
+                output_dir.mkdir(parents=True, exist_ok=True)
+            
+            self.log.debug(f"Using output_dir for TEMPLPipeline: {output_dir}")
 
             self.log.debug(
                 f"Initializing TEMPL pipeline with data_dir: {self.data_dir}"
@@ -335,29 +316,6 @@ class BenchmarkRunner:
         return self.molecule_loader.get_ligand_data(pdb_id)
 
 
-def find_ligand_by_pdb_id(pdb_id: str, molecule_data: Dict) -> Tuple[Optional[str], Optional["Chem.Mol"]]:
-    """Find ligand data by PDB ID from molecule cache."""
-    try:
-        # Look for the PDB ID in various formats
-        search_keys = [
-            pdb_id.lower(),
-            pdb_id.upper(),
-            pdb_id.lower().strip(),
-            pdb_id.upper().strip()
-        ]
-        
-        for key in search_keys:
-            if key in molecule_data:
-                mol_data = molecule_data[key]
-                if isinstance(mol_data, dict):
-                    return mol_data.get('smiles'), mol_data.get('molecule')
-                elif hasattr(mol_data, 'smiles') and hasattr(mol_data, 'molecule'):
-                    return mol_data.smiles, mol_data.molecule
-        
-        return None, None
-    except Exception:
-        return None, None
-
     def _calculate_rmsd_to_crystal(
         self, pose_mol: "Chem.Mol", crystal_mol: "Chem.Mol"
     ) -> float:
@@ -375,6 +333,14 @@ def find_ligand_by_pdb_id(pdb_id: str, molecule_data: Dict) -> Tuple[Optional[st
             )
 
         start_time = time.time()
+
+        # Log memory usage before processing
+        try:
+            proc = psutil.Process(os.getpid())
+            mem_before = proc.memory_info().rss / 1e9
+            self.log.info(f"[MEMORY] Before pipeline for {params.target_pdb}: {mem_before:.2f} GB")
+        except Exception as e:
+            self.log.warning(f"Could not log memory before: {e}")
 
         # Initialize variables to prevent reference errors
         rmsd_values = {}
@@ -463,6 +429,16 @@ def find_ligand_by_pdb_id(pdb_id: str, molecule_data: Dict) -> Tuple[Optional[st
             # For LOO approach, exclude target PDB from template pool
             effective_exclusions = params.exclude_pdb_ids.copy()
             effective_exclusions.add(params.target_pdb)
+            
+            # Log template restriction information
+            if params.allowed_pdb_ids is not None:
+                self.log.info(f"Template search restricted to {len(params.allowed_pdb_ids)} allowed PDBs for {params.target_pdb}")
+                if params.target_pdb.lower() in params.allowed_pdb_ids:
+                    self.log.error(f"CRITICAL: Target {params.target_pdb} found in allowed templates - data leak risk!")
+            else:
+                self.log.debug(f"No template restrictions for {params.target_pdb}")
+                
+            self.log.info(f"Excluding {len(effective_exclusions)} PDBs from template search for {params.target_pdb}")
 
             # Input validation
             if not os.path.exists(protein_file):
@@ -498,6 +474,7 @@ def find_ligand_by_pdb_id(pdb_id: str, molecule_data: Dict) -> Tuple[Optional[st
                     n_workers=params.internal_workers,  # Always 1 to prevent nested parallelization
                     similarity_threshold=params.similarity_threshold,
                     exclude_pdb_ids=effective_exclusions,
+                    allowed_pdb_ids=params.allowed_pdb_ids,  # NEW: restrict template search space
                     output_dir=benchmark_output_dir,
                     unconstrained=params.unconstrained,
                     align_metric=params.align_metric,
@@ -691,6 +668,7 @@ def find_ligand_by_pdb_id(pdb_id: str, molecule_data: Dict) -> Tuple[Optional[st
                     metadata={
                         "target_pdb": params.target_pdb,
                         "excluded_count": len(effective_exclusions),
+                        "allowed_templates_count": len(params.allowed_pdb_ids) if params.allowed_pdb_ids else None,
                         "final_memory_gb": final_memory["memory_gb"],
                     },
                 )
@@ -711,6 +689,7 @@ def find_ligand_by_pdb_id(pdb_id: str, molecule_data: Dict) -> Tuple[Optional[st
                     metadata={
                         "target_pdb": params.target_pdb,
                         "excluded_count": len(effective_exclusions),
+                        "allowed_templates_count": len(params.allowed_pdb_ids) if params.allowed_pdb_ids else None,
                         "final_memory_gb": final_memory["memory_gb"],
                     },
                 )
@@ -748,6 +727,20 @@ def find_ligand_by_pdb_id(pdb_id: str, molecule_data: Dict) -> Tuple[Optional[st
             return BenchmarkResult(
                 success=False, rmsd_values={}, runtime=runtime, error=str(e)
             )
+
+        # After all processing, before return:
+        try:
+            proc = psutil.Process(os.getpid())
+            mem_after = proc.memory_info().rss / 1e9
+            self.log.info(f"[MEMORY] After pipeline for {params.target_pdb}: {mem_after:.2f} GB")
+        except Exception as e:
+            self.log.warning(f"Could not log memory after: {e}")
+        # Aggressive memory cleanup
+        try:
+            import gc
+            gc.collect()
+        except Exception:
+            pass
 
     def _get_protein_file(self, pdb_id: str) -> str:
         """Get protein file path for PDB ID using shared utilities."""
@@ -915,6 +908,7 @@ def run_templ_pipeline_for_benchmark(
     align_metric: str = "combo",
     enable_optimization: bool = False,
     no_realign: bool = False,
+    allowed_pdb_ids: Set[str] = None,  # NEW: restrict template search to these PDB IDs
 ) -> Dict:
     """Main entry point for benchmark pipeline execution."""
 
@@ -936,6 +930,7 @@ def run_templ_pipeline_for_benchmark(
         align_metric=align_metric,
         enable_optimization=enable_optimization,
         no_realign=no_realign,
+        allowed_pdb_ids=allowed_pdb_ids,  # NEW: pass allowed templates to pipeline
     )
 
     runner = BenchmarkRunner(
