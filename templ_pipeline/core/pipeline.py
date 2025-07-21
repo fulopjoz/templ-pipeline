@@ -76,6 +76,7 @@ class PipelineConfig:
     target_smiles: str = ""
     protein_pdb_id: Optional[str] = None
     ligand_smiles: Optional[str] = None
+    ligand_file: Optional[str] = None
     
     # Data paths
     data_dir: str = DEFAULT_DATA_DIR
@@ -223,6 +224,8 @@ class TEMPLPipeline:
             
             # Load target molecule
             target_smiles = getattr(self.config, 'target_smiles', None) or getattr(self.config, 'ligand_smiles', None)
+            ligand_file = getattr(self.config, 'ligand_file', None)
+
             if target_smiles:
                 _, self.target_mol = load_target_data(pdb_to_load or "", target_smiles)
                 if self.target_mol is None:
@@ -272,7 +275,21 @@ class TEMPLPipeline:
                         # Skip tracker not available, just log and fail
                         log.error(f"Target molecule validation failed: {validation_msg}")
                         return False
-            
+            elif ligand_file:
+                # Load the first molecule from the SDF file
+                from rdkit import Chem
+                supplier = Chem.SDMolSupplier(ligand_file, removeHs=False)
+                mols = [mol for mol in supplier if mol is not None]
+                if mols:
+                    self.target_mol = mols[0]
+                    log.info(f"Loaded target molecule from SDF: {ligand_file} with {self.target_mol.GetNumAtoms()} atoms")
+                else:
+                    log.error(f"Failed to load any valid molecule from SDF: {ligand_file}")
+                    return False
+            else:
+                log.error("No ligand SMILES or ligand file provided")
+                return False
+
             return True
             
         except Exception as e:
@@ -653,6 +670,7 @@ class TEMPLPipeline:
             target_smiles=ligand_smiles or "",
             protein_pdb_id=protein_pdb_id,
             ligand_smiles=ligand_smiles,
+            ligand_file=ligand_file,
             output_dir=effective_output_dir,
             n_confs=num_conformers,
             n_workers=n_workers,
