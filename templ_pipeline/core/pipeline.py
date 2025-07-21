@@ -49,6 +49,16 @@ from .output_manager import EnhancedOutputManager
 
 log = logging.getLogger(__name__)
 
+# Custom exception for molecule validation failures
+class MoleculeValidationException(Exception):
+    """Exception raised when molecule validation fails during pipeline execution."""
+    
+    def __init__(self, message, reason, details, molecule_info=None):
+        super().__init__(message)
+        self.reason = reason
+        self.details = details
+        self.molecule_info = molecule_info
+
 # Constants
 DEFAULT_N_CONFS = 50
 DEFAULT_N_WORKERS = 0  # Auto-detect based on CPU count
@@ -88,7 +98,7 @@ class PipelineConfig:
     enable_batching: bool = True
     max_batch_size: int = 8
     no_realign: bool = False
-    enable_optimization: bool = True
+    enable_optimization: bool = False
     
     # Ablation study options
     unconstrained: bool = False
@@ -250,14 +260,7 @@ class TEMPLPipeline:
                         
                         log.warning(f"Molecule validation failed for {pdb_id}: {validation_msg}")
                         
-                        # Create a custom exception that can be caught by benchmark runner
-                        class MoleculeValidationException(Exception):
-                            def __init__(self, message, reason, details, molecule_info=None):
-                                super().__init__(message)
-                                self.reason = reason
-                                self.details = details
-                                self.molecule_info = molecule_info
-                        
+                        # Raise the module-level MoleculeValidationException
                         raise MoleculeValidationException(
                             validation_msg, 
                             skip_reason, 
@@ -407,7 +410,7 @@ class TEMPLPipeline:
             log.error(f"Failed to get protein embedding for {pdb_id}: {e}", exc_info=True)
             return None, None
 
-    def find_similar_templates(self, query_embedding: np.ndarray, k: int = 100, exclude_pdb_ids: set = None) -> List[str]:
+    def find_similar_templates(self, query_embedding: np.ndarray, k: int = 100, exclude_pdb_ids: set = None, allowed_pdb_ids: set = None) -> List[str]:
         """Find similar templates using embedding similarity."""
         try:
             if self.embedding_manager is None:
@@ -420,6 +423,7 @@ class TEMPLPipeline:
                 query_embedding=query_embedding,
                 k=k,
                 exclude_pdb_ids=exclude_pdb_ids,
+                allowed_pdb_ids=allowed_pdb_ids,
                 return_similarities=False
             )
             
@@ -636,9 +640,10 @@ class TEMPLPipeline:
                          ligand_smiles: str = None, ligand_file: str = None,
                          num_templates: int = 100, num_conformers: int = 50,
                          n_workers: int = 4, similarity_threshold: float = 0.9,
-                         exclude_pdb_ids: set = None, output_dir: str = None,
-                         no_realign: bool = False, enable_optimization: bool = True,
-                         unconstrained: bool = False, align_metric: str = "combo") -> dict:
+                         exclude_pdb_ids: set = None, allowed_pdb_ids: set = None,
+                         output_dir: str = None, no_realign: bool = False, 
+                         enable_optimization: bool = True, unconstrained: bool = False, 
+                         align_metric: str = "combo") -> dict:
         """Run the full pipeline with CLI interface."""
         # Use provided output_dir or fall back to instance output_dir
         effective_output_dir = output_dir or self.output_dir
@@ -661,6 +666,7 @@ class TEMPLPipeline:
         
         self.config = config
         self.exclude_pdb_ids = exclude_pdb_ids or set()
+        self.allowed_pdb_ids = allowed_pdb_ids or None
         self.no_realign = no_realign
         self.enable_optimization = enable_optimization
         self.unconstrained = unconstrained
@@ -727,7 +733,8 @@ class TEMPLPipeline:
 
             num_templates = getattr(self.config, 'num_templates', 100)
             exclude_pdb_ids = getattr(self, 'exclude_pdb_ids', set())
-            similar_template_ids = self.find_similar_templates(query_embedding, k=num_templates, exclude_pdb_ids=exclude_pdb_ids)
+            allowed_pdb_ids = getattr(self, 'allowed_pdb_ids', None)
+            similar_template_ids = self.find_similar_templates(query_embedding, k=num_templates, exclude_pdb_ids=exclude_pdb_ids, allowed_pdb_ids=allowed_pdb_ids)
             if not similar_template_ids:
                 log.error("No similar templates found.")
                 return False

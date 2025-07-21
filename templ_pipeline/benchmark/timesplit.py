@@ -1,71 +1,96 @@
-"""
-Time-Split Benchmark for TEMPL Pipeline
-
-This module provides time-split benchmarking functionality following the successful
-polaris benchmark pattern. It uses ProcessPoolExecutor with spawn context for 
-reliable memory management and prevents OOM issues.
-
-Key features:
-- Simple 2-file architecture (timesplit.py + runner.py)
-- ProcessPoolExecutor with spawn context for process isolation
-- Conservative resource limits to prevent OOM
-- Time-based exclusions for train/val/test splits
-- Clean CLI integration with workspace organization
-- Hardware-aware configuration
-"""
+# -----------------------------------------------------------------------------
+# Time-Split Benchmark for TEMPL Pipeline
+# -----------------------------------------------------------------------------
+# This script implements a time-split benchmark for the TEMPL pipeline, using
+# efficient hardware resource management and parallel processing. It is designed
+# to evaluate the pipeline on different data splits (train/val/test) and report
+# performance metrics. The script is inspired by the Polaris benchmarking style.
+#
+# Key features:
+# - Hardware auto-detection and scaling for optimal worker count
+# - Parallel processing using ProcessPoolExecutor or pebble
+# - Memory optimization via shared cache
+# - Progress bars and logging for monitoring
+# - Flexible CLI for custom runs
+# -----------------------------------------------------------------------------
 
 import argparse
 import gc
 import json
 import logging
 import multiprocessing as mp
-import psutil
 import sys
 import time
 from concurrent.futures import (
     ProcessPoolExecutor,
     as_completed,
+    TimeoutError as FutureTimeoutError,
 )
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 from tqdm import tqdm
+import os
+import psutil
+import resource
 
-# Import hardware detection
+# -----------------------------
+# Imports and Hardware Detection
+# -----------------------------
+# Import hardware detection - optimized for maximum performance
 try:
-    from templ_pipeline.core.hardware import get_suggested_worker_config
+    from templ_pipeline.core.hardware import get_suggested_worker_config, get_basic_hardware_info
     HARDWARE_CONFIG = get_suggested_worker_config()
-    DEFAULT_WORKERS = min(8, HARDWARE_CONFIG["n_workers"])  # Conservative cap
+    
+    # Override conservative limits for maximum performance
+    # Since user wants all CPUs utilized and not be strict on memory
+    HARDWARE_INFO = get_basic_hardware_info()
+    TOTAL_CPUS = HARDWARE_INFO.cpu_count
+    
+    # Use conservative hardware detection like Polaris (max 16 workers for system stability)
+    DEFAULT_WORKERS = HARDWARE_CONFIG["n_workers"]
+    
+    # Use module-specific logger instead of root logger to avoid CLI pollution
+    _logger = logging.getLogger(__name__)
+    _logger.debug(f"Timesplit hardware optimization: {DEFAULT_WORKERS}/{TOTAL_CPUS} workers")
+    
 except ImportError:
-    logging.warning("Hardware detection not available, using conservative default")
+    _logger = logging.getLogger(__name__)
+    _logger.warning("Hardware detection not available, using conservative default")
     DEFAULT_WORKERS = 8
 
+# -----------------------------
+# Benchmark Infrastructure Import
+# -----------------------------
 # Import benchmark infrastructure
 from templ_pipeline.benchmark.runner import run_templ_pipeline_for_benchmark
 
-# Configuration - use conservative defaults like polaris
-MOLECULE_TIMEOUT = 180  # 3 minutes like polaris
-OUTPUT_DIR = "timesplit_benchmark_results"
+# -----------------------------
+# Optional: Pebble for Advanced Timeout Handling
+# -----------------------------
+# Try to import pebble for proper timeout handling (same as Polaris)
+try:
+    import pebble
+    from pebble import ProcessPool
+    PEBBLE_AVAILABLE = True
+except ImportError:
+    PEBBLE_AVAILABLE = False
+    ProcessPool = None
 
-# Memory management configuration
-MEMORY_CLEANUP_INTERVAL = 10  # Force cleanup every N targets
-MEMORY_WARNING_THRESHOLD = 0.85  # Warning when memory usage > 85%
-MEMORY_CRITICAL_THRESHOLD = 0.95  # Critical when memory usage > 95%
-AGGRESSIVE_CLEANUP_INTERVAL = 5  # Aggressive cleanup when memory is high
-CACHE_SIZE_LIMIT_MB = 1024  # Maximum cache size in MB (1GB)
+# -----------------------------
+# Configuration Constants
+# -----------------------------
+# Configuration - use same pattern as Polaris
+MOLECULE_TIMEOUT = 180  # 3 minutes like Polaris
 
-# Chunked processing configuration
-CHUNK_SIZE = 50  # Number of targets to process in each chunk
-MEMORY_BARRIER_THRESHOLD = 0.80  # Memory threshold to trigger barrier
-
-# Progress Bar Configuration (copied from polaris)
+# Progress Bar Configuration (copied from Polaris)
 class ProgressConfig:
     """Configuration for progress bars"""
 
     @staticmethod
     def get_bar_format():
-        return "{percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
+        return "{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
 
     @staticmethod
     def get_postfix_format(success_rate: float, errors: int = 0):
@@ -86,27 +111,35 @@ class ProgressConfig:
         return config
 
 
-def setup_benchmark_logging(log_level: str = "INFO", workspace_dir: Optional[Path] = None):
-    """Configure logging for benchmark with file-only output and clean progress bars"""
-    from templ_pipeline.core.benchmark_logging import create_benchmark_logger
+# -----------------------------
+# Logging Setup
+# -----------------------------
+def setup_benchmark_logging(log_level: str = "INFO"):
+    """Configure logging for benchmark with reduced verbosity (same as Polaris)"""
+    # Set up root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(getattr(logging, log_level))
     
-    if workspace_dir:
-        return create_benchmark_logger("timesplit")
-    else:
-        # Fallback to original behavior for compatibility
-        root_logger = logging.getLogger()
-        root_logger.setLevel(getattr(logging, log_level))
-        
-        # Keep benchmark logger at INFO level
-        benchmark_logger = logging.getLogger(__name__)
-        benchmark_logger.setLevel(getattr(logging, log_level))
-        
-        return benchmark_logger
+    # Reduce verbosity for specific modules during benchmark
+    mcs_logger = logging.getLogger('templ_pipeline.core.mcs')
+    scoring_logger = logging.getLogger('templ_pipeline.core.scoring')
+    
+    # Set MCS and scoring to WARNING to reduce verbose output
+    mcs_logger.setLevel(logging.WARNING)
+    scoring_logger.setLevel(logging.WARNING)
+    
+    # Keep benchmark logger at INFO level
+    benchmark_logger = logging.getLogger(__name__)
+    benchmark_logger.setLevel(getattr(logging, log_level))
+    
+    return benchmark_logger
 
 
 # -----------------------------------------------------------------------------
-# Split loading utilities
+# Split Loading Utilities
 # -----------------------------------------------------------------------------
+# These functions load the lists of PDB IDs for each split (train/val/test) and
+# determine which PDBs should be excluded from template search for a given target.
 
 def load_timesplit_pdb_list(split_name: str) -> List[str]:
     """Load PDB IDs for the requested split using timesplit files."""
@@ -165,501 +198,390 @@ def get_timesplit_template_exclusions(target_pdb: str, target_split: str) -> Set
     return exclusions
 
 
-# -----------------------------------------------------------------------------
-# Core worker function (simplified like polaris)
-# -----------------------------------------------------------------------------
-
-def _process_single_target(args: Tuple) -> Dict:
-    """Process a single target PDB in an isolated subprocess.
+def get_timesplit_allowed_templates(target_pdb: str, target_split: str) -> Set[str]:
+    """Get PDB IDs allowed as templates based on time split rules.
     
-    Uses the same pattern as polaris benchmark for reliable memory management.
-    Includes explicit memory cleanup and monitoring to prevent accumulation.
+    This function implements proper data hygiene for time-split benchmarking
+    by restricting the template search space to only appropriate splits.
+    
+    Args:
+        target_pdb: PDB ID of the target molecule
+        target_split: Split the target belongs to ("train", "val", "test")
+        
+    Returns:
+        Set of PDB IDs that are allowed to be used as templates
     """
-    target_pdb, config_dict = args
-    
-    start_time = time.time()
-    
-    # Monitor initial memory state
-    process = psutil.Process()
-    initial_memory = process.memory_info().rss / (1024**3)  # GB
-    
-    # Suppress worker logging to prevent console pollution
-    from templ_pipeline.core.benchmark_logging import suppress_worker_logging
-    suppress_worker_logging()
-    
-    # Initialize variables for cleanup
-    target_split = None
-    exclusions = set()
-    result = None
+    allowed_templates = set()
     
     try:
-        # Determine target split
-        for split_name in ["train", "val", "test"]:
-            try:
-                split_pdbs = load_timesplit_pdb_list(split_name)
-                if target_pdb.lower() in [pdb.lower() for pdb in split_pdbs]:
-                    target_split = split_name
-                    break
-                # Explicit cleanup of split_pdbs
-                del split_pdbs
-                gc.collect()  # Force cleanup
-            except Exception:
-                continue
-        
-        if not target_split:
-            target_split = "unknown"
-        
-        # Get time-based exclusions
-        exclusions = get_timesplit_template_exclusions(target_pdb, target_split)
-        
-        # Monitor memory before pipeline execution
-        pre_pipeline_memory = process.memory_info().rss / (1024**3)
-        if pre_pipeline_memory > 4.0:  # Warning threshold
-            logging.warning(f"High memory usage before pipeline: {pre_pipeline_memory:.1f}GB for {target_pdb}")
-        
-        # Run pipeline using benchmark infrastructure
+        if target_split == "test":
+            # Test: can use train + val templates (no future information)
+            allowed_templates.update(load_timesplit_pdb_list("train"))
+            allowed_templates.update(load_timesplit_pdb_list("val"))
+            logging.debug(f"Test target {target_pdb}: allowing train+val templates")
+        elif target_split == "val":
+            # Val: can only use train templates (no future information)
+            allowed_templates.update(load_timesplit_pdb_list("train"))
+            logging.debug(f"Val target {target_pdb}: allowing train templates only")
+        elif target_split == "train":
+            # Train: can use train templates (leave-one-out)
+            allowed_templates.update(load_timesplit_pdb_list("train"))
+            logging.debug(f"Train target {target_pdb}: allowing train templates (LOO)")
+        else:
+            logging.warning(f"Unknown split '{target_split}' for {target_pdb}")
+            return set()
+    except Exception as e:
+        logging.error(f"Could not load split files for allowed templates: {e}")
+        return set()
+    
+    # Normalize all PDB IDs to uppercase for compatibility with embedding_db
+    allowed_templates = {pid.upper() for pid in allowed_templates}
+    # CRITICAL: Remove target itself to prevent self-templating data leak
+    target_pdb_upper = target_pdb.upper()
+    if target_pdb_upper in allowed_templates:
+        allowed_templates.remove(target_pdb_upper)
+        logging.debug(f"Removed target {target_pdb_upper} from its own allowed templates")
+    
+    logging.info(f"Target {target_pdb} ({target_split}): {len(allowed_templates)} allowed templates")
+    
+    return allowed_templates
+
+
+# -----------------------------------------------------------------------------
+# Core Worker Function
+# -----------------------------------------------------------------------------
+# This function runs the benchmark pipeline for a single target PDB in a separate
+# process. It determines the split, computes exclusions, and calls the unified
+# benchmark runner. Results and errors are returned as dictionaries.
+
+def _process_single_target(args: Tuple, per_worker_ram_gb: float = 4.0) -> Dict:
+    """Process a single target PDB in an isolated subprocess.
+    
+    Uses the unified benchmark runner (same as Polaris) for reliable execution.
+    """
+    # Set a per-process memory limit (user-configurable, default 4GB)
+    try:
+        max_bytes = int(per_worker_ram_gb * 1024 ** 3)
+        resource.setrlimit(resource.RLIMIT_AS, (max_bytes, max_bytes))
+    except Exception as e:
+        logging.warning(f"Could not set memory limit: {e}")
+
+    import psutil
+    import os
+    target_pdb, config_dict = args
+    start_time = time.time()
+
+    # --- EARLY LOGGING: molecule stats before processing ---
+    try:
+        # Try to load molecule info if possible (requires access to data_dir and ligand file)
+        data_dir = config_dict.get("data_dir")
+        ligand_path = None
+        if data_dir:
+            from templ_pipeline.core.templates import ligand_path as get_ligand_path
+            ligand_path = get_ligand_path(target_pdb, data_dir)
+        atom_count = None
+        conf_count = None
+        if ligand_path:
+            from rdkit import Chem
+            suppl = Chem.SDMolSupplier(ligand_path)
+            mols = [m for m in suppl if m is not None]
+            if mols:
+                mol = mols[0]
+                atom_count = mol.GetNumAtoms()
+                conf_count = mol.GetNumConformers()
+        proc = psutil.Process(os.getpid())
+        mem_before = proc.memory_info().rss / 1e9
+        logging.info(f"[EARLY] {target_pdb}: atoms={atom_count}, conformers={conf_count}, memory={mem_before:.2f} GB")
+    except Exception as e:
+        logging.warning(f"[EARLY] Could not log molecule stats for {target_pdb}: {e}")
+    # --- END EARLY LOGGING ---
+
+    # Determine target split
+    target_split = None
+    split_load_errors = []  # Collect errors for diagnostics
+    for split_name in ["train", "val", "test"]:
+        try:
+            split_pdbs = load_timesplit_pdb_list(split_name)
+            if target_pdb.lower() in [pdb.lower() for pdb in split_pdbs]:
+                target_split = split_name
+                break
+        except FileNotFoundError as e:
+            logging.error(f"Split file not found for {split_name}: {e}")
+            split_load_errors.append(f"{split_name}: {e}")
+            continue
+        except Exception as e:
+            logging.error(f"Unexpected error loading {split_name}: {e}")
+            split_load_errors.append(f"{split_name}: {e}")
+            # Optionally, re-raise or continue depending on desired strictness
+            continue
+
+    if target_split is None:
+        error_msg = (
+            f"Could not determine split for {target_pdb}. "
+            f"Split file load errors: {split_load_errors if split_load_errors else 'No split files found.'}"
+        )
+        logging.error(error_msg)
+        return {
+            "success": False,
+            "error": error_msg,
+            "pdb_id": target_pdb,
+            "runtime_total": time.time() - start_time,
+        }
+    
+    # Get template restrictions based on time split rules
+    exclusions = get_timesplit_template_exclusions(target_pdb, target_split)
+    allowed_templates = get_timesplit_allowed_templates(target_pdb, target_split)
+    
+    # Validation: ensure target is not in allowed templates (data leak prevention)
+    if target_pdb.lower() in allowed_templates:
+        logging.error(f"CRITICAL: Target {target_pdb} found in its own allowed templates - this would cause data leak!")
+        return {
+            "success": False,
+            "error": f"Data leak prevented: target {target_pdb} was in its own allowed templates",
+            "pdb_id": target_pdb,
+            "target_split": target_split,
+            "runtime_total": time.time() - start_time,
+        }
+    
+    # Validation: ensure allowed templates is not empty
+    if not allowed_templates:
+        logging.warning(f"No allowed templates found for {target_pdb} in {target_split} split")
+    
+    # Use unified benchmark runner with template restrictions (same approach as Polaris)
+    try:
         result = run_templ_pipeline_for_benchmark(
             target_pdb=target_pdb,
             exclude_pdb_ids=exclusions,
+            allowed_pdb_ids=allowed_templates,  # NEW: restrict search space to allowed templates
             n_conformers=config_dict.get("n_conformers", 200),
             template_knn=config_dict.get("template_knn", 100),
-            similarity_threshold=config_dict.get("similarity_threshold"),
+            similarity_threshold=config_dict.get("similarity_threshold", 0.9),
             internal_workers=1,  # Always 1 to prevent nested parallelization
             timeout=config_dict.get("timeout", MOLECULE_TIMEOUT),
             data_dir=config_dict.get("data_dir"),
             poses_output_dir=config_dict.get("poses_output_dir"),
+            shared_cache_file=config_dict.get("shared_cache_file"),
             unconstrained=config_dict.get("unconstrained", False),
             align_metric=config_dict.get("align_metric", "combo"),
             enable_optimization=config_dict.get("enable_optimization", False),
             no_realign=config_dict.get("no_realign", False),
         )
         
-        # Ensure result is a dictionary
-        if hasattr(result, "to_dict"):
-            result = result.to_dict()
-        
-        # Add metadata
+        # Add target metadata including template restrictions
         result["pdb_id"] = target_pdb
         result["target_split"] = target_split
         result["exclusions_count"] = len(exclusions)
-        result["runtime_total"] = time.time() - start_time
+        result["allowed_templates_count"] = len(allowed_templates)
         
-        # Monitor final memory state
-        final_memory = process.memory_info().rss / (1024**3)
-        result["memory_usage"] = {
-            "initial_gb": initial_memory,
-            "final_gb": final_memory,
-            "peak_delta_gb": final_memory - initial_memory
-        }
-        
-        # Explicit cleanup before returning
-        del exclusions
-        gc.collect()  # Force garbage collection in worker
-        
+        # Log memory usage after processing
+        try:
+            proc = psutil.Process(os.getpid())
+            mem_after = proc.memory_info().rss / 1e9
+            logging.info(f"[MEMORY] After processing {target_pdb}: {mem_after:.2f} GB")
+        except Exception as e:
+            logging.warning(f"Could not log memory after: {e}")
+
         return result
         
     except Exception as e:
-        error_result = {
+        return {
             "success": False,
-            "error": str(e),
+            "error": f"Pipeline execution failed: {str(e)}",
             "pdb_id": target_pdb,
             "target_split": target_split,
             "runtime_total": time.time() - start_time,
-            "memory_usage": {
-                "initial_gb": initial_memory,
-                "final_gb": process.memory_info().rss / (1024**3),
-                "peak_delta_gb": process.memory_info().rss / (1024**3) - initial_memory
-            }
         }
-        
-        # Cleanup on error
-        if exclusions:
-            del exclusions
-        if result:
-            del result
-        gc.collect()  # Force garbage collection on error
-        
-        return error_result
-    
-    finally:
-        # Final cleanup - clear any remaining references
-        try:
-            # Clear global caches that might accumulate
-            _clear_worker_caches()
-        except Exception:
-            pass  # Don't let cleanup errors crash the worker
 
 
-def _clear_worker_caches():
-    """Clear worker-specific caches to prevent memory accumulation."""
-    try:
-        # Clear RDKit caches if available
-        import rdkit
-        if hasattr(rdkit, 'Chem'):
-            # Clear any RDKit molecule caches
-            pass
-    except ImportError:
-        pass
-    
-    # Force garbage collection
-    gc.collect()
+# -----------------------------------------------------------------------------
+# Evaluation Function (Parallel Processing)
+# -----------------------------------------------------------------------------
+# This function manages the parallel execution of the benchmark across all targets.
+# It uses either pebble or ProcessPoolExecutor to distribute work, handles timeouts,
+# collects results, and updates progress bars. Results are streamed to a JSONL file.
 
-
-def _get_memory_info() -> Dict[str, float]:
-    """Get detailed memory information for monitoring."""
-    memory = psutil.virtual_memory()
-    return {
-        "total_gb": memory.total / (1024**3),
-        "available_gb": memory.available / (1024**3),
-        "used_gb": memory.used / (1024**3),
-        "percent": memory.percent,
-        "free_gb": memory.free / (1024**3),
-    }
-
-
-def _should_trigger_cleanup(processed_count: int, memory_percent: float) -> bool:
-    """Determine if cleanup should be triggered based on memory usage and interval."""
-    # Standard cleanup interval
-    if processed_count % MEMORY_CLEANUP_INTERVAL == 0:
-        return True
-    
-    # Aggressive cleanup when memory is high
-    if memory_percent > MEMORY_WARNING_THRESHOLD * 100:
-        return processed_count % AGGRESSIVE_CLEANUP_INTERVAL == 0
-    
-    # Emergency cleanup when memory is critical
-    if memory_percent > MEMORY_CRITICAL_THRESHOLD * 100:
-        return True
-    
-    return False
-
-
-def _clear_worker_caches():
-    """Clear any global caches that might accumulate in worker processes."""
-    cleared_components = []
-    
-    try:
-        # Clear RDKit molecule cache if it exists
-        from templ_pipeline.core.utils import clear_global_molecule_cache
-        clear_global_molecule_cache()
-        cleared_components.append("molecule_cache")
-    except ImportError:
-        pass
-    
-    try:
-        # Clear embedding caches if they exist
-        from templ_pipeline.core.embedding import clear_embedding_cache
-        # Clear all cache types with size limits
-        clear_embedding_cache(clear_model_cache=True, clear_disk_cache=False, clear_memory_cache=True)
-        cleared_components.append("embedding_cache")
-    except ImportError:
-        pass
-    
-    # Force garbage collection (multiple passes for stubborn objects)
-    gc.collect()
-    gc.collect()
-    
-    return cleared_components
-
-
-def _aggressive_memory_cleanup():
-    """Perform aggressive memory cleanup when memory usage is critical."""
-    logging.warning("Performing aggressive memory cleanup due to high memory usage")
-    
-    # Clear all caches
-    _clear_worker_caches()
-    
-    # Multiple garbage collection passes
-    for _ in range(3):
-        gc.collect()
-    
-    # Try to clear disk caches as well if memory is critically low
-    try:
-        from templ_pipeline.core.embedding import clear_embedding_cache
-        clear_embedding_cache(clear_model_cache=True, clear_disk_cache=True, clear_memory_cache=True)
-    except ImportError:
-        pass
-    
-    # Final garbage collection
-    gc.collect()
-
-
-class ScopedResourceManager:
-    """Context manager for scoped resource management during benchmarks."""
-    
-    def __init__(self, cleanup_interval: int = MEMORY_CLEANUP_INTERVAL):
-        self.cleanup_interval = cleanup_interval
-        self.initial_memory = None
-        self.resources_initialized = False
-    
-    def __enter__(self):
-        """Initialize scoped resources."""
-        self.initial_memory = psutil.virtual_memory().percent
-        logging.info(f"Initializing scoped resources (initial memory: {self.initial_memory:.1f}%)")
-        
-        # Initialize resources with scoped management
-        self._initialize_scoped_resources()
-        self.resources_initialized = True
-        
-        return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Cleanup all scoped resources."""
-        if self.resources_initialized:
-            logging.info("Cleaning up scoped resources")
-            self._cleanup_scoped_resources()
-            
-            final_memory = psutil.virtual_memory().percent
-            logging.info(f"Scoped cleanup complete (final memory: {final_memory:.1f}%)")
-    
-    def _initialize_scoped_resources(self):
-        """Initialize resources with scoped management."""
-        try:
-            # Pre-initialize caches to avoid repeated initialization
-            from templ_pipeline.core.utils import initialize_global_molecule_cache
-            initialize_global_molecule_cache()
-            
-            # Pre-initialize embedding manager if needed
-            try:
-                from templ_pipeline.core.embedding import EmbeddingManager  # noqa: F401
-                # Don't create instance, just ensure class is loaded
-            except ImportError:
-                pass
-            
-        except ImportError:
-            logging.warning("Could not initialize some scoped resources")
-    
-    def _cleanup_scoped_resources(self):
-        """Cleanup all scoped resources."""
-        try:
-            # Clear all caches
-            _clear_worker_caches()
-            
-            # Force singleton cleanup
-            self._cleanup_singletons()
-            
-            # Multiple garbage collection passes
-            for _ in range(2):
-                gc.collect()
-                
-        except Exception as e:
-            logging.warning(f"Error during scoped resource cleanup: {e}")
-    
-    def _cleanup_singletons(self):
-        """Force cleanup of singleton instances."""
-        try:
-            from templ_pipeline.core.embedding import EmbeddingManager
-            
-            # Reset singleton if it exists
-            if hasattr(EmbeddingManager, '_instance') and EmbeddingManager._instance is not None:
-                EmbeddingManager._instance = None
-                EmbeddingManager._initialized = False
-                logging.info("Reset EmbeddingManager singleton")
-                
-        except ImportError:
-            pass
-        except Exception as e:
-            logging.warning(f"Error cleaning up singletons: {e}")
-    
-    def periodic_cleanup(self, processed_count: int):
-        """Perform periodic cleanup based on processed count."""
-        if processed_count % self.cleanup_interval == 0:
-            current_memory = psutil.virtual_memory().percent
-            
-            if current_memory > MEMORY_WARNING_THRESHOLD * 100:
-                logging.info(f"Periodic cleanup triggered (memory: {current_memory:.1f}%)")
-                self._cleanup_scoped_resources()
-                
-                # Re-initialize if needed
-                self._initialize_scoped_resources()
-                
-                new_memory = psutil.virtual_memory().percent
-                logging.info(f"Periodic cleanup complete (memory: {new_memory:.1f}%)")
-
-
-def _process_targets_in_chunks(
-    target_pdbs: List[str], 
-    config_dict: Dict, 
+def evaluate_timesplit_targets(
+    target_pdbs: List[str],
+    config_dict: Dict,
     n_workers: int,
     output_jsonl: Path,
-    quiet: bool = False
+    quiet: bool = False,
+    per_worker_ram_gb: float = 4.0,
 ) -> Tuple[int, int, int]:
-    """Process targets in chunks with memory barriers between chunks."""
+    """Evaluate targets using Polaris-style ProcessPoolExecutor pattern.
     
-    total_targets = len(target_pdbs)
-    total_processed = 0
-    total_success = 0
-    total_failed = 0
+    Returns:
+        Tuple of (processed_count, success_count, failed_count)
+    """
     
-    # Split targets into chunks
-    chunks = [target_pdbs[i:i + CHUNK_SIZE] for i in range(0, len(target_pdbs), CHUNK_SIZE)]
+    processed_count = 0
+    success_count = 0
+    failed_count = 0
     
-    if not quiet:
-        print(f"Processing {total_targets} targets in {len(chunks)} chunks of {CHUNK_SIZE} targets each")
-    
-    # Process each chunk
-    for chunk_idx, chunk_pdbs in enumerate(chunks):
-        if not quiet:
-            print(f"\n--- Processing chunk {chunk_idx + 1}/{len(chunks)} ({len(chunk_pdbs)} targets) ---")
-        
-        # Memory barrier before chunk
-        _memory_barrier(f"Before chunk {chunk_idx + 1}")
-        
-        # Process chunk
-        processed, success, failed = _process_chunk(
-            chunk_pdbs, config_dict, n_workers, output_jsonl, quiet, chunk_idx + 1
-        )
-        
-        # Update totals
-        total_processed += processed
-        total_success += success
-        total_failed += failed
-        
-        # Memory barrier after chunk
-        _memory_barrier(f"After chunk {chunk_idx + 1}")
-        
-        # Progress update
-        if not quiet:
-            success_rate = (success / processed * 100) if processed > 0 else 0
-            print(f"Chunk {chunk_idx + 1} complete: {success}/{processed} ({success_rate:.1f}% success)")
+    # Process targets with timeout handling using Polaris pattern
+    if PEBBLE_AVAILABLE:
+        with ProcessPool(max_workers=n_workers) as pool:
+            futures = []
+            for target_pdb in target_pdbs:
+                future = pool.schedule(
+                    _process_single_target,
+                    args=[(target_pdb, config_dict), per_worker_ram_gb],
+                    timeout=config_dict.get("timeout", MOLECULE_TIMEOUT)
+                )
+                futures.append((future, target_pdb))
             
-            overall_success_rate = (total_success / total_processed * 100) if total_processed > 0 else 0
-            print(f"Overall progress: {total_processed}/{total_targets} ({overall_success_rate:.1f}% success)")
-    
-    return total_processed, total_success, total_failed
-
-
-def _memory_barrier(context: str):
-    """Create a memory barrier - force cleanup and wait for memory to stabilize."""
-    memory_before = psutil.virtual_memory().percent
-    
-    # Force aggressive cleanup
-    _aggressive_memory_cleanup()
-    
-    # Additional cleanup if memory is still high
-    if memory_before > MEMORY_BARRIER_THRESHOLD * 100:
-        logging.warning(f"Memory barrier triggered - high memory usage: {memory_before:.1f}%")
-        
-        # Multiple cleanup passes
-        for _ in range(3):
-            _clear_worker_caches()
-            gc.collect()
-            time.sleep(0.1)  # Brief pause to allow cleanup
-        
-        memory_after = psutil.virtual_memory().percent
-        logging.info(f"Memory barrier complete ({context}): {memory_before:.1f}% → {memory_after:.1f}%")
-    else:
-        logging.info(f"Memory barrier ({context}): {memory_before:.1f}% memory usage")
-
-
-def _process_chunk(
-    chunk_pdbs: List[str], 
-    config_dict: Dict, 
-    n_workers: int,
-    output_jsonl: Path,
-    quiet: bool,
-    chunk_number: int
-) -> Tuple[int, int, int]:
-    """Process a single chunk of targets."""
-    
-    mp_context = mp.get_context("spawn")
-    
-    # Add worker recycling to prevent memory accumulation
-    recycle_interval = max(10, len(chunk_pdbs) // 4)  # Recycle workers every 25% of chunk
-    current_batch = 0
-    
-    with ScopedResourceManager() as resource_manager:
-        
-        # Process in batches with worker recycling
-        batch_size = min(recycle_interval, len(chunk_pdbs))
-        for batch_start in range(0, len(chunk_pdbs), batch_size):
-            batch_end = min(batch_start + batch_size, len(chunk_pdbs))
-            batch_pdbs = chunk_pdbs[batch_start:batch_end]
-            current_batch += 1
+            # Collect results with progress bar (same as Polaris)
+            desc = f"Timesplit Benchmark"
             
-            logging.info(f"Processing batch {current_batch} with {len(batch_pdbs)} targets (worker recycling)")
+            if not quiet:
+                tqdm_config = ProgressConfig.get_tqdm_config(desc)
+                tqdm_config['total'] = len(futures)
+                progress_bar = tqdm(**tqdm_config)
+            else:
+                progress_bar = None
             
-            with ProcessPoolExecutor(max_workers=n_workers, mp_context=mp_context) as executor:
-        
-                # Submit all tasks for this batch
-                future_to_pdb = {}
-                for pdb_id in batch_pdbs:
-                    future = executor.submit(_process_single_target, (pdb_id, config_dict))
-                    future_to_pdb[future] = pdb_id
-                
-                # Initialize progress tracking for this batch
-                batch_processed = 0
-                batch_success = 0
-                batch_failed = 0
-                
-                if not quiet:
-                    desc = f"Chunk {chunk_number} - Batch {current_batch}"
-                    tqdm_config = ProgressConfig.get_tqdm_config(desc)
-                    tqdm_config['total'] = len(future_to_pdb)
-                    progress_bar = tqdm(**tqdm_config)
-                else:
-                    progress_bar = None
-                
-                # Collect results for this batch
-                for future in as_completed(future_to_pdb):
-                    pdb_id = future_to_pdb[future]
-                    
-                    try:
-                        result = future.result(timeout=config_dict.get("timeout", MOLECULE_TIMEOUT))
-                        
-                    except Exception as e:
-                        result = {
-                            "success": False,
-                            "error": f"Pipeline error: {str(e)}",
-                            "pdb_id": pdb_id,
-                            "runtime_total": 0,
-                            "timeout": False,
-                        }
+            for future, pdb_id in futures:
+                try:
+                    result = future.result()
                     
                     # Stream result to file immediately
                     with output_jsonl.open("a", encoding="utf-8") as fh:
                         json.dump(result, fh)
                         fh.write("\n")
                     
-                    # Update batch counters
-                    batch_processed += 1
+                    # Update counters
+                    processed_count += 1
                     if result.get("success"):
-                        batch_success += 1
+                        success_count += 1
                     else:
-                        batch_failed += 1
+                        failed_count += 1
+                        
+                except pebble.ProcessExpired:
+                    error_result = {
+                        "success": False,
+                        "error": f"Process timeout after {config_dict.get('timeout', MOLECULE_TIMEOUT)}s",
+                        "pdb_id": pdb_id,
+                        "runtime_total": config_dict.get("timeout", MOLECULE_TIMEOUT),
+                        "timeout": True,
+                    }
+                    with output_jsonl.open("a", encoding="utf-8") as fh:
+                        json.dump(error_result, fh)
+                        fh.write("\n")
                     
-                    # Memory management
-                    del result
+                    processed_count += 1
+                    failed_count += 1
                     
-                    # Enhanced memory monitoring and cleanup
-                    memory_info = _get_memory_info()
-                    resource_manager.periodic_cleanup(batch_processed)
+                except Exception as e:
+                    error_result = {
+                        "success": False,
+                        "error": f"Pipeline error: {str(e)}",
+                        "pdb_id": pdb_id,
+                        "runtime_total": 0,
+                    }
+                    with output_jsonl.open("a", encoding="utf-8") as fh:
+                        json.dump(error_result, fh)
+                        fh.write("\n")
                     
-                    # Update progress bar
-                    if progress_bar:
-                        success_rate = (batch_success / batch_processed * 100) if batch_processed > 0 else 0
-                        postfix = ProgressConfig.get_postfix_format(success_rate, batch_failed)
-                        postfix["mem"] = f"{memory_info['percent']:.1f}%"
-                        postfix["free"] = f"{memory_info['available_gb']:.1f}GB"
-                        progress_bar.set_postfix(postfix)
-                        progress_bar.update(1)
+                    processed_count += 1
+                    failed_count += 1
                 
+                # Update progress bar (same as Polaris)
                 if progress_bar:
-                    progress_bar.close()
-                
-                # Log batch completion and force garbage collection
-                logging.info(f"Batch {current_batch} completed: {batch_success}/{batch_processed} successful")
-                gc.collect()
+                    success_rate = (success_count / processed_count * 100) if processed_count > 0 else 0
+                    postfix = ProgressConfig.get_postfix_format(success_rate, failed_count)
+                    progress_bar.set_postfix(postfix)
+                    progress_bar.update(1)
             
-            # End of executor context - workers are recycled here
+            if progress_bar:
+                progress_bar.close()
+    else:
+        # Fallback to ProcessPoolExecutor (same as Polaris)
+        mp_context = mp.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=n_workers, mp_context=mp_context) as executor:
+            future_to_pdb = {}
+            for target_pdb in target_pdbs:
+                future = executor.submit(_process_single_target, (target_pdb, config_dict), per_worker_ram_gb)
+                future_to_pdb[future] = target_pdb
+            
+            # Collect results with progress bar (same as Polaris)
+            desc = f"Timesplit Benchmark"
+            
+            if not quiet:
+                tqdm_config = ProgressConfig.get_tqdm_config(desc)
+                tqdm_config['total'] = len(future_to_pdb)
+                progress_bar = tqdm(**tqdm_config)
+            else:
+                progress_bar = None
+            
+            for future in as_completed(future_to_pdb):
+                pdb_id = future_to_pdb[future]
+                
+                try:
+                    result = future.result(timeout=config_dict.get("timeout", MOLECULE_TIMEOUT))
+                    
+                    # Stream result to file immediately
+                    with output_jsonl.open("a", encoding="utf-8") as fh:
+                        json.dump(result, fh)
+                        fh.write("\n")
+                    
+                    # Update counters
+                    processed_count += 1
+                    if result.get("success"):
+                        success_count += 1
+                    else:
+                        failed_count += 1
+                        
+                except FutureTimeoutError:
+                    error_result = {
+                        "success": False,
+                        "error": f"Molecule timeout after {config_dict.get('timeout', MOLECULE_TIMEOUT)}s",
+                        "pdb_id": pdb_id,
+                        "runtime_total": config_dict.get("timeout", MOLECULE_TIMEOUT),
+                        "timeout": True,
+                    }
+                    with output_jsonl.open("a", encoding="utf-8") as fh:
+                        json.dump(error_result, fh)
+                        fh.write("\n")
+                    
+                    processed_count += 1
+                    failed_count += 1
+                    
+                except Exception as e:
+                    error_result = {
+                        "success": False,
+                        "error": f"Pipeline error: {str(e)}",
+                        "pdb_id": pdb_id,
+                        "runtime_total": 0,
+                    }
+                    with output_jsonl.open("a", encoding="utf-8") as fh:
+                        json.dump(error_result, fh)
+                        fh.write("\n")
+                    
+                    processed_count += 1
+                    failed_count += 1
+                
+                # Update progress bar (same as Polaris)
+                if progress_bar:
+                    success_rate = (success_count / processed_count * 100) if processed_count > 0 else 0
+                    postfix = ProgressConfig.get_postfix_format(success_rate, failed_count)
+                    progress_bar.set_postfix(postfix)
+                    progress_bar.update(1)
+            
+            if progress_bar:
+                progress_bar.close()
     
-    # Return total counts across all batches
-    return batch_processed, batch_success, batch_failed
+    # Simple memory cleanup (similar to Polaris)
+    gc.collect()
+    
+    return processed_count, success_count, failed_count
 
 
 # -----------------------------------------------------------------------------
-# Main benchmark function using polaris pattern
+# Main Benchmark Function
 # -----------------------------------------------------------------------------
+# This function orchestrates the full benchmark run: loading targets, setting up
+# directories, preparing configuration, launching parallel evaluation, and saving
+# summary statistics. It is the main entry point for programmatic use.
 
 def run_timesplit_benchmark(
     splits_to_run: List[str] = None,
@@ -670,22 +592,30 @@ def run_timesplit_benchmark(
     data_dir: str = None,
     results_dir: str = None,
     poses_output_dir: str = None,
-    similarity_threshold: float = None,
+    similarity_threshold: float = 0.9,
     timeout: int = MOLECULE_TIMEOUT,
     quiet: bool = False,
-    use_chunked_processing: bool = True,
+    ca_rmsd_threshold: float = 10.0,
+    # Missing CLI arguments that need to be supported
     unconstrained: bool = False,
     align_metric: str = "combo",
     enable_optimization: bool = False,
     no_realign: bool = False,
+    # Memory optimization parameter
+    shared_cache_file: str = None,
+    per_worker_ram_gb: float = 4.0,
 ) -> Dict:
-    """Run time-split benchmark using polaris ProcessPoolExecutor pattern."""
+    """Run time-split benchmark using Polaris ProcessPoolExecutor pattern."""
     
     if splits_to_run is None:
         splits_to_run = ["test"]  # Default to test split only
     
-    # Apply conservative worker limits (like polaris)
-    n_workers = min(n_workers or DEFAULT_WORKERS, 16)  # Cap at 16 workers
+    # Use maximum performance configuration (all available CPUs)
+    n_workers = n_workers or DEFAULT_WORKERS
+    
+    # Enable shared cache by default for memory optimization
+    if shared_cache_file is None:
+        shared_cache_file = "shared_ligands.cache"
     
     # Default data directory
     if data_dir is None:
@@ -706,9 +636,16 @@ def run_timesplit_benchmark(
         if data_dir is None:
             data_dir = "/data/pdbbind"  # Fallback
     
-    # Default results directory
+    # Default results directory (will be created in workspace by CLI)
     if results_dir is None:
-        results_dir = OUTPUT_DIR
+        results_dir = "timesplit_results"
+    
+    # Setup poses output directory
+    if poses_output_dir is None:
+        poses_output_dir = Path(results_dir) / "poses"
+        Path(poses_output_dir).mkdir(parents=True, exist_ok=True)
+    else:
+        Path(poses_output_dir).mkdir(parents=True, exist_ok=True)
     
     # Load target PDBs from split files
     target_pdbs = []
@@ -740,10 +677,6 @@ def run_timesplit_benchmark(
     # Create results directory
     Path(results_dir).mkdir(parents=True, exist_ok=True)
     
-    # Setup poses output directory
-    if poses_output_dir:
-        Path(poses_output_dir).mkdir(parents=True, exist_ok=True)
-    
     # Prepare configuration for workers
     config_dict = {
         "n_conformers": n_conformers,
@@ -752,13 +685,17 @@ def run_timesplit_benchmark(
         "timeout": timeout,
         "data_dir": data_dir,
         "poses_output_dir": poses_output_dir,
+        "ca_rmsd_threshold": ca_rmsd_threshold,
+        # Additional CLI arguments from Polaris parity
         "unconstrained": unconstrained,
         "align_metric": align_metric,
         "enable_optimization": enable_optimization,
         "no_realign": no_realign,
+        # Memory optimization
+        "shared_cache_file": shared_cache_file,
     }
     
-    # Initialize benchmark info (no results accumulation)
+    # Initialize benchmark info
     benchmark_info = {
         "name": "templ_timesplit_benchmark",
         "splits": splits_to_run,
@@ -766,13 +703,11 @@ def run_timesplit_benchmark(
         "total_targets": len(target_pdbs),
         "n_conformers": n_conformers,
         "template_knn": template_knn,
+        "similarity_threshold": similarity_threshold,
+        "ca_rmsd_threshold": ca_rmsd_threshold,
         "n_workers": n_workers,
         "timeout": timeout,
     }
-    
-    # Initialize memory monitoring
-    initial_memory = psutil.virtual_memory().percent
-    logging.info(f"Initial memory usage: {initial_memory:.1f}%")
     
     output_jsonl = Path(results_dir) / "results_stream.jsonl"
     
@@ -780,174 +715,158 @@ def run_timesplit_benchmark(
     if output_jsonl.exists():
         output_jsonl.unlink()
     
-    # Process targets using chunked processing or standard processing
-    if use_chunked_processing and len(target_pdbs) > CHUNK_SIZE:
-        if not quiet:
-            print(f"Using chunked processing with {CHUNK_SIZE} targets per chunk")
-        
-        processed_count, success_count, failed_count = _process_targets_in_chunks(
-            target_pdbs, config_dict, n_workers, output_jsonl, quiet
-        )
-    else:
-        # Standard processing for smaller datasets
-        if not quiet:
-            print(f"Using standard processing for {len(target_pdbs)} targets")
-        
-        processed_count, success_count, failed_count = _process_chunk(
-            target_pdbs, config_dict, n_workers, output_jsonl, quiet, 1
-        )
+    # Process targets using Polaris-style direct processing (no chunking)
+    if not quiet:
+        print(f"Processing {len(target_pdbs)} targets with {n_workers} workers")
     
-    # Calculate summary metrics (no results accumulation)
-    final_memory = psutil.virtual_memory().percent
+    processed_count, success_count, failed_count = evaluate_timesplit_targets(
+        target_pdbs, config_dict, n_workers, output_jsonl, quiet, per_worker_ram_gb
+    )
+    
+    # Calculate summary metrics
     summary = {
         "total_targets": len(target_pdbs),
         "processed": processed_count,
         "successful": success_count,
         "failed": failed_count,
-        "completion_rate": processed_count / len(target_pdbs) * 100,
-        "success_rate": success_count / processed_count * 100 if processed_count > 0 else 0,
-        "memory_usage": {
-            "initial_percent": initial_memory,
-            "final_percent": final_memory,
-            "memory_increase": final_memory - initial_memory,
-        }
-    }
-    
-    # Save final results (lightweight - no accumulated results)
-    results_file = Path(results_dir) / f"timesplit_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    final_results = {
+        "success_rate": (success_count / processed_count * 100) if processed_count > 0 else 0,
         "benchmark_info": benchmark_info,
-        "summary": summary,
-        "note": "Individual results are streamed to results_stream.jsonl to prevent memory accumulation"
     }
     
-    with open(results_file, "w") as f:
-        json.dump(final_results, f, indent=2, default=str)
+    # Save summary
+    summary_file = Path(results_dir) / "benchmark_summary.json"
+    with open(summary_file, "w") as f:
+        json.dump(summary, f, indent=2)
     
     if not quiet:
-        print(f"\nTimesplit benchmark completed:")
+        print(f"\nBenchmark completed:")
         print(f"  Processed: {processed_count}/{len(target_pdbs)} targets")
-        print(f"  Success rate: {success_count}/{processed_count} ({success_count/processed_count*100:.1f}%)")
-        print(f"  Memory usage: {initial_memory:.1f}% → {final_memory:.1f}% (Δ{final_memory-initial_memory:+.1f}%)")
-        print(f"  Results streamed to: {output_jsonl}")
-        print(f"  Summary saved to: {results_file}")
+        print(f"  Success rate: {summary['success_rate']:.1f}%")
+        print(f"  Results saved to: {results_dir}")
     
-    return {"success": True, "results_dir": results_dir, "memory_info": summary["memory_usage"]}
+    return {
+        "success": True,
+        "summary": summary,
+        "results_file": str(output_jsonl),
+        "summary_file": str(summary_file),
+    }
 
 
 # -----------------------------------------------------------------------------
-# CLI interface
+# CLI / Main Entrypoint
 # -----------------------------------------------------------------------------
+# The following functions define the command-line interface, parse arguments,
+# and invoke the main benchmark logic. This allows the script to be run as a CLI
+# tool with flexible options for splits, worker count, quick mode, etc.
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build argument parser for timesplit benchmark."""
-    parser = argparse.ArgumentParser(
-        description="Time-split benchmark for TEMPL pipeline",
+    p = argparse.ArgumentParser(
+        description="Time-split benchmark using efficient Polaris-style processing",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    
-    parser.add_argument(
+    p.add_argument(
         "--splits",
         nargs="+",
         choices=["train", "val", "test"],
         default=["test"],
-        help="Which splits to run",
+        help="Which splits to evaluate",
     )
-    parser.add_argument(
+    p.add_argument(
         "--n-workers",
         type=int,
         default=DEFAULT_WORKERS,
-        help=f"Number of parallel workers (default: {DEFAULT_WORKERS})",
+        help=f"Number of parallel workers (max performance: {DEFAULT_WORKERS})",
     )
-    parser.add_argument(
+    p.add_argument(
         "--n-conformers",
         type=int,
         default=200,
-        help="Number of conformers per molecule",
+        help="Conformers per query molecule",
     )
-    parser.add_argument(
+    p.add_argument(
         "--template-knn",
         type=int,
         default=100,
-        help="Number of template neighbors to consider",
+        help="KNN for template selection",
     )
-    parser.add_argument(
+    p.add_argument(
+        "--similarity-threshold",
+        type=float,
+        default=0.9,
+        help="Similarity threshold (overrides KNN)",
+    )
+    p.add_argument(
+        "--ca-rmsd-threshold", 
+        type=float,
+        default=10.0,
+        help="CA RMSD threshold in Angstroms",
+    )
+    p.add_argument(
         "--max-pdbs",
         type=int,
-        default=None,
         help="Maximum number of PDBs to process (for testing)",
     )
-    parser.add_argument(
+    p.add_argument(
         "--data-dir",
         type=str,
-        default=None,
-        help="Directory containing TEMPL data files",
+        help="Data directory path",
     )
-    parser.add_argument(
+    p.add_argument(
         "--results-dir",
         type=str,
-        default=OUTPUT_DIR,
-        help="Directory to save results",
+        help="Results output directory",
     )
-    parser.add_argument(
+    p.add_argument(
         "--poses-dir",
         type=str,
-        default=None,
-        help="Directory to save predicted poses",
+        help="Poses output directory",
     )
-    parser.add_argument(
+    p.add_argument(
         "--timeout",
         type=int,
         default=MOLECULE_TIMEOUT,
         help="Timeout per molecule in seconds",
     )
-    parser.add_argument(
+    p.add_argument(
+        "--train-only",
+        action="store_true",
+        help="Evaluate only training set",
+    )
+    p.add_argument(
+        "--val-only",
+        action="store_true", 
+        help="Evaluate only validation set",
+    )
+    p.add_argument(
+        "--test-only",
+        action="store_true",
+        help="Evaluate only test set",
+    )
+    p.add_argument(
         "--quick",
         action="store_true",
         help="Quick mode: 10 conformers, 10 templates, first 10 molecules",
     )
-    parser.add_argument(
+    p.add_argument(
         "--quiet",
         action="store_true",
         help="Suppress progress output",
     )
-    parser.add_argument(
-        "--chunked-processing",
-        action="store_true",
-        default=True,
-        help="Use chunked processing with memory barriers (default: True)",
+    p.add_argument(
+        "--log-level",
+        type=str,
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        default="INFO",
+        help="Set logging level",
     )
-    parser.add_argument(
-        "--no-chunked-processing",
-        action="store_false",
-        dest="chunked_processing",
-        help="Disable chunked processing",
-    )
-    
-    # Ablation study arguments
-    parser.add_argument(
-        "--unconstrained",
-        action="store_true",
-        help="Skip MCS and constrained embedding (unconstrained conformer generation)",
-    )
-    parser.add_argument(
-        "--align-metric",
-        choices=["shape", "color", "combo"],
-        default="combo",
-        help="Shape alignment metric (default: combo)",
-    )
-    parser.add_argument(
-        "--enable-optimization",
-        action="store_true",
-        help="Enable force field optimization (MMFF/UFF)",
-    )
-    parser.add_argument(
-        "--no-realign",
-        action="store_true",
-        help="Use AlignMol scores only for ranking, disable pose realignment",
+    p.add_argument(
+        "--per-worker-ram-gb",
+        type=float,
+        default=4.0,
+        help="Maximum RAM (GiB) per worker process (prevents memory explosion, default: 4.0)",
     )
     
-    return parser
+    return p
 
 
 def main(argv: List[str] = None) -> int:
@@ -955,17 +874,30 @@ def main(argv: List[str] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv or sys.argv[1:])
     
+    # Set up logging
+    setup_benchmark_logging(args.log_level)
+    
+    # Determine splits to run
+    if args.train_only:
+        splits_to_run = ["train"]
+    elif args.val_only:
+        splits_to_run = ["val"]
+    elif args.test_only:
+        splits_to_run = ["test"]
+    else:
+        splits_to_run = args.splits
+    
     # Apply quick mode overrides
     if args.quick:
         args.n_conformers = 10
         args.template_knn = 10
         args.max_pdbs = 10
-        args.n_workers = min(2, args.n_workers)
-        print("Quick mode: 10 conformers, 10 templates, 10 molecules, 2 workers")
+        args.n_workers = min(4, args.n_workers)
+        print("Quick mode: 10 conformers, 10 templates, 10 molecules, 4 workers")
     
     try:
         result = run_timesplit_benchmark(
-            splits_to_run=args.splits,
+            splits_to_run=splits_to_run,
             n_workers=args.n_workers,
             n_conformers=args.n_conformers,
             template_knn=args.template_knn,
@@ -973,15 +905,37 @@ def main(argv: List[str] = None) -> int:
             data_dir=args.data_dir,
             results_dir=args.results_dir,
             poses_output_dir=args.poses_dir,
+            similarity_threshold=args.similarity_threshold,
             timeout=args.timeout,
             quiet=args.quiet,
-            use_chunked_processing=args.chunked_processing,
+            ca_rmsd_threshold=args.ca_rmsd_threshold,
             unconstrained=args.unconstrained,
             align_metric=args.align_metric,
             enable_optimization=args.enable_optimization,
             no_realign=args.no_realign,
+            per_worker_ram_gb=getattr(args, "per_worker_ram_gb", 4.0),
         )
+
+        # Auto-generate summary files after run
+        from pathlib import Path
+        from templ_pipeline.benchmark.summary_generator import BenchmarkSummaryGenerator
         
+        if result.get("results_file"):
+            results_file = Path(result["results_file"])
+            if results_file.exists():
+                workspace_dir = results_file.parent
+                summaries_dir = workspace_dir / "summaries"
+                
+                try:
+                    with open(results_file) as f:
+                        results = [json.loads(line) for line in f if line.strip()]
+                    generator = BenchmarkSummaryGenerator()
+                    summary = generator.generate_unified_summary(results, benchmark_type="timesplit")
+                    generator.save_summary_files(summary, summaries_dir)
+                    print(f"✓ Summary files written to: {summaries_dir}")
+                except Exception as e:
+                    print(f"Warning: Failed to generate summary files: {e}")
+
         return 0 if result["success"] else 1
         
     except Exception as e:
