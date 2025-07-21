@@ -38,21 +38,24 @@ class EnhancedOutputManager:
         Create timestamped output folder for a specific PDB ID.
         
         Args:
-            pdb_id: PDB ID for naming
+            pdb_id: PDB ID for naming (can be a path)
             
         Returns:
             Path to the created timestamped folder
         """
-        self.pdb_id = pdb_id
+        # Use only the base name (strip directories and extension)
+        import os
+        base_pdb_id = os.path.splitext(os.path.basename(pdb_id))[0]
+        self.pdb_id = base_pdb_id
         
         # Create timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
         # Create folder name
         if self.run_id:
-            folder_name = f"templ_run_{timestamp}_{self.run_id}_{pdb_id}"
+            folder_name = f"templ_run_{timestamp}_{self.run_id}_{base_pdb_id}"
         else:
-            folder_name = f"templ_run_{timestamp}_{pdb_id}"
+            folder_name = f"templ_run_{timestamp}_{base_pdb_id}"
         
         # Create full path
         self.timestamped_folder = self.base_output_dir / folder_name
