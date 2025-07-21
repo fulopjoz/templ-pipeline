@@ -632,6 +632,8 @@ def pdb_path(pid: str, data_dir: str = "data") -> Optional[str]:
     
     # Common PDB file locations
     possible_paths = [
+        f"{data_dir}/PDBBind/PDBbind_v2020_refined/{pid_lower}/{pid_lower}_protein.pdb",
+        f"{data_dir}/PDBBind/PDBbind_v2020_other_PL/{pid_lower}/{pid_lower}_protein.pdb",
         f"{data_dir}/PDBBind/PDBbind_v2020_refined/refined-set/{pid_lower}/{pid_lower}_protein.pdb",
         f"{data_dir}/PDBBind/PDBbind_v2020_other_PL/v2020-other-PL/{pid_lower}/{pid_lower}_protein.pdb",
         f"{data_dir}/pdbs/{pid_lower}.pdb",
