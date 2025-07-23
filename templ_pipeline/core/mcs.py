@@ -316,7 +316,8 @@ def find_mcs(tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False) 
     opts = rdRascalMCES.RascalOptions()
     opts.singleLargestFrag = True
     opts.similarityThreshold = 0.9  # Start at high threshold
-    
+    opts.ignoreAtomAromaticity = False # added to try to fix OOM errors
+
     # Continuous threshold reduction with 0.1 steps
     while opts.similarityThreshold >= 0.0:
         hits = []
@@ -919,6 +920,7 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
             log.warning("Molecular distortion detected after alignment")
         
         # Apply force field optimization if enabled
+        log.info(f"Force field optimization parameter: enable_optimization={enable_optimization}")
         if enable_optimization:
             log.info("Applying unconstrained force field optimization to whole molecule after MCS positioning")
             if use_uff:
@@ -931,7 +933,7 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
             if not is_valid_after_minimization:
                 log.warning("Molecular distortion detected after minimization")
         else:
-            log.info("Skipping force field minimization (use --enable-optimization to enable)")
+            log.info("Skipping force field minimization (enable_optimization=False)")
             log.info("ETKDGv3 embedding + alignment provides sufficient geometry optimization")
         
         return target_h
