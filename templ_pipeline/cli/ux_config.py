@@ -315,7 +315,7 @@ class TEMPLUXConfig:
         # Hardware-aware defaults
         if self.preferences.auto_detect_hardware:
             try:
-                from templ_pipeline.core.hardware_utils import (
+                from templ_pipeline.core.hardware import (
                     get_suggested_worker_config,
                 )
 

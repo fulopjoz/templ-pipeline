@@ -1074,7 +1074,7 @@ def _optimize_hardware_config(args):
 
     # Special case for time-split
     if suite == "time-split":
-        n_workers = min(n_workers, 32)  # Cap at 32 for safety
+        n_workers = min(n_workers, 22)  # Cap at 22 for safety
         max_ram_gb = mem * 0.8
     else:
         max_ram_gb = mem * 0.9

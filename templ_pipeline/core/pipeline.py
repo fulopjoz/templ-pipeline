@@ -293,7 +293,9 @@ class TEMPLPipeline:
             return True
             
         except Exception as e:
+            import traceback
             log.error(f"Failed to load target data: {e}")
+            log.error(f"Traceback: {traceback.format_exc()}")
             return False
     
     def _load_crystal_molecule(self, pdb_id: str) -> Optional[Chem.Mol]:
@@ -556,8 +558,10 @@ class TEMPLPipeline:
                 return None
 
             n_workers = getattr(self.config, 'n_workers', DEFAULT_N_WORKERS)
-            enable_optimization = getattr(self, 'enable_optimization', True)
+            enable_optimization = getattr(self, 'enable_optimization', False)
             unconstrained = getattr(self, 'unconstrained', False)
+            
+            log.info(f"Pipeline generate_conformers: enable_optimization={enable_optimization}, unconstrained={unconstrained}")
 
             # Force unconstrained embedding if ablation flag is set
             if unconstrained or mcs_smarts == "*":
@@ -659,7 +663,7 @@ class TEMPLPipeline:
                          n_workers: int = 4, similarity_threshold: float = 0.9,
                          exclude_pdb_ids: set = None, allowed_pdb_ids: set = None,
                          output_dir: str = None, no_realign: bool = False, 
-                         enable_optimization: bool = True, unconstrained: bool = False, 
+                         enable_optimization: bool = False, unconstrained: bool = False, 
                          align_metric: str = "combo") -> dict:
         """Run the full pipeline with CLI interface."""
         # Use provided output_dir or fall back to instance output_dir
@@ -753,6 +757,7 @@ class TEMPLPipeline:
             exclude_pdb_ids = getattr(self, 'exclude_pdb_ids', set())
             allowed_pdb_ids = getattr(self, 'allowed_pdb_ids', None)
             similar_template_ids = self.find_similar_templates(query_embedding, k=num_templates, exclude_pdb_ids=exclude_pdb_ids, allowed_pdb_ids=allowed_pdb_ids)
+            log.info(f"Found {len(similar_template_ids)} similar templates for {query_pdb_id}")
             if not similar_template_ids:
                 log.error("No similar templates found.")
                 return False
