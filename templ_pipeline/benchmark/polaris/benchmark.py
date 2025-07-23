@@ -502,6 +502,20 @@ def run_templ_pipeline_single(
 
 
 # -----------------------------------------------------------------------------
+# Worker function for multiprocessing (must be at module level for pickling)
+# -----------------------------------------------------------------------------
+
+def worker_wrapper_with_memory_limit(per_worker_ram_gb, *args, **kwargs):
+    """Worker wrapper that sets memory limits before calling the pipeline."""
+    try:
+        max_bytes = int(per_worker_ram_gb * 1024 ** 3)
+        resource.setrlimit(resource.RLIMIT_AS, (max_bytes, max_bytes))
+    except Exception as e:
+        logging.warning(f"Could not set memory limit: {e}")
+    return run_templ_pipeline_single(*args, **kwargs)
+
+
+# -----------------------------------------------------------------------------
 # Evaluation strategies
 # -----------------------------------------------------------------------------
 
@@ -554,14 +568,6 @@ def evaluate_with_leave_one_out(
     }
 
     # Process molecules with timeout handling and progress bar
-    def worker_wrapper(*args, **kwargs):
-        try:
-            max_bytes = int(per_worker_ram_gb * 1024 ** 3)
-            resource.setrlimit(resource.RLIMIT_AS, (max_bytes, max_bytes))
-        except Exception as e:
-            logging.warning(f"Could not set memory limit: {e}")
-        return run_templ_pipeline_single(*args, **kwargs)
-
     if PEBBLE_AVAILABLE:
         with ProcessPool(max_workers=n_workers) as pool:
             futures = []
@@ -569,8 +575,9 @@ def evaluate_with_leave_one_out(
                 mol_name = safe_name(query_mol, f"mol_{i}")
 
                 future = pool.schedule(
-                    worker_wrapper,
+                    worker_wrapper_with_memory_limit,
                     args=[
+                        per_worker_ram_gb,
                         query_mol,
                         template_pool,
                         query_mol,
@@ -656,7 +663,8 @@ def evaluate_with_leave_one_out(
                 mol_name = safe_name(query_mol, f"mol_{i}")
 
                 future = executor.submit(
-                    worker_wrapper,
+                    worker_wrapper_with_memory_limit,
+                    per_worker_ram_gb,
                     query_mol,
                     template_pool,
                     query_mol,
@@ -786,14 +794,6 @@ def evaluate_with_templates(
     }
 
     # Process molecules with timeout handling and progress bar
-    def worker_wrapper(*args, **kwargs):
-        try:
-            max_bytes = int(per_worker_ram_gb * 1024 ** 3)
-            resource.setrlimit(resource.RLIMIT_AS, (max_bytes, max_bytes))
-        except Exception as e:
-            logging.warning(f"Could not set memory limit: {e}")
-        return run_templ_pipeline_single(*args, **kwargs)
-
     if PEBBLE_AVAILABLE:
         with ProcessPool(max_workers=n_workers) as pool:
             futures = []
@@ -801,8 +801,8 @@ def evaluate_with_templates(
                 mol_name = safe_name(query_mol, f"mol_{i}")
 
                 future = pool.schedule(
-                    worker_wrapper,
-                    args=[query_mol, template_mols, query_mol, None, n_conformers, 1, save_poses, poses_output_dir, unconstrained, align_metric, enable_optimization, no_realign, allowed_pdb_ids],
+                    worker_wrapper_with_memory_limit,
+                    args=[per_worker_ram_gb, query_mol, template_mols, query_mol, None, n_conformers, 1, save_poses, poses_output_dir, unconstrained, align_metric, enable_optimization, no_realign, allowed_pdb_ids],
                     timeout=MOLECULE_TIMEOUT,
                 )
                 futures.append((future, mol_name, query_mol))
@@ -874,7 +874,8 @@ def evaluate_with_templates(
                 mol_name = safe_name(query_mol, f"mol_{i}")
 
                 future = executor.submit(
-                    worker_wrapper,
+                    worker_wrapper_with_memory_limit,
+                    per_worker_ram_gb,
                     query_mol,
                     template_mols,
                     query_mol,
