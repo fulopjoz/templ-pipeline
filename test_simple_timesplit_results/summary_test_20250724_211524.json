@@ -1,0 +1,17 @@
+{
+  "split": "test",
+  "total_targets": 0,
+  "processed": 0,
+  "successful": 0,
+  "failed": 0,
+  "success_rate": 0,
+  "results_file": "test_simple_timesplit_results/results_test_20250724_211524.jsonl",
+  "timestamp": "20250724_211524",
+  "benchmark_info": {
+    "name": "simple_timesplit_benchmark",
+    "split": "test",
+    "n_conformers": 10,
+    "n_workers": 2,
+    "timeout": 300
+  }
+}
