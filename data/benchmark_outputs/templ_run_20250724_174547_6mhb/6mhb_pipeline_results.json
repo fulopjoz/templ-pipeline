@@ -1,0 +1,59 @@
+{
+  "target_pdb": "6mhb",
+  "template_info": {
+    "best_template_pdb": "6mhb",
+    "mcs_smarts": "CCC(=O)-Nc1:n:c(-c2:c:c:c(-Cl):c:c:2):c:s:1",
+    "num_conformers_generated": 2,
+    "ca_rmsd": "0.0",
+    "similarity_score": "1.0"
+  },
+  "mcs_details": {
+    "atom_count": 17,
+    "bond_count": 18,
+    "similarity_score": 0.6,
+    "query_atoms": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16
+    ],
+    "template_atoms": [
+      6,
+      0,
+      5,
+      4,
+      7,
+      1,
+      9,
+      2,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      3,
+      8
+    ],
+    "smarts": "CCC(=O)-Nc1:n:c(-c2:c:c:c(-Cl):c:c:2):c:s:1"
+  },
+  "num_conformers": 2,
+  "top_poses_file": "/home/ubuntu/mcs/templ_pipeline/data/benchmark_outputs/templ_run_20250724_174547_6mhb/6mhb_top3_poses.sdf",
+  "all_poses_file": "/home/ubuntu/mcs/templ_pipeline/data/benchmark_outputs/templ_run_20250724_174547_6mhb/6mhb_all_poses.sdf",
+  "template_file": "/home/ubuntu/mcs/templ_pipeline/data/benchmark_outputs/templ_run_20250724_174547_6mhb/6mhb_template.sdf",
+  "timestamp": "2025-07-24 17:45:52.277262"
+}

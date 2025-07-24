@@ -13,17 +13,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from templ_pipeline.core.pipeline import TEMPLPipeline
-from templ_pipeline.core.utils import (
-    load_molecules_with_shared_cache,
-    load_sdf_molecules_cached,
-    find_ligand_by_pdb_id,
-    calculate_rmsd,
-    get_protein_file_paths,
-    find_ligand_file_paths,
-    get_worker_config,
-    get_global_molecule_cache,
-)
+
+# Lazy imports to speed up module loading
+# from templ_pipeline.core.pipeline import TEMPLPipeline  # Moved to lazy import
+# from templ_pipeline.core.utils import (...)  # Moved to lazy import
 
 # Memory monitoring
 try:
@@ -95,6 +88,8 @@ class LazyMoleculeLoader:
             
         # Find ligand files using existing utilities
         try:
+            # Lazy import to avoid slow import at module level
+            from templ_pipeline.core.utils import find_ligand_file_paths
             ligand_file_paths = find_ligand_file_paths(self.data_dir)
             for ligand_path in ligand_file_paths:
                 if ligand_path.exists():
@@ -108,6 +103,8 @@ class LazyMoleculeLoader:
     def _index_sdf_file(self, sdf_path: Path):
         """Load molecules from SDF file."""
         try:
+            # Lazy import to avoid slow import at module level
+            from templ_pipeline.core.utils import load_sdf_molecules_cached
             # Load molecules as list using existing utility with adequate memory limit
             self._molecules_list = load_sdf_molecules_cached(sdf_path, cache=None, memory_limit_gb=6.0)
             self.log.info(f"Loaded {len(self._molecules_list)} molecules from {sdf_path.name}")
@@ -120,6 +117,8 @@ class LazyMoleculeLoader:
         try:
             self._build_molecule_index()
             if hasattr(self, '_molecules_list') and self._molecules_list:
+                # Lazy import to avoid slow import at module level
+                from templ_pipeline.core.utils import find_ligand_by_pdb_id
                 # Use the existing utility function that works correctly
                 return find_ligand_by_pdb_id(pdb_id, self._molecules_list)
             else:
@@ -275,6 +274,9 @@ class BenchmarkRunner:
             )
             self.log.debug(f"Memory status: {memory_status['memory_gb']:.1f}GB")
 
+            # Lazy import to avoid slow import at module level
+            from templ_pipeline.core.pipeline import TEMPLPipeline
+            
             if embedding_path.exists():
                 self.pipeline = TEMPLPipeline(
                     embedding_path=str(embedding_path), 
@@ -320,6 +322,8 @@ class BenchmarkRunner:
         self, pose_mol: "Chem.Mol", crystal_mol: "Chem.Mol"
     ) -> float:
         """Calculate RMSD between pose and crystal ligand using shared utility."""
+        # Lazy import to avoid slow import at module level
+        from templ_pipeline.core.utils import calculate_rmsd
         return calculate_rmsd(pose_mol, crystal_mol)
 
     def run_single_target(self, params: BenchmarkParams) -> BenchmarkResult:
@@ -744,6 +748,8 @@ class BenchmarkRunner:
 
     def _get_protein_file(self, pdb_id: str) -> str:
         """Get protein file path for PDB ID using shared utilities."""
+        # Lazy import to avoid slow import at module level
+        from templ_pipeline.core.utils import get_protein_file_paths
         search_paths = get_protein_file_paths(pdb_id, self.data_dir)
 
         for protein_file in search_paths:
@@ -911,6 +917,19 @@ def run_templ_pipeline_for_benchmark(
     allowed_pdb_ids: Set[str] = None,  # NEW: restrict template search to these PDB IDs
 ) -> Dict:
     """Main entry point for benchmark pipeline execution."""
+    
+    # Lazy imports to speed up module loading
+    from templ_pipeline.core.pipeline import TEMPLPipeline
+    from templ_pipeline.core.utils import (
+        load_molecules_with_shared_cache,
+        load_sdf_molecules_cached,
+        find_ligand_by_pdb_id,
+        calculate_rmsd,
+        get_protein_file_paths,
+        find_ligand_file_paths,
+        get_worker_config,
+        get_global_molecule_cache,
+    )
 
     if data_dir is None:
         # Default to templ_pipeline/data

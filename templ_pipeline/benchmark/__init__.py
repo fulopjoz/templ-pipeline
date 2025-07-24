@@ -10,7 +10,12 @@ from .runner import (
     BenchmarkParams,
     BenchmarkResult,
 )
-from .timesplit import run_timesplit_benchmark
+
+# Lazy import for timesplit to avoid dependency contamination
+def run_timesplit_benchmark(*args, **kwargs):
+    """Lazy import wrapper for timesplit benchmark to avoid dependency issues."""
+    from .timesplit import run_timesplit_benchmark as _run_timesplit
+    return _run_timesplit(*args, **kwargs)
 
 __all__ = [
     "run_templ_pipeline_for_benchmark",
