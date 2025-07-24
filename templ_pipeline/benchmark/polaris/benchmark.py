@@ -42,7 +42,6 @@ from templ_pipeline.core.mcs import find_mcs, constrained_embed, safe_name
 from templ_pipeline.core.scoring import select_best
 
 # Unified pipeline infrastructure (preferred approach)
-from templ_pipeline.benchmark.runner import run_templ_pipeline_for_benchmark
 from templ_pipeline.core.pipeline import TEMPLPipeline
 import tempfile
 import os

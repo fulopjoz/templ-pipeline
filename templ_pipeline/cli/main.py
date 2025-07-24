@@ -403,6 +403,18 @@ def setup_parser():
         default="combo",
         help="Shape alignment metric for pose scoring (default: combo)",
     )
+    run_parser.add_argument(
+        "--allowed-pdb-ids",
+        type=str,
+        default=None,
+        help="Comma-separated list of PDB IDs to allow as templates (for dataset filtering)",
+    )
+    run_parser.add_argument(
+        "--exclude-pdb-ids", 
+        type=str,
+        default=None,
+        help="Comma-separated list of PDB IDs to exclude as templates (for leave-one-out)",
+    )
 
     # Benchmark command ---------------------------------------------------
     benchmark_parser = subparsers.add_parser(
@@ -874,6 +886,15 @@ def run_command(args):
             run_id=getattr(args, "run_id", None),
         )
 
+        # Parse PDB ID lists
+        allowed_pdb_ids = None
+        if hasattr(args, 'allowed_pdb_ids') and args.allowed_pdb_ids:
+            allowed_pdb_ids = set(pdb_id.strip().upper() for pdb_id in args.allowed_pdb_ids.split(',') if pdb_id.strip())
+            
+        exclude_pdb_ids = None
+        if hasattr(args, 'exclude_pdb_ids') and args.exclude_pdb_ids:
+            exclude_pdb_ids = set(pdb_id.strip().upper() for pdb_id in args.exclude_pdb_ids.split(',') if pdb_id.strip())
+
         # Run pipeline with progress indication
         def run_pipeline():
             return pipeline.run_full_pipeline(
@@ -889,6 +910,8 @@ def run_command(args):
                 enable_optimization=getattr(args, "enable_optimization", False),
                 unconstrained=getattr(args, "unconstrained", False),
                 align_metric=getattr(args, "align_metric", "combo"),
+                allowed_pdb_ids=allowed_pdb_ids,
+                exclude_pdb_ids=exclude_pdb_ids,
             )
 
         results = simple_progress_wrapper("Running TEMPL pipeline", run_pipeline)
@@ -1298,7 +1321,7 @@ def benchmark_command(args):
                     data_dir=data_dir,
                     results_dir=str(timesplit_results_dir),
                     poses_output_dir=poses_dir,
-                    timeout=getattr(args, "timeout", 180),
+                    timeout=getattr(args, "pipeline_timeout", 300),
                     quiet=False,  # Let progress bars show
                     unconstrained=getattr(args, "unconstrained", False),
                     align_metric=getattr(args, "align_metric", "combo"),
