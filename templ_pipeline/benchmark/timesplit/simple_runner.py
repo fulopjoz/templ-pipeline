@@ -170,6 +170,51 @@ class SimpleTimeSplitRunner:
         
         return allowed_templates
 
+    def validate_cli_command(self, cmd: List[str]) -> bool:
+        """
+        Validate CLI command structure before execution.
+        
+        Args:
+            cmd: Command list to validate
+            
+        Returns:
+            True if command structure is valid
+        """
+        try:
+            # Check basic structure: ["templ", "--output-dir", "path", "run", ...]
+            if len(cmd) < 4:
+                logger.error(f"Command too short: {cmd}")
+                return False
+                
+            if cmd[0] != "templ":
+                logger.error(f"Command should start with 'templ', got: {cmd[0]}")
+                return False
+                
+            # Find the subcommand position
+            subcommand_pos = None
+            for i, arg in enumerate(cmd):
+                if arg in ["run", "embed", "find-templates", "generate-poses", "benchmark"]:
+                    subcommand_pos = i
+                    break
+                    
+            if subcommand_pos is None:
+                logger.error(f"No valid subcommand found in: {cmd}")
+                return False
+                
+            # Validate that global parameters (like --output-dir) come before subcommand
+            global_params = ["--output-dir", "--log-level", "--verbosity", "--seed"]
+            for i in range(1, subcommand_pos):
+                arg = cmd[i]
+                if arg.startswith("--") and arg not in global_params:
+                    logger.warning(f"Parameter {arg} might be a subcommand parameter placed before subcommand")
+                    
+            logger.debug(f"CLI command validation passed: {' '.join(cmd[:6])}...")
+            return True
+            
+        except Exception as e:
+            logger.error(f"CLI command validation failed: {e}")
+            return False
+
     def run_single_target_subprocess(self, 
                                    target_pdb: str,
                                    allowed_templates: Set[str],
@@ -198,18 +243,30 @@ class SimpleTimeSplitRunner:
                     "target_pdb": target_pdb,
                     "error": f"Could not load ligand SMILES for {target_pdb}",
                     "runtime_total": time.time() - start_time,
+                    "rmsd_values": {},  # Empty RMSD values for SMILES loading error
                 }
             
-            # Build CLI command
+            # Build CLI command - --output-dir must come before subcommand
             cmd = [
-                "templ", "run",
+                "templ", 
+                "--output-dir", str(self.results_dir / "poses" / target_pdb.lower()),
+                "run",
                 "--protein-pdb-id", target_pdb,
                 "--ligand-smiles", ligand_smiles,
                 "--num-conformers", str(n_conformers),
                 "--allowed-pdb-ids", ",".join(sorted(allowed_templates)),
                 "--exclude-pdb-ids", target_pdb.upper(),  # Ensure target is excluded
-                "--output-dir", str(self.results_dir / "poses" / target_pdb.lower()),
             ]
+            
+            # Validate CLI command structure
+            if not self.validate_cli_command(cmd):
+                return {
+                    "success": False,
+                    "target_pdb": target_pdb,
+                    "error": f"CLI command validation failed for {target_pdb}",
+                    "runtime_total": time.time() - start_time,
+                    "rmsd_values": {},  # Empty RMSD values for validation error
+                }
             
             logger.info(f"Running: {' '.join(cmd[:6])} ... (with {len(allowed_templates)} allowed templates)")
             
@@ -225,12 +282,26 @@ class SimpleTimeSplitRunner:
             runtime_total = time.time() - start_time
             
             if result.returncode == 0:
+                # Parse JSON output from CLI stdout for RMSD data
+                rmsd_values = {}
+                try:
+                    # Look for the JSON result line in stdout
+                    for line in result.stdout.split('\n'):
+                        if line.startswith("TEMPL_JSON_RESULT:"):
+                            json_str = line[len("TEMPL_JSON_RESULT:"):]
+                            json_data = json.loads(json_str)
+                            rmsd_values = json_data.get("rmsd_values", {})
+                            break
+                except Exception as e:
+                    logger.debug(f"Failed to parse JSON output for {target_pdb}: {e}")
+                
                 return {
                     "success": True,
                     "target_pdb": target_pdb,
                     "allowed_templates_count": len(allowed_templates),
                     "runtime_total": runtime_total,
                     "stdout": result.stdout,
+                    "rmsd_values": rmsd_values,  # Add RMSD data for summary generation
                 }
             else:
                 return {
@@ -239,6 +310,7 @@ class SimpleTimeSplitRunner:
                     "error": f"CLI returned {result.returncode}",
                     "stderr": result.stderr,
                     "runtime_total": runtime_total,
+                    "rmsd_values": {},  # Empty RMSD values for failed runs
                 }
                 
         except subprocess.TimeoutExpired:
@@ -247,6 +319,7 @@ class SimpleTimeSplitRunner:
                 "target_pdb": target_pdb,
                 "error": f"Timeout after {timeout}s",
                 "runtime_total": time.time() - start_time,
+                "rmsd_values": {},  # Empty RMSD values for timeout
             }
         except Exception as e:
             return {
@@ -254,6 +327,7 @@ class SimpleTimeSplitRunner:
                 "target_pdb": target_pdb,
                 "error": str(e),
                 "runtime_total": time.time() - start_time,
+                "rmsd_values": {},  # Empty RMSD values for exceptions
             }
 
     def run_split_benchmark(self,

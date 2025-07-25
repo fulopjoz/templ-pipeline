@@ -23,7 +23,7 @@ COPY requirements.txt pyproject.toml ./
 # Create optimized conda environment for scientific computing
 RUN conda create -n templ python=3.11 -y && \
     conda install -n templ -c conda-forge \
-    rdkit pandas numpy scipy scikit-learn biopython streamlit -y && \
+    rdkit=2024.09.6 pandas numpy scipy scikit-learn biopython streamlit -y && \
     /opt/conda/envs/templ/bin/pip install --no-cache-dir \
     biotite spyrmsd tabulate zenodo-get rich tqdm colorama pebble psutil && \
     conda clean -afy

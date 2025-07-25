@@ -83,7 +83,9 @@ def _lazy_import_rdkit():
         from rdkit import Chem, RDLogger
         from rdkit.Chem import AllChem
 
+        # Suppress all RDKit warnings including SCD/SED warnings
         RDLogger.DisableLog("rdApp.*")
+        RDLogger.DisableLog("rdkit.*")
         return Chem, AllChem
     except ImportError as e:
         logger.error(f"RDKit not available: {e}")
@@ -916,7 +918,62 @@ def run_command(args):
 
         results = simple_progress_wrapper("Running TEMPL pipeline", run_pipeline)
 
-        # Report results
+        # Calculate RMSD values for each best pose if pipeline succeeded
+        rmsd_values = {}
+        if results.get("success") and results.get("poses"):
+            try:
+                # Try to get crystal structure for RMSD calculation
+                crystal_mol = getattr(pipeline, 'crystal_mol', None)
+                if crystal_mol is not None:
+                    from templ_pipeline.core.scoring import rmsd_raw
+                    from rdkit import Chem
+                    
+                    crystal_noH = Chem.RemoveHs(crystal_mol)
+                    
+                    # Calculate RMSD for each metric's best pose
+                    for metric, (pose, scores) in results["poses"].items():
+                        if pose is not None:
+                            try:
+                                pose_noH = Chem.RemoveHs(pose)
+                                rmsd = rmsd_raw(pose_noH, crystal_noH)
+                                rmsd_values[metric] = {
+                                    "rmsd": float(rmsd) if not np.isnan(rmsd) else None,
+                                    "score": float(scores.get(metric, 0.0))
+                                }
+                            except Exception as e:
+                                logger.debug(f"RMSD calculation failed for {metric}: {e}")
+                                rmsd_values[metric] = {
+                                    "rmsd": None,
+                                    "score": float(scores.get(metric, 0.0))
+                                }
+                else:
+                    # No crystal structure available - just include scores
+                    for metric, (pose, scores) in results["poses"].items():
+                        if pose is not None:
+                            rmsd_values[metric] = {
+                                "rmsd": None,
+                                "score": float(scores.get(metric, 0.0))
+                            }
+            except Exception as e:
+                logger.debug(f"RMSD calculation setup failed: {e}")
+
+        # Output structured JSON for subprocess parsing
+        json_output = {
+            "success": results.get("success", False),  
+            "templates_count": len(results.get('templates', [])),
+            "poses_count": len(results.get('poses', {})),
+            "output_file": results.get('output_file', 'unknown'),
+            "rmsd_values": rmsd_values
+        }
+        
+        # Import json and numpy for output
+        import json
+        import numpy as np
+        
+        # Output JSON on a single line for easy parsing
+        print("TEMPL_JSON_RESULT:" + json.dumps(json_output, default=lambda x: float(x) if isinstance(x, np.floating) else x))
+        
+        # Also output human-readable summary for backwards compatibility
         print(f"Pipeline completed successfully!")
         print(f"Found {len(results.get('templates', []))} templates")
         print(f"Generated {len(results.get('poses', {}))} poses")
