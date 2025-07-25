@@ -224,10 +224,10 @@ def has_rhenium_complex(mol: Chem.Mol, pdb_id: str = "") -> Tuple[bool, str]:
     return False, ""
 
 
-def is_large_peptide(mol: Chem.Mol, residue_threshold: int = 8) -> Tuple[bool, str]:
+def is_large_peptide(mol: Chem.Mol, residue_threshold: int = 12) -> Tuple[bool, str]:
     """
-    Check if molecule is a large peptide (>8 amino acid residues).
-    
+    Check if molecule is a large peptide (>12 amino acid residues).
+
     This function follows the exact implementation from true_mcs.py to ensure
     consistent peptide detection across the pipeline.
     
@@ -283,7 +283,7 @@ def validate_target_molecule(
     mol: Chem.Mol,
     mol_name: str = "unknown",
     pdb_id: str = "",
-    peptide_threshold: int = 8,
+    peptide_threshold: int = 12,
 ) -> Tuple[bool, str]:
     """
     Validate if a target molecule can be processed by the pipeline.

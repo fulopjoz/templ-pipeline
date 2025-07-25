@@ -316,7 +316,7 @@ def find_mcs(tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False) 
     opts = rdRascalMCES.RascalOptions()
     opts.singleLargestFrag = True
     opts.similarityThreshold = 0.9  # Start at high threshold
-    opts.ignoreAtomAromaticity = False # added to try to fix OOM errors
+    # opts.ignoreAtomAromaticity = False # added to try to fix OOM errors
 
     # Continuous threshold reduction with 0.1 steps
     while opts.similarityThreshold >= 0.0:
@@ -387,105 +387,105 @@ def find_mcs(tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False) 
     return best_template_idx, "*"
 
 
-def _find_mcs_with_fmcs(tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False) -> Union[Tuple[int, str], Tuple[int, str, Dict]]:
-    """Memory-efficient MCS finding using rdFMCS with timeout.
+# def _find_mcs_with_fmcs(tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False) -> Union[Tuple[int, str], Tuple[int, str, Dict]]:
+#     """Memory-efficient MCS finding using rdFMCS with timeout.
     
-    Args:
-        tgt: Target molecule
-        refs: Reference molecules
-        return_details: If True, return detailed MCS information
+#     Args:
+#         tgt: Target molecule
+#         refs: Reference molecules
+#         return_details: If True, return detailed MCS information
         
-    Returns:
-        If return_details=False: (best_template_index, smarts)
-        If return_details=True: (best_template_index, smarts, mcs_details_dict)
-    """
-    from rdkit.Chem import rdFMCS
+#     Returns:
+#         If return_details=False: (best_template_index, smarts)
+#         If return_details=True: (best_template_index, smarts, mcs_details_dict)
+#     """
+#     from rdkit.Chem import rdFMCS
     
-    min_acceptable_size = 5
-    threshold = 0.9
-    timeout = 10  # seconds
+#     min_acceptable_size = 5
+#     threshold = 0.9
+#     timeout = 10  # seconds
     
-    while threshold > 0.0:
-        hits = []
-        for i, r in enumerate(refs):
-            try:
-                # Use rdFMCS with timeout for memory safety
-                result = rdFMCS.FindMCS(
-                    [tgt, r],
-                    threshold=threshold,
-                    timeout=timeout,
-                    atomCompare=rdFMCS.AtomCompare.CompareElements,
-                    bondCompare=rdFMCS.BondCompare.CompareOrder,
-                    completeRingsOnly=True
-                )
+#     while threshold > 0.0:
+#         hits = []
+#         for i, r in enumerate(refs):
+#             try:
+#                 # Use rdFMCS with timeout for memory safety
+#                 result = rdFMCS.FindMCS(
+#                     [tgt, r],
+#                     threshold=threshold,
+#                     timeout=timeout,
+#                     atomCompare=rdFMCS.AtomCompare.CompareElements,
+#                     bondCompare=rdFMCS.BondCompare.CompareOrder,
+#                     completeRingsOnly=True
+#                 )
                 
-                if result.smartsString and not result.canceled:
-                    atom_count = result.numAtoms
-                    bond_count = result.numBonds
-                    smarts = result.smartsString
+#                 if result.smartsString and not result.canceled:
+#                     atom_count = result.numAtoms
+#                     bond_count = result.numBonds
+#                     smarts = result.smartsString
                     
-                    # Store details if requested
-                    if return_details:
-                        # Get atom matches for detailed info
-                        pattern = Chem.MolFromSmarts(smarts)
-                        if pattern:
-                            tgt_matches = tgt.GetSubstructMatch(pattern)
-                            ref_matches = r.GetSubstructMatch(pattern)
+#                     # Store details if requested
+#                     if return_details:
+#                         # Get atom matches for detailed info
+#                         pattern = Chem.MolFromSmarts(smarts)
+#                         if pattern:
+#                             tgt_matches = tgt.GetSubstructMatch(pattern)
+#                             ref_matches = r.GetSubstructMatch(pattern)
                             
-                            mcs_info = {
-                                "atom_count": atom_count,
-                                "bond_count": bond_count,
-                                "similarity_score": threshold,
-                                "query_atoms": list(tgt_matches),
-                                "template_atoms": list(ref_matches),
-                                "smarts": smarts
-                            }
-                            hits.append((atom_count, i, smarts, mcs_info))
-                        else:
-                            hits.append((atom_count, i, smarts))
-                    else:
-                        hits.append((atom_count, i, smarts))
+#                             mcs_info = {
+#                                 "atom_count": atom_count,
+#                                 "bond_count": bond_count,
+#                                 "similarity_score": threshold,
+#                                 "query_atoms": list(tgt_matches),
+#                                 "template_atoms": list(ref_matches),
+#                                 "smarts": smarts
+#                             }
+#                             hits.append((atom_count, i, smarts, mcs_info))
+#                         else:
+#                             hits.append((atom_count, i, smarts))
+#                     else:
+#                         hits.append((atom_count, i, smarts))
                         
-            except (MemoryError, RuntimeError) as e:
-                log.warning(f"rdFMCS failed for template {i}: {e}")
-                continue
+#             except (MemoryError, RuntimeError) as e:
+#                 log.warning(f"rdFMCS failed for template {i}: {e}")
+#                 continue
         
-        if hits:
-            # Get best match by size
-            if return_details:
-                best_size, idx, smarts, details = max(hits)
-            else:
-                best_size, idx, smarts = max(hits)
+#         if hits:
+#             # Get best match by size
+#             if return_details:
+#                 best_size, idx, smarts, details = max(hits)
+#             else:
+#                 best_size, idx, smarts = max(hits)
             
-            # Accept matches based on size and threshold
-            if best_size >= min_acceptable_size or threshold <= 0.3:
-                log.info(f"rdFMCS found: size={best_size}, threshold={threshold:.2f}")
-                if return_details:
-                    return idx, smarts, details
-                return idx, smarts
-            else:
-                log.warning(f"Rejecting small rdFMCS (size={best_size}) at threshold {threshold:.2f}")
+#             # Accept matches based on size and threshold
+#             if best_size >= min_acceptable_size or threshold <= 0.3:
+#                 log.info(f"rdFMCS found: size={best_size}, threshold={threshold:.2f}")
+#                 if return_details:
+#                     return idx, smarts, details
+#                 return idx, smarts
+#             else:
+#                 log.warning(f"Rejecting small rdFMCS (size={best_size}) at threshold {threshold:.2f}")
         
-        # Reduce threshold and continue
-        log.warning(f"No rdFMCS at threshold {threshold:.2f}, reducing…")
-        threshold -= 0.1
+#         # Reduce threshold and continue
+#         log.warning(f"No rdFMCS at threshold {threshold:.2f}, reducing…")
+#         threshold -= 0.1
     
-    # Final fallback to central atom
-    log.warning("rdFMCS search failed - using central atom fallback with best CA RMSD template")
-    best_template_idx = find_best_ca_rmsd_template(refs)
+#     # Final fallback to central atom
+#     log.warning("rdFMCS search failed - using central atom fallback with best CA RMSD template")
+#     best_template_idx = find_best_ca_rmsd_template(refs)
     
-    if return_details:
-        central_details = {
-            "atom_count": 1,
-            "bond_count": 0,
-            "similarity_score": 0.0,
-            "query_atoms": [get_central_atom(tgt)],
-            "template_atoms": [get_central_atom(refs[best_template_idx])],
-            "smarts": "*",
-            "central_atom_fallback": True
-        }
-        return best_template_idx, "*", central_details
-    return best_template_idx, "*"
+#     if return_details:
+#         central_details = {
+#             "atom_count": 1,
+#             "bond_count": 0,
+#             "similarity_score": 0.0,
+#             "query_atoms": [get_central_atom(tgt)],
+#             "template_atoms": [get_central_atom(refs[best_template_idx])],
+#             "smarts": "*",
+#             "central_atom_fallback": True
+#         }
+#         return best_template_idx, "*", central_details
+#     return best_template_idx, "*"
 
 
 #  Conformer Generation Functions 

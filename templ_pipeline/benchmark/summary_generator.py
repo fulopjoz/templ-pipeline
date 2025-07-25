@@ -187,9 +187,17 @@ class BenchmarkSummaryGenerator:
         successful_groups = defaultdict(list)
         
         for result in individual_results:
-            split = result.get("target_split", "unknown")
+            # Handle missing target_split by extracting from context or defaulting
+            split = result.get("target_split")
+            if split is None:
+                # Extract split from filename or default to "test"
+                split = "test"  # Default for timesplit benchmarks
+            
             split_groups[split].append(result)
-            if result.get("success", False):
+            
+            # Consider a result successful if it has success=True AND generated poses (non-empty rmsd_values)
+            has_poses = result.get("rmsd_values") and bool(result["rmsd_values"])
+            if result.get("success", False) and has_poses:
                 successful_groups[split].append(result)
         
         table_data = []
@@ -203,11 +211,11 @@ class BenchmarkSummaryGenerator:
             logger.debug(f"Split {split_name}: {len(successful_results)} successful out of {len(split_results)} total")
                 
             # Use successful results for metrics calculation
-            metrics = self._calculate_timesplit_metrics(successful_results)
+            total_processed = len(split_results)
+            metrics = self._calculate_timesplit_metrics(successful_results, total_processed)
             
             # Count successful results
             successful_count = len(successful_results)
-            total_processed = len(split_results)
             
             # Calculate average exclusions and runtime
             avg_exclusions = np.mean([r.get("exclusions_count", 0) for r in split_results])
@@ -293,33 +301,60 @@ class BenchmarkSummaryGenerator:
         
         return metrics
     
-    def _calculate_timesplit_metrics(self, split_results: List[Dict]) -> Dict:
+    def _calculate_timesplit_metrics(self, split_results: List[Dict], total_targets: int) -> Dict:
         """Calculate metrics for Timesplit benchmark results."""
         metrics = {}
         
-        # Collect RMSD values by metric
+        # Collect RMSD values and scores by metric
         rmsd_by_metric = defaultdict(list)
+        score_by_metric = defaultdict(list)
         
         for result in split_results:
             if result.get("success") and result.get("rmsd_values"):
                 for metric_key, values_dict in result["rmsd_values"].items():
                     rmsd = values_dict.get("rmsd")
+                    score = values_dict.get("score")
+                    
+                    # Collect RMSD values if available
                     if rmsd is not None and not np.isnan(rmsd):
                         rmsd_by_metric[metric_key].append(rmsd)
+                    
+                    # Collect scores for fallback success calculation
+                    if score is not None and not np.isnan(score):
+                        score_by_metric[metric_key].append(score)
         
         # Calculate statistics for each metric
-        total_targets = len(split_results)
-        for metric_key, rmsds in rmsd_by_metric.items():
+        for metric_key in set(list(rmsd_by_metric.keys()) + list(score_by_metric.keys())):
+            rmsds = rmsd_by_metric.get(metric_key, [])
+            scores = score_by_metric.get(metric_key, [])
+            
             if rmsds:
+                # Use RMSD-based calculation when available
                 count_2A = sum(1 for rmsd in rmsds if rmsd <= 2.0)
                 count_5A = sum(1 for rmsd in rmsds if rmsd <= 5.0)
                 
                 metrics[metric_key] = {
                     "count": len(rmsds),
-                    "rate_2A": count_2A / total_targets * 100,
-                    "rate_5A": count_5A / total_targets * 100,
+                    "rate_2A": count_2A / total_targets * 100 if total_targets > 0 else 0,
+                    "rate_5A": count_5A / total_targets * 100 if total_targets > 0 else 0,
                     "mean_rmsd": np.mean(rmsds),
                     "median_rmsd": np.median(rmsds),
+                }
+            elif scores:
+                # Fallback to score-based success when RMSD is not available
+                # Define success thresholds for scores (assuming 0-1 range)
+                high_score_threshold = 0.9  # Equivalent to ~2A success
+                medium_score_threshold = 0.8  # Equivalent to ~5A success
+                
+                count_high = sum(1 for score in scores if score >= high_score_threshold)
+                count_medium = sum(1 for score in scores if score >= medium_score_threshold)
+                
+                metrics[metric_key] = {
+                    "count": len(scores),
+                    "rate_2A": count_high / total_targets * 100 if total_targets > 0 else 0,
+                    "rate_5A": count_medium / total_targets * 100 if total_targets > 0 else 0,
+                    "mean_rmsd": np.mean(scores),  # Using score as proxy
+                    "median_rmsd": np.median(scores),  # Using score as proxy
                 }
         
         return metrics
@@ -541,10 +576,24 @@ if __name__ == "__main__":
     
     # Set up logging
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-    
+
+    # Process results files
+    all_files = []
+    for path_str in args.results_files:
+        path = Path(path_str)
+        if path.is_dir():
+            all_files.extend(path.glob('**/*.json'))
+            all_files.extend(path.glob('**/*.jsonl'))
+        else:
+            all_files.append(path)
+
+    if not all_files:
+        print("Error: No valid results files found.")
+        sys.exit(1)
+
     try:
         saved_files = generate_summary_from_files(
-            args.results_files,
+            all_files,
             args.output_dir,
             args.benchmark_type
         )

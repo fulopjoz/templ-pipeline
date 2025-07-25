@@ -898,14 +898,19 @@ def find_ligand_by_pdb_id(
     return None, None
 
 
-def calculate_rmsd(pose_mol: Any, crystal_mol: Any) -> float:
-    """Calculate RMSD after aligning *pose_mol* onto *crystal_mol* with RDKit ShapeAlign.
+def calculate_rmsd(pose_mol: Any, crystal_mol: Any, skip_alignment: bool = False) -> float:
+    """Calculate RMSD with optional alignment step.
 
     Steps:
     1. Heavy-atom copies are generated and guaranteed to have at least one conformer.
-    2. If `rdShapeAlign` is available the pose is aligned onto the crystal (combo alignment).
+    2. If `skip_alignment` is False and `rdShapeAlign` is available, the pose is aligned onto the crystal (combo alignment).
     3. RMSD is computed with ``spyrmsd`` (no further minimisation / symmetry correction handled internally).
     4. If any stage fails we fall back to a direct sPyRMSD calculation without alignment.
+    
+    Args:
+        pose_mol: Predicted pose molecule
+        crystal_mol: Crystal structure molecule  
+        skip_alignment: If True, skip alignment step for pose prediction benchmarking
     """
 
     # Verify dependencies
@@ -930,8 +935,8 @@ def calculate_rmsd(pose_mol: Any, crystal_mol: Any) -> float:
         _ensure_conformer(pose)
         _ensure_conformer(ref)
 
-        # Attempt alignment (silently skip if rdShapeAlign missing)
-        if rdShapeAlign is not None:
+        # Attempt alignment (skip for pose prediction benchmarking)
+        if not skip_alignment and rdShapeAlign is not None:
             try:
                 rdShapeAlign.AlignMol(
                     ref, pose, refConfId=0, probeConfId=0, useColors=True

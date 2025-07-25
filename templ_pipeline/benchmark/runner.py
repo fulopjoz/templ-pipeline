@@ -140,7 +140,7 @@ class BenchmarkParams:
     template_knn: int = 100
     similarity_threshold: Optional[float] = None
     internal_workers: int = 1
-    timeout: int = 1800
+    timeout: int = 300
     unconstrained: bool = False
     align_metric: str = "combo"
     enable_optimization: bool = False
@@ -324,7 +324,8 @@ class BenchmarkRunner:
         """Calculate RMSD between pose and crystal ligand using shared utility."""
         # Lazy import to avoid slow import at module level
         from templ_pipeline.core.utils import calculate_rmsd
-        return calculate_rmsd(pose_mol, crystal_mol)
+        # Skip alignment for pose prediction benchmarking - measure original prediction accuracy
+        return calculate_rmsd(pose_mol, crystal_mol, skip_alignment=True)
 
     def run_single_target(self, params: BenchmarkParams) -> BenchmarkResult:
         """Run TEMPL pipeline for single target with memory monitoring."""
@@ -905,7 +906,7 @@ def run_templ_pipeline_for_benchmark(
     template_knn: int = 100,
     similarity_threshold: Optional[float] = None,
     internal_workers: int = 1,
-    timeout: int = 1800,
+    timeout: int = 300,
     data_dir: str = None,
     poses_output_dir: str = None,
     shared_cache_file: str = None,
