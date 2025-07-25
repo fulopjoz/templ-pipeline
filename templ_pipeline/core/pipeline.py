@@ -429,7 +429,7 @@ class TEMPLPipeline:
             log.error(f"Failed to get protein embedding for {pdb_id}: {e}", exc_info=True)
             return None, None
 
-    def find_similar_templates(self, query_embedding: np.ndarray, k: int = 100, exclude_pdb_ids: set = None, allowed_pdb_ids: set = None) -> List[str]:
+    def find_similar_templates(self, query_pdb_id: str, query_embedding: np.ndarray, k: int = 100, exclude_pdb_ids: set = None, allowed_pdb_ids: set = None) -> List[str]:
         """Find similar templates using embedding similarity."""
         try:
             if self.embedding_manager is None:
@@ -438,7 +438,7 @@ class TEMPLPipeline:
                 
             # Find nearest neighbors
             neighbors = self.embedding_manager.find_neighbors(
-                query_pdb_id="query",
+                query_pdb_id=query_pdb_id,
                 query_embedding=query_embedding,
                 k=k,
                 exclude_pdb_ids=exclude_pdb_ids,
@@ -756,7 +756,7 @@ class TEMPLPipeline:
             num_templates = getattr(self.config, 'num_templates', 100)
             exclude_pdb_ids = getattr(self, 'exclude_pdb_ids', set())
             allowed_pdb_ids = getattr(self, 'allowed_pdb_ids', None)
-            similar_template_ids = self.find_similar_templates(query_embedding, k=num_templates, exclude_pdb_ids=exclude_pdb_ids, allowed_pdb_ids=allowed_pdb_ids)
+            similar_template_ids = self.find_similar_templates(query_pdb_id, query_embedding, k=num_templates, exclude_pdb_ids=exclude_pdb_ids, allowed_pdb_ids=allowed_pdb_ids)
             log.info(f"Found {len(similar_template_ids)} similar templates for {query_pdb_id}")
             if not similar_template_ids:
                 log.error("No similar templates found.")
@@ -767,8 +767,12 @@ class TEMPLPipeline:
                 # Check if target exists in embedding database
                 target_embedding, _ = self.get_protein_embedding(query_pdb_id)
                 if target_embedding is not None:
-                    similar_template_ids.insert(0, query_pdb_id)
-                    log.info(f"Added target {query_pdb_id} to template list as it exists in database")
+                    # Ensure target is in allowed_pdb_ids if provided
+                    if allowed_pdb_ids is None or query_pdb_id.upper() in allowed_pdb_ids:
+                        similar_template_ids.insert(0, query_pdb_id)
+                        log.info(f"Added target {query_pdb_id} to template list as it exists in database")
+                    else:
+                        log.warning(f"Target {query_pdb_id} exists in database but not in allowed_pdb_ids, skipping")
             
             log.info(f"Found {len(similar_template_ids)} similar templates.")
 
