@@ -212,3 +212,5 @@ docs/templ.md
 true_mcs.py
 
 ~/
+
+*.ipynb

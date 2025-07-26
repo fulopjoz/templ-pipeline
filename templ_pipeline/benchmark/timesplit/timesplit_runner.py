@@ -27,33 +27,6 @@ from templ_pipeline.core.hardware import get_suggested_worker_config
 # Import unified benchmark runner
 from templ_pipeline.benchmark.runner import run_templ_pipeline_for_benchmark
 
-# Optional imports for advanced features (may not be available)
-try:
-    from templ_pipeline.benchmark.supervised_executor import SupervisedProcessPoolExecutor
-    SUPERVISED_EXECUTOR_AVAILABLE = True
-except ImportError:
-    SUPERVISED_EXECUTOR_AVAILABLE = False
-    SupervisedProcessPoolExecutor = None
-
-try:
-    from templ_pipeline.benchmark.memory_diagnostics import MemoryDiagnosticsEngine
-    MEMORY_DIAGNOSTICS_AVAILABLE = True
-except ImportError:
-    MEMORY_DIAGNOSTICS_AVAILABLE = False
-    MemoryDiagnosticsEngine = None
-
-try:
-    from templ_pipeline.benchmark.process_recovery import (
-        ProcessRecoveryManager, FailureType, RecoveryStrategy, RecoveryConfig
-    )
-    PROCESS_RECOVERY_AVAILABLE = True
-except ImportError:
-    PROCESS_RECOVERY_AVAILABLE = False
-    ProcessRecoveryManager = None
-    FailureType = None
-    RecoveryStrategy = None
-    RecoveryConfig = None
-
 logger = logging.getLogger(__name__)
 
 
@@ -346,63 +319,10 @@ class TimeSplitBenchmarkRunner:
 
     def _initialize_memory_management(self):
         """Initialize memory management components."""
-        try:
-            # Initialize memory diagnostics engine
-            if self.enable_memory_monitoring and MEMORY_DIAGNOSTICS_AVAILABLE:
-                diagnostics_dir = self.results_dir / "memory_diagnostics"
-                self.memory_diagnostics = MemoryDiagnosticsEngine(
-                    diagnostics_dir=diagnostics_dir,
-                    enable_molecular_analysis=True,
-                    enable_stage_tracking=True,
-                    enable_pattern_detection=True
-                )
-            else:
-                if self.enable_memory_monitoring and not MEMORY_DIAGNOSTICS_AVAILABLE:
-                    logger.warning("Memory diagnostics requested but module not available")
-                self.memory_diagnostics = None
-            
-            # Initialize process recovery manager
-            if self.enable_process_recovery and PROCESS_RECOVERY_AVAILABLE:
-                recovery_config = RecoveryConfig(
-                    max_retries_per_target=3,
-                    max_memory_failures=2,
-                    temporary_blacklist_hours=24,
-                    enable_parameter_reduction=True
-                )
-                
-                recovery_data_file = self.results_dir / "process_recovery_data.json"
-                self.recovery_manager = ProcessRecoveryManager(
-                    config=recovery_config,
-                    recovery_data_file=recovery_data_file,
-                    enable_persistence=True
-                )
-            else:
-                if self.enable_process_recovery and not PROCESS_RECOVERY_AVAILABLE:
-                    logger.warning("Process recovery requested but module not available")
-                self.recovery_manager = None
-                
-            logger.info("Memory management components initialized successfully")
-            
-        except Exception as e:
-            logger.warning(f"Failed to initialize memory management: {e}")
-            self.memory_diagnostics = None
-            self.recovery_manager = None
-
-    def _determine_failure_type(self, result: Dict):
-        """Determine the type of failure from a result dictionary."""
-        if not PROCESS_RECOVERY_AVAILABLE:
-            return None
-            
-        error_msg = result.get("error", "").lower()
-        
-        if "memory" in error_msg or "out of memory" in error_msg:
-            return FailureType.MEMORY_EXPLOSION
-        elif "timeout" in error_msg or result.get("timeout", False):
-            return FailureType.TIMEOUT
-        elif "exception" in error_msg or "error" in error_msg:
-            return FailureType.EXCEPTION
-        else:
-            return FailureType.UNKNOWN
+        # Simplified initialization without optional dependencies
+        self.memory_diagnostics = None
+        self.recovery_manager = None
+        logger.info("Memory management components initialized (simplified mode)")
 
     def get_memory_management_status(self) -> Dict:
         """Get comprehensive memory management and recovery status."""
@@ -411,15 +331,6 @@ class TimeSplitBenchmarkRunner:
             "process_recovery_enabled": self.enable_process_recovery,
             "memory_threshold_gb": self.memory_threshold_gb
         }
-        
-        # Add recovery manager statistics
-        if self.recovery_manager:
-            status["recovery_statistics"] = self.recovery_manager.get_recovery_statistics()
-            status["blacklisted_targets"] = self.recovery_manager.get_blacklisted_targets()
-        
-        # Add memory diagnostics summary
-        if self.memory_diagnostics:
-            status["diagnostics_summary"] = self.memory_diagnostics.get_diagnostics_summary()
         
         return status
 
@@ -610,62 +521,28 @@ class TimeSplitBenchmarkRunner:
         if n_workers > 1 and len(target_pdbs) > 1:
             logger.info(f"Using {n_workers} workers for parallel processing")
             
-            with SupervisedProcessPoolExecutor(
-                max_workers=n_workers,
-                memory_threshold_gb=self.memory_threshold_gb,
-                enable_memory_monitoring=self.enable_memory_monitoring
-            ) as executor:
-                # Submit all jobs with recovery logic
+            with ProcessPoolExecutor(max_workers=n_workers) as executor:
+                # Submit all jobs
                 future_to_pdb = {}
-                skipped_targets = []
                 
                 for target_pdb in target_pdbs:
-                    # Check if target should be retried
-                    should_retry = True
-                    modified_params = {
-                        'n_conformers': n_conformers,
-                        'template_knn': template_knn,
-                        'timeout': timeout
-                    }
-                    
-                    if self.recovery_manager:
-                        should_retry, _ = self.recovery_manager.should_retry(target_pdb)
-                        if should_retry:
-                            # Get modified parameters for retry
-                            original_params = {
-                                'n_conformers': n_conformers,
-                                'template_knn': template_knn,
-                                'timeout': timeout
-                            }
-                            modified_params = self.recovery_manager.get_retry_parameters(
-                                target_pdb, original_params
-                            )
-                    
-                    if not should_retry:
-                        logger.info(f"Skipping blacklisted target: {target_pdb}")
-                        skipped_targets.append(target_pdb)
-                        continue
-                    
-                    # Submit with potentially modified parameters
+                    # Submit job
                     future = executor.submit(
                         run_timesplit_single_target,
                         target_pdb=target_pdb,
                         split_files=self.split_files,
                         data_dir=str(self.data_dir),
                         poses_output_dir=str(self.poses_output_dir) if self.poses_output_dir else None,
-                        n_conformers=modified_params.get('n_conformers', n_conformers),
-                        template_knn=modified_params.get('template_knn', template_knn),
+                        n_conformers=n_conformers,
+                        template_knn=template_knn,
                         similarity_threshold=similarity_threshold,
-                        timeout=modified_params.get('timeout', timeout),
+                        timeout=timeout,
                         unconstrained=unconstrained,
                         align_metric=align_metric,
                         enable_optimization=enable_optimization,
                         no_realign=no_realign
                     )
                     future_to_pdb[future] = target_pdb
-                
-                if skipped_targets:
-                    logger.info(f"Skipped {len(skipped_targets)} blacklisted targets: {skipped_targets[:5]}{'...' if len(skipped_targets) > 5 else ''}")
                 
                 # Collect results with progress bar
                 desc = f"{split_name.title()} Split"
@@ -683,24 +560,12 @@ class TimeSplitBenchmarkRunner:
                             json.dump(result, f)
                             f.write('\n')
                         
-                        # Update counters and recovery manager
+                        # Update counters
                         processed_count += 1
                         if result.get("success"):
                             success_count += 1
-                            # Record success with recovery manager
-                            if self.recovery_manager:
-                                self.recovery_manager.record_success(target_pdb)
                         else:
                             failed_count += 1
-                            # Record failure with recovery manager
-                            if self.recovery_manager:
-                                failure_type = self._determine_failure_type(result)
-                                self.recovery_manager.record_failure(
-                                    pdb_id=target_pdb,
-                                    failure_type=failure_type,
-                                    error_message=result.get("error", "Unknown error"),
-                                    memory_peak_mb=result.get("peak_memory_mb")
-                                )
                         
                     except Exception as e:
                         logger.error(f"Future failed for {target_pdb}: {e}")
@@ -717,15 +582,6 @@ class TimeSplitBenchmarkRunner:
                         
                         processed_count += 1
                         failed_count += 1
-                        
-                        # Record failure with recovery manager
-                        if self.recovery_manager:
-                            failure_type = FailureType.TIMEOUT if "timeout" in str(e).lower() else FailureType.CRASH
-                            self.recovery_manager.record_failure(
-                                pdb_id=target_pdb,
-                                failure_type=failure_type,
-                                error_message=str(e)
-                            )
                     
                     # Update progress
                     if not quiet:
