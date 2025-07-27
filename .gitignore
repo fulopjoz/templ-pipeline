@@ -214,3 +214,5 @@ true_mcs.py
 ~/
 
 *.ipynb
+benchmark_results_custom/
+diagrams.md
