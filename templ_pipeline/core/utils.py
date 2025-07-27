@@ -387,60 +387,184 @@ def cleanup_shared_cache():
             _SHARED_CACHE_FILE = None
 
 
-def create_shared_embedding_cache(embedding_data: dict, cache_dir: Optional[Path] = None) -> str:
-    """Create a shared embedding cache file for multiprocessing.
+def create_shared_embedding_cache(embedding_path: str, cache_name: str = None) -> str:
+    """
+    Create a shared embedding cache for multiprocessing.
+    
+    This function loads the embedding database once and makes it available
+    to all subprocesses via shared memory to prevent memory explosion.
     
     Args:
-        embedding_data: Dictionary containing embeddings and metadata
-        cache_dir: Directory to store cache file (default: temp directory)
-    
+        embedding_path: Path to the embedding NPZ file
+        cache_name: Optional name for the shared cache (auto-generated if None)
+        
     Returns:
-        Path to the cache file
+        Name of the shared cache that can be passed to subprocesses
     """
     import tempfile
-    import pickle
-    import os
+    import json
+    import time
+    from pathlib import Path
     
-    if cache_dir is None:
-        cache_dir = Path(tempfile.gettempdir())
+    if cache_name is None:
+        cache_name = f"templ_embeddings_{os.getpid()}_{int(time.time())}"
     
-    cache_dir.mkdir(exist_ok=True, parents=True)
-    
-    # Create unique cache file
-    cache_file = cache_dir / f"templ_embedding_cache_{os.getpid()}_{len(embedding_data)}.pkl"
-    
-    # Serialize embedding data to file
-    with open(cache_file, 'wb') as f:
-        pickle.dump(embedding_data, f, protocol=pickle.HIGHEST_PROTOCOL)
-    
-    logger.info(f"Created shared embedding cache: {cache_file}")
-    return str(cache_file)
+    try:
+        # Load embeddings from NPZ file
+        data = np.load(embedding_path, allow_pickle=True)
+        pdb_ids = data["pdb_ids"]
+        embeddings = data["embeddings"]
+        chain_ids = data.get("chain_ids", None)
+        
+        # Create shared memory buffer
+        from multiprocessing import shared_memory
+        
+        # Serialize embedding data in a memory-efficient way
+        import pickle
+        
+        # Process embeddings in chunks to avoid keeping everything in memory
+        embedding_db = {}
+        embedding_chain_data = {}
+        
+        logger.info(f"Processing {len(pdb_ids)} embeddings for shared cache...")
+        
+        for i, pid in enumerate(pdb_ids):
+            pid_upper = str(pid).upper()
+            embedding_db[pid_upper] = embeddings[i]
+            if chain_ids is not None:
+                embedding_chain_data[pid_upper] = chain_ids[i]
+            else:
+                embedding_chain_data[pid_upper] = ""
+            
+            # Log progress every 1000 embeddings
+            if (i + 1) % 1000 == 0:
+                logger.debug(f"Processed {i + 1}/{len(pdb_ids)} embeddings")
+        
+        # Create cache data
+        cache_data = {
+            'embedding_db': embedding_db,
+            'embedding_chain_data': embedding_chain_data,
+            'total_embeddings': len(embedding_db),
+            'loaded_at': time.time()
+        }
+        
+        # Serialize the data
+        serialized_data = pickle.dumps(cache_data)
+        
+        # Create shared memory buffer
+        shm = shared_memory.SharedMemory(create=True, size=len(serialized_data), name=cache_name)
+        shm.buf[:len(serialized_data)] = serialized_data
+        
+        # Close the shared memory to free the handle (data remains in shared memory)
+        shm.close()
+        
+        # Clear the large dictionaries from memory immediately after creating shared cache
+        del embedding_db
+        del embedding_chain_data
+        del cache_data
+        del serialized_data
+        
+        # Force garbage collection to free memory
+        import gc
+        gc.collect()
+        
+        logger.info(f"Created shared embedding cache '{cache_name}' with {len(pdb_ids)} embeddings")
+        
+        return cache_name
+        
+    except Exception as e:
+        logger.error(f"Failed to create shared embedding cache: {e}")
+        raise
 
 
-def load_shared_embedding_cache(cache_file: str) -> Optional[dict]:
-    """Load embeddings from shared cache file.
+def load_shared_embedding_cache(cache_name: str) -> Optional[Dict]:
+    """
+    Load embeddings from shared cache.
     
     Args:
-        cache_file: Path to cache file
+        cache_name: Name of the shared cache
         
     Returns:
         Dictionary with embedding data or None if failed
     """
-    import pickle
-    
     try:
-        if not os.path.exists(cache_file):
-            return None
-            
-        with open(cache_file, 'rb') as f:
-            embedding_data = pickle.load(f)
+        from multiprocessing import shared_memory
+        import pickle
         
-        logger.info(f"Loaded embeddings from shared cache: {cache_file}")
-        return embedding_data
+        # Attach to shared memory
+        shm = shared_memory.SharedMemory(name=cache_name)
+        
+        # Load serialized data
+        serialized_data = bytes(shm.buf)
+        cache_data = pickle.loads(serialized_data)
+        
+        # Close shared memory
+        shm.close()
+        
+        logger.info(f"Loaded {cache_data['total_embeddings']} embeddings from shared cache '{cache_name}'")
+        return cache_data
         
     except Exception as e:
-        logger.warning(f"Failed to load shared embedding cache {cache_file}: {e}")
+        logger.warning(f"Failed to load shared embedding cache '{cache_name}': {e}")
         return None
+
+
+def cleanup_shared_embedding_cache(cache_name: str):
+    """
+    Clean up shared embedding cache.
+    
+    Args:
+        cache_name: Name of the shared cache to clean up
+    """
+    try:
+        from multiprocessing import shared_memory
+        
+        # Try to close and unlink the shared memory
+        try:
+            shm = shared_memory.SharedMemory(name=cache_name)
+            shm.close()
+            shm.unlink()
+            logger.info(f"Cleaned up shared embedding cache: {cache_name}")
+        except FileNotFoundError:
+            # Shared memory already cleaned up
+            logger.debug(f"Shared memory {cache_name} already cleaned up")
+        except Exception as e:
+            logger.warning(f"Failed to cleanup shared embedding cache {cache_name}: {e}")
+            
+        # Additional cleanup for any remaining shared memory objects
+        try:
+            import multiprocessing.resource_tracker as rt
+            
+            # Force cleanup of any remaining shared memory objects
+            if hasattr(rt, '_CLEANUP_CALLBACKS'):
+                for callback in rt._CLEANUP_CALLBACKS:
+                    try:
+                        callback()
+                    except Exception:
+                        pass
+                        
+        except Exception as e:
+            logger.debug(f"Additional shared memory cleanup failed: {e}")
+            
+    except Exception as e:
+        logger.warning(f"Failed to cleanup shared embedding cache {cache_name}: {e}")
+
+
+def cleanup_shared_memory():
+    """Clean up any remaining shared memory objects."""
+    try:
+        import multiprocessing.resource_tracker as rt
+        
+        # Force cleanup of any remaining shared memory objects
+        if hasattr(rt, '_CLEANUP_CALLBACKS'):
+            for callback in rt._CLEANUP_CALLBACKS:
+                try:
+                    callback()
+                except Exception:
+                    pass
+                    
+    except Exception as e:
+        logger.debug(f"Additional shared memory cleanup failed: {e}")
 
 
 def get_pocket_chain_ids_from_file(pocket_file: str) -> List[str]:

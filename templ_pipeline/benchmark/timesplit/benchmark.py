@@ -124,10 +124,14 @@ def run_timesplit_benchmark(
     
     # Initialize simplified benchmark runner
     from templ_pipeline.benchmark.timesplit.simple_runner import SimpleTimeSplitRunner
+    logger.info("Creating SimpleTimeSplitRunner with enhanced shared data...")
     runner = SimpleTimeSplitRunner(
         data_dir=data_dir,
-        results_dir=str(results_path)
+        results_dir=str(results_path),
+        memory_efficient=True,  # Prevent memory explosion
+        use_shared_data=True    # Use shared data manager for memory efficiency
     )
+    logger.info("✓ SimpleTimeSplitRunner created successfully")
     
     # Track overall results
     all_results = {
@@ -152,71 +156,95 @@ def run_timesplit_benchmark(
         "overall_summary": {}
     }
     
-    # Run benchmarks for each split
-    for split_name in splits_to_run:
-        logger.info(f"\n{'='*60}")
-        logger.info(f"EVALUATING {split_name.upper()} SPLIT")
-        logger.info(f"{'='*60}")
+    try:
+        # Run benchmarks for each split
+        for split_name in splits_to_run:
+            logger.info(f"\n{'='*60}")
+            logger.info(f"EVALUATING {split_name.upper()} SPLIT")
+            logger.info(f"{'='*60}")
+            
+            try:
+                split_results = runner.run_split_benchmark(
+                    split_name=split_name,
+                    n_workers=n_workers,
+                    n_conformers=n_conformers,
+                    max_pdbs=max_pdbs,
+                    timeout=timeout,
+                )
+                
+                all_results["split_results"][split_name] = split_results
+                logger.info(f"✓ {split_name} split completed successfully")
+                
+            except Exception as e:
+                logger.error(f"✗ {split_name} split failed: {e}")
+                all_results["split_results"][split_name] = {
+                    "success": False,
+                    "error": str(e),
+                    "split": split_name,
+                }
         
+        # Generate overall summary
+        total_processed = sum(
+            result.get("processed", 0) 
+            for result in all_results["split_results"].values()
+        )
+        total_successful = sum(
+            result.get("successful", 0) 
+            for result in all_results["split_results"].values()
+        )
+        
+        all_results["overall_summary"] = {
+            "total_splits_run": len(splits_to_run),
+            "total_molecules_processed": total_processed,
+            "total_successful": total_successful,
+            "overall_success_rate": (total_successful / total_processed * 100) if total_processed > 0 else 0,
+            "splits_completed": [
+                split for split, result in all_results["split_results"].items()
+                if result.get("processed", 0) > 0
+            ]
+        }
+        
+        # Save complete results
+        results_file = results_path / f"complete_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with open(results_file, 'w') as f:
+            json.dump(all_results, f, indent=2)
+        
+        all_results["results_file"] = str(results_file)
+        all_results["success"] = True
+        
+        logger.info(f"\n{'='*60}")
+        logger.info("BENCHMARK COMPLETED")
+        logger.info(f"{'='*60}")
+        logger.info(f"Total processed: {total_processed}")
+        logger.info(f"Total successful: {total_successful}")
+        logger.info(f"Overall success rate: {all_results['overall_summary']['overall_success_rate']:.1f}%")
+        logger.info(f"Results saved to: {results_file}")
+        
+        return all_results
+        
+    finally:
+        # Ensure proper cleanup of shared memory resources
         try:
-            split_results = runner.run_split_benchmark(
-                split_name=split_name,
-                n_workers=n_workers,
-                n_conformers=n_conformers,
-                max_pdbs=max_pdbs,
-                timeout=timeout,
-            )
-            
-            all_results["split_results"][split_name] = split_results
-            logger.info(f"✓ {split_name} split completed successfully")
-            
+            logger.info("Cleaning up shared memory resources...")
+            runner.cleanup()
+            logger.info("✓ Shared memory cleanup completed")
         except Exception as e:
-            logger.error(f"✗ {split_name} split failed: {e}")
-            all_results["split_results"][split_name] = {
-                "success": False,
-                "error": str(e),
-                "split": split_name,
-            }
-    
-    # Generate overall summary
-    total_processed = sum(
-        result.get("processed", 0) 
-        for result in all_results["split_results"].values()
-    )
-    total_successful = sum(
-        result.get("successful", 0) 
-        for result in all_results["split_results"].values()
-    )
-    
-    all_results["overall_summary"] = {
-        "total_splits_run": len(splits_to_run),
-        "total_molecules_processed": total_processed,
-        "total_successful": total_successful,
-        "overall_success_rate": (total_successful / total_processed * 100) if total_processed > 0 else 0,
-        "splits_completed": [
-            split for split, result in all_results["split_results"].items()
-            if result.get("processed", 0) > 0
-        ]
-    }
-    
-    # Save comprehensive results
-    results_file = results_path / f"timesplit_benchmark_complete_{runner.benchmark_timestamp}.json"
-    with open(results_file, 'w') as f:
-        json.dump(all_results, f, indent=2, default=str)
-    
-    logger.info(f"\n{'='*60}")
-    logger.info(f"BENCHMARK COMPLETED")
-    logger.info(f"{'='*60}")
-    logger.info(f"Processed: {total_processed} molecules")
-    logger.info(f"Success rate: {all_results['overall_summary']['overall_success_rate']:.1f}%")
-    logger.info(f"Results saved: {results_file}")
-    
-    return {
-        "success": True,
-        "results": all_results,
-        "results_file": str(results_file),
-        "summary": all_results["overall_summary"]
-    }
+            logger.warning(f"Shared memory cleanup failed: {e}")
+            
+        # Additional cleanup for any remaining shared memory objects
+        try:
+            import multiprocessing.resource_tracker as rt
+            
+            # Force cleanup of any remaining shared memory objects
+            if hasattr(rt, '_CLEANUP_CALLBACKS'):
+                for callback in rt._CLEANUP_CALLBACKS:
+                    try:
+                        callback()
+                    except Exception:
+                        pass
+                        
+        except Exception as e:
+            logger.debug(f"Additional cleanup failed: {e}")
 
 
 def build_parser() -> argparse.ArgumentParser:

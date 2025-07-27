@@ -180,7 +180,7 @@ benchmark - Run benchmark suites
     --template-knn INT      Template neighbors (default: 100)
     --max-pdbs INT          Limit PDBs for testing
     --val-only, --test-only, --train-only  Specific dataset
-    --pipeline-timeout INT  Per-PDB timeout (default: 1800s)
+    --pipeline-timeout INT  Per-PDB timeout (default: 180s)
     --max-ram FLOAT         RAM limit in GiB
     --per-worker-ram FLOAT  Per-worker RAM cap (default: 4.0 GiB)
 
