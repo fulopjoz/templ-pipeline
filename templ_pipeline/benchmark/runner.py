@@ -73,59 +73,136 @@ class SharedMolecularCache:
 
 
 class LazyMoleculeLoader:
-    """Lazy molecule loader that loads only specific molecules on demand."""
+    """Truly lazy molecule loader that only loads specific molecules on demand."""
     
     def __init__(self, data_dir: str):
         self.data_dir = Path(data_dir)
         self.log = logging.getLogger(__name__)
-        self._molecule_index = None
-        self._molecules_list = None
+        self._sdf_path = None
+        self._molecule_cache = {}  # Cache for individual molecules
         
-    def _build_molecule_index(self):
-        """Load molecules from SDF file if not already loaded."""
-        if self._molecules_list is not None:
-            return
+    def _find_sdf_file(self):
+        """Find the SDF file without loading it."""
+        if self._sdf_path is not None:
+            return self._sdf_path
             
-        # Find ligand files using existing utilities
         try:
-            # Lazy import to avoid slow import at module level
             from templ_pipeline.core.utils import find_ligand_file_paths
             ligand_file_paths = find_ligand_file_paths(self.data_dir)
             for ligand_path in ligand_file_paths:
                 if ligand_path.exists():
-                    self._index_sdf_file(ligand_path)
-                    self.log.info(f"Loaded molecules from {ligand_path.name}")
-                    break
+                    self._sdf_path = ligand_path
+                    self.log.info(f"Found SDF file: {ligand_path.name}")
+                    return self._sdf_path
         except Exception as e:
-            self.log.warning(f"Failed to load molecules: {e}")
-            self._molecules_list = []
-    
-    def _index_sdf_file(self, sdf_path: Path):
-        """Load molecules from SDF file."""
-        try:
-            # Lazy import to avoid slow import at module level
-            from templ_pipeline.core.utils import load_sdf_molecules_cached
-            # Load molecules as list using existing utility with adequate memory limit
-            self._molecules_list = load_sdf_molecules_cached(sdf_path, cache=None, memory_limit_gb=6.0)
-            self.log.info(f"Loaded {len(self._molecules_list)} molecules from {sdf_path.name}")
-        except Exception as e:
-            self.log.warning(f"Failed to load molecules from {sdf_path}: {e}")
-            self._molecules_list = []
+            self.log.warning(f"Failed to find SDF file: {e}")
+        
+        return None
     
     def get_ligand_data(self, pdb_id: str) -> Tuple[Optional[str], Optional["Chem.Mol"]]:
-        """Load specific ligand data on demand."""
+        """Load specific ligand data on demand using efficient lookup."""
         try:
-            self._build_molecule_index()
-            if hasattr(self, '_molecules_list') and self._molecules_list:
-                # Lazy import to avoid slow import at module level
-                from templ_pipeline.core.utils import find_ligand_by_pdb_id
-                # Use the existing utility function that works correctly
-                return find_ligand_by_pdb_id(pdb_id, self._molecules_list)
-            else:
-                self.log.error(f"No molecules loaded for ligand search")
+            # Check cache first
+            if pdb_id in self._molecule_cache:
+                return self._molecule_cache[pdb_id]
+            
+            # Find SDF file
+            sdf_path = self._find_sdf_file()
+            if not sdf_path:
+                self.log.error(f"No SDF file found for ligand search")
                 return None, None
+            
+            # Load specific molecule by PDB ID
+            molecule, smiles = self._load_specific_molecule(sdf_path, pdb_id)
+            
+            # Cache the result
+            self._molecule_cache[pdb_id] = (smiles, molecule)
+            
+            return smiles, molecule
+            
         except Exception as e:
             self.log.error(f"Failed to load ligand data for {pdb_id}: {e}")
+            return None, None
+    
+    def _load_specific_molecule(self, sdf_path: Path, target_pdb_id: str) -> Tuple[Optional["Chem.Mol"], Optional[str]]:
+        """Load a specific molecule by PDB ID without loading the entire file."""
+        try:
+            if sdf_path.suffix == ".gz":
+                import gzip
+                import io
+                
+                # Read compressed file in chunks
+                with gzip.open(sdf_path, "rb") as fh:
+                    content = fh.read()
+                
+                # Process from memory buffer
+                with io.BytesIO(content) as buffer:
+                    return self._search_molecule_in_supplier(buffer, target_pdb_id)
+            else:
+                # Handle uncompressed SDF files
+                with open(sdf_path, "rb") as fh:
+                    return self._search_molecule_in_supplier(fh, target_pdb_id)
+                    
+        except Exception as e:
+            self.log.error(f"Failed to load specific molecule {target_pdb_id}: {e}")
+            return None, None
+    
+    def _search_molecule_in_supplier(self, file_handle, target_pdb_id: str) -> Tuple[Optional["Chem.Mol"], Optional[str]]:
+        """Search for a specific molecule in an SDMolSupplier."""
+        try:
+            supplier = Chem.ForwardSDMolSupplier(file_handle, removeHs=False, sanitize=False)
+            
+            for idx, mol in enumerate(supplier):
+                try:
+                    if mol is None or not mol.HasProp("_Name"):
+                        continue
+                    
+                    mol_name = mol.GetProp("_Name")
+                    
+                    # Check if this is the molecule we're looking for
+                    if mol_name.lower() == target_pdb_id.lower():
+                        mol.SetProp("original_name", mol_name)
+                        mol.SetProp("molecule_index", str(idx))
+                        
+                        # Extract SMILES
+                        smiles = Chem.MolToSmiles(mol) if mol else None
+                        
+                        self.log.debug(f"Found molecule {target_pdb_id} at index {idx}")
+                        return mol, smiles
+                        
+                except Exception as mol_err:
+                    continue
+            
+            self.log.warning(f"Molecule {target_pdb_id} not found in SDF file")
+            return None, None
+            
+        except Exception as e:
+            self.log.error(f"Error searching for molecule {target_pdb_id}: {e}")
+            return None, None
+    
+    def _load_specific_molecule_fallback(self, sdf_path: Path, target_pdb_id: str) -> Tuple[Optional["Chem.Mol"], Optional[str]]:
+        """Fallback method using memory-efficient loading with limits."""
+        try:
+            from templ_pipeline.core.utils import load_sdf_molecules_cached
+            
+            # Load with very low memory limit to prevent explosion
+            molecules = load_sdf_molecules_cached(sdf_path, cache=None, memory_limit_gb=2.0)
+            
+            if not molecules:
+                return None, None
+            
+            # Search in loaded molecules
+            from templ_pipeline.core.utils import find_ligand_by_pdb_id
+            smiles, molecule = find_ligand_by_pdb_id(target_pdb_id, molecules)
+            
+            # Clear the molecules list to free memory immediately
+            molecules.clear()
+            del molecules
+            
+            return molecule, smiles
+            
+        except Exception as e:
+            self.log.error(f"Fallback loading failed for {target_pdb_id}: {e}")
             return None, None
 
 
