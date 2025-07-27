@@ -417,6 +417,12 @@ def setup_parser():
         default=None,
         help="Comma-separated list of PDB IDs to exclude as templates (for leave-one-out)",
     )
+    run_parser.add_argument(
+        "--shared-embedding-cache",
+        type=str,
+        default=None,
+        help="Shared embedding cache name for multiprocessing (internal use)",
+    )
 
     # Benchmark command ---------------------------------------------------
     benchmark_parser = subparsers.add_parser(
@@ -491,7 +497,7 @@ def setup_parser():
     benchmark_parser.add_argument(
         "--pipeline-timeout",
         type=int,
-        default=1800,
+        default=180,
         help="Timeout in seconds for each individual PDB processing (time-split only)",
     )
     benchmark_parser.add_argument(
@@ -886,6 +892,7 @@ def run_command(args):
             embedding_path=getattr(args, "embedding_file", None),
             output_dir=args.output_dir,
             run_id=getattr(args, "run_id", None),
+            shared_embedding_cache=getattr(args, "shared_embedding_cache", None),
         )
 
         # Parse PDB ID lists
