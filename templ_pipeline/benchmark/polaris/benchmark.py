@@ -67,7 +67,7 @@ except ImportError:
     ProcessPool = None
 
 # Configuration
-MOLECULE_TIMEOUT = 180
+MOLECULE_TIMEOUT = 300
 OUTPUT_DIR = "templ_benchmark_results_polaris"
 
 # Global flag for graceful shutdown

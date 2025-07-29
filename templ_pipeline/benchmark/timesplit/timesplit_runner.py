@@ -153,6 +153,24 @@ def run_timesplit_single_target(target_pdb: str,
         logger.info(f"Processing {target_pdb} ({target_split} split)")
         logger.info(f"Using {len(allowed_templates)} allowed templates")
         
+        # Template filtering detailed logging
+        logger.info(f"TEMPLATE_FILTERING: Template pool for {target_pdb}:")
+        logger.info(f"TEMPLATE_FILTERING:   Split type: {target_split}")
+        logger.info(f"TEMPLATE_FILTERING:   Initial allowed templates: {len(allowed_templates)}")
+        logger.info(f"TEMPLATE_FILTERING:   Excluded targets: {len(exclude_pdb_ids)} (including self)")
+        
+        # Log template pool composition for debugging
+        if len(allowed_templates) > 0:
+            sample_templates = sorted(list(allowed_templates))[:10]
+            logger.info(f"TEMPLATE_FILTERING:   Sample templates: {', '.join(sample_templates)}...")
+        else:
+            logger.warning(f"TEMPLATE_FILTERING:   WARNING: Empty template pool for {target_pdb}")
+        
+        # Performance Comparison Logging - Timesplit Direct Method  
+        logger.info(f"BENCHMARK_METHOD: Direct class method call (timesplit)")
+        logger.info(f"TEMPLATE_FILTERING: In-memory allowed_pdb_ids parameter")
+        logger.info(f"EXECUTION_CONTEXT: Python ProcessPoolExecutor worker")
+        
         # Run pipeline with template restrictions
         result = run_templ_pipeline_for_benchmark(
             target_pdb=target_pdb,
@@ -424,6 +442,24 @@ class TimeSplitBenchmarkRunner:
             
             logger.info(f"Processing {target_pdb} ({target_split} split)")
             logger.info(f"Using {len(allowed_templates)} allowed templates")
+            
+            # Template filtering detailed logging for class method version
+            logger.info(f"TEMPLATE_FILTERING: Template pool for {target_pdb} (class method):")
+            logger.info(f"TEMPLATE_FILTERING:   Split type: {target_split}")
+            logger.info(f"TEMPLATE_FILTERING:   Initial allowed templates: {len(allowed_templates)}")
+            logger.info(f"TEMPLATE_FILTERING:   Excluded targets: {len(exclude_pdb_ids)} (including self)")
+            
+            # Log template pool composition for debugging
+            if len(allowed_templates) > 0:
+                sample_templates = sorted(list(allowed_templates))[:10]
+                logger.info(f"TEMPLATE_FILTERING:   Sample templates: {', '.join(sample_templates)}...")
+            else:
+                logger.warning(f"TEMPLATE_FILTERING:   WARNING: Empty template pool for {target_pdb}")
+            
+            # Performance Comparison Logging - Timesplit Direct Method
+            logger.info(f"BENCHMARK_METHOD: Direct class method call (timesplit)")
+            logger.info(f"TEMPLATE_FILTERING: In-memory allowed_pdb_ids parameter")
+            logger.info(f"EXECUTION_CONTEXT: TimeSplitBenchmarkRunner class method")
             
             # Run pipeline with template restrictions
             result = run_templ_pipeline_for_benchmark(
