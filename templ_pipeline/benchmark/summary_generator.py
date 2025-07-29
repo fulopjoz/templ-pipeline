@@ -272,12 +272,23 @@ class BenchmarkSummaryGenerator:
         
         total_molecules = len(individual_results)
         
+        # Success rate calculation detailed logging for Polaris
+        logger.info(f"SUCCESS_RATE_CALC: Processing Polaris results:")
+        logger.info(f"SUCCESS_RATE_CALC:   Total molecules to analyze: {total_molecules}")
+        
+        successful_results = 0
+        results_with_rmsd = 0
+        
         for result in individual_results.values():
             if result.get("success") and result.get("rmsd_values"):
+                successful_results += 1
+                has_rmsd_values = False
+                
                 for metric_key, values_dict in result["rmsd_values"].items():
                     rmsd = values_dict.get("rmsd")
                     score = values_dict.get("score")
                     if rmsd is not None and not np.isnan(rmsd):
+                        has_rmsd_values = True
                         metrics["all_rmsds"][metric_key].append(rmsd)
                         if rmsd <= 2.0:
                             metrics["rmsd_counts_2A"][metric_key] += 1
@@ -285,43 +296,137 @@ class BenchmarkSummaryGenerator:
                             metrics["rmsd_counts_5A"][metric_key] += 1
                     if score is not None:
                         metrics["all_scores"][metric_key].append(score)
+                
+                if has_rmsd_values:
+                    results_with_rmsd += 1
+        
+        logger.info(f"SUCCESS_RATE_CALC: Polaris data collection summary:")
+        logger.info(f"SUCCESS_RATE_CALC:   Successful results: {successful_results}/{total_molecules}")
+        logger.info(f"SUCCESS_RATE_CALC:   Results with RMSD values: {results_with_rmsd}/{successful_results}")
+        
+        # Log RMSD data by metric
+        for metric_key in metrics["all_rmsds"]:
+            rmsd_count = len(metrics["all_rmsds"][metric_key])
+            count_2A = metrics["rmsd_counts_2A"][metric_key]
+            count_5A = metrics["rmsd_counts_5A"][metric_key]
+            logger.info(f"SUCCESS_RATE_CALC:   {metric_key}: {rmsd_count} RMSD values, {count_2A} ≤2A, {count_5A} ≤5A")
         
         # Calculate success rates
         metrics["success_rates"] = {}
         for metric_key in metrics["all_rmsds"]:
             n_results = len(metrics["all_rmsds"][metric_key])
             if n_results > 0 and total_molecules > 0:
+                rate_2A = metrics["rmsd_counts_2A"][metric_key] / total_molecules * 100
+                rate_5A = metrics["rmsd_counts_5A"][metric_key] / total_molecules * 100
+                mean_rmsd = np.mean(metrics["all_rmsds"][metric_key])
+                median_rmsd = np.median(metrics["all_rmsds"][metric_key])
+                
                 metrics["success_rates"][metric_key] = {
                     "count": n_results,
-                    "rate_2A": metrics["rmsd_counts_2A"][metric_key] / total_molecules * 100,
-                    "rate_5A": metrics["rmsd_counts_5A"][metric_key] / total_molecules * 100,
-                    "mean_rmsd": np.mean(metrics["all_rmsds"][metric_key]),
-                    "median_rmsd": np.median(metrics["all_rmsds"][metric_key]),
+                    "rate_2A": rate_2A,
+                    "rate_5A": rate_5A,
+                    "mean_rmsd": mean_rmsd,
+                    "median_rmsd": median_rmsd,
                 }
+                
+                # Log calculated success rates
+                logger.info(f"SUCCESS_RATE_CALC: Final Polaris rates for {metric_key}:")
+                logger.info(f"SUCCESS_RATE_CALC:   2A success: {rate_2A:.1f}% ({metrics['rmsd_counts_2A'][metric_key]}/{total_molecules})")
+                logger.info(f"SUCCESS_RATE_CALC:   5A success: {rate_5A:.1f}% ({metrics['rmsd_counts_5A'][metric_key]}/{total_molecules})")
+                logger.info(f"SUCCESS_RATE_CALC:   Mean RMSD: {mean_rmsd:.3f}A")
         
         return metrics
     
+    def _validate_rmsd_calculation(self, split_results: List[Dict]) -> Dict:
+        """Validate RMSD calculation integrity in benchmark results."""
+        validation_report = {
+            "total_results": len(split_results),
+            "successful_results": 0,
+            "results_with_rmsd": 0,
+            "results_with_null_rmsd": 0,
+            "metrics_with_rmsd_failures": []
+        }
+        
+        for result in split_results:
+            if result.get("success"):
+                validation_report["successful_results"] += 1
+                rmsd_values = result.get("rmsd_values", {})
+                
+                has_valid_rmsd = False
+                metrics_with_failures = []
+                
+                for metric_key, values_dict in rmsd_values.items():
+                    rmsd = values_dict.get("rmsd")
+                    if rmsd is not None and not np.isnan(rmsd):
+                        has_valid_rmsd = True
+                    else:
+                        metrics_with_failures.append(metric_key)
+                
+                if has_valid_rmsd:
+                    validation_report["results_with_rmsd"] += 1
+                else:
+                    validation_report["results_with_null_rmsd"] += 1
+                    validation_report["metrics_with_rmsd_failures"].extend(metrics_with_failures)
+        
+        # Log validation results
+        if validation_report["results_with_null_rmsd"] > 0:
+            failure_rate = (validation_report["results_with_null_rmsd"] / validation_report["successful_results"]) * 100
+            logger.error(f"RMSD_VALIDATION: {validation_report['results_with_null_rmsd']}/{validation_report['successful_results']} ({failure_rate:.1f}%) successful results lack RMSD data")
+            logger.error(f"RMSD_VALIDATION: This indicates CLI pipeline or molecular structure issues")
+        else:
+            logger.info(f"RMSD_VALIDATION: All {validation_report['results_with_rmsd']} successful results have valid RMSD data")
+        
+        return validation_report
+
     def _calculate_timesplit_metrics(self, split_results: List[Dict], total_targets: int) -> Dict:
         """Calculate metrics for Timesplit benchmark results."""
         metrics = {}
+        
+        # Validate RMSD calculation integrity
+        validation_report = self._validate_rmsd_calculation(split_results)
+        
+        # Success rate calculation detailed logging for Timesplit
+        logger.info(f"SUCCESS_RATE_CALC: Processing Timesplit results:")
+        logger.info(f"SUCCESS_RATE_CALC:   Total targets to analyze: {total_targets}")
+        logger.info(f"SUCCESS_RATE_CALC:   Split results length: {len(split_results)}")
+        logger.info(f"SUCCESS_RATE_CALC:   Results with valid RMSD: {validation_report['results_with_rmsd']}/{validation_report['successful_results']}")
         
         # Collect RMSD values and scores by metric
         rmsd_by_metric = defaultdict(list)
         score_by_metric = defaultdict(list)
         
+        successful_results = 0
+        results_with_rmsd = 0
+        
         for result in split_results:
             if result.get("success") and result.get("rmsd_values"):
+                successful_results += 1
+                has_rmsd_values = False
+                
                 for metric_key, values_dict in result["rmsd_values"].items():
                     rmsd = values_dict.get("rmsd")
                     score = values_dict.get("score")
                     
                     # Collect RMSD values if available
                     if rmsd is not None and not np.isnan(rmsd):
+                        has_rmsd_values = True
                         rmsd_by_metric[metric_key].append(rmsd)
                     
                     # Collect scores for fallback success calculation
                     if score is not None and not np.isnan(score):
                         score_by_metric[metric_key].append(score)
+                
+                if has_rmsd_values:
+                    results_with_rmsd += 1
+        
+        logger.info(f"SUCCESS_RATE_CALC: Timesplit data collection summary:")
+        logger.info(f"SUCCESS_RATE_CALC:   Successful results: {successful_results}/{len(split_results)}")
+        logger.info(f"SUCCESS_RATE_CALC:   Results with RMSD values: {results_with_rmsd}/{successful_results}")
+        
+        # Log RMSD data by metric
+        for metric_key in rmsd_by_metric:
+            rmsd_count = len(rmsd_by_metric[metric_key])
+            logger.info(f"SUCCESS_RATE_CALC:   {metric_key}: {rmsd_count} RMSD values collected")
         
         # Calculate statistics for each metric
         for metric_key in set(list(rmsd_by_metric.keys()) + list(score_by_metric.keys())):
@@ -332,30 +437,46 @@ class BenchmarkSummaryGenerator:
                 # Use RMSD-based calculation when available
                 count_2A = sum(1 for rmsd in rmsds if rmsd <= 2.0)
                 count_5A = sum(1 for rmsd in rmsds if rmsd <= 5.0)
+                rate_2A = count_2A / total_targets * 100 if total_targets > 0 else 0
+                rate_5A = count_5A / total_targets * 100 if total_targets > 0 else 0
+                mean_rmsd = np.mean(rmsds)
+                median_rmsd = np.median(rmsds)
                 
                 metrics[metric_key] = {
                     "count": len(rmsds),
-                    "rate_2A": count_2A / total_targets * 100 if total_targets > 0 else 0,
-                    "rate_5A": count_5A / total_targets * 100 if total_targets > 0 else 0,
-                    "mean_rmsd": np.mean(rmsds),
-                    "median_rmsd": np.median(rmsds),
+                    "rate_2A": rate_2A,
+                    "rate_5A": rate_5A,
+                    "mean_rmsd": mean_rmsd,
+                    "median_rmsd": median_rmsd,
                 }
+                
+                # Log calculated success rates
+                logger.info(f"SUCCESS_RATE_CALC: Final Timesplit rates for {metric_key} (RMSD-based):")
+                logger.info(f"SUCCESS_RATE_CALC:   2A success: {rate_2A:.1f}% ({count_2A}/{total_targets})")
+                logger.info(f"SUCCESS_RATE_CALC:   5A success: {rate_5A:.1f}% ({count_5A}/{total_targets})")
+                logger.info(f"SUCCESS_RATE_CALC:   Mean RMSD: {mean_rmsd:.3f}A")
+                
             elif scores:
-                # Fallback to score-based success when RMSD is not available
-                # Define success thresholds for scores (assuming 0-1 range)
-                high_score_threshold = 0.9  # Equivalent to ~2A success
-                medium_score_threshold = 0.8  # Equivalent to ~5A success
+                # CRITICAL ERROR: RMSD data unavailable - cannot calculate meaningful success rates
+                logger.error(f"SUCCESS_RATE_CALC: RMSD calculation failed for {metric_key} - CLI pipeline error detected")
+                logger.error(f"SUCCESS_RATE_CALC:   Cannot calculate 2A/5A success rates without RMSD values")
+                logger.error(f"SUCCESS_RATE_CALC:   This indicates a pipeline configuration or molecular structure issue")
                 
-                count_high = sum(1 for score in scores if score >= high_score_threshold)
-                count_medium = sum(1 for score in scores if score >= medium_score_threshold)
-                
+                # Report invalid results - do not provide misleading success rates
                 metrics[metric_key] = {
-                    "count": len(scores),
-                    "rate_2A": count_high / total_targets * 100 if total_targets > 0 else 0,
-                    "rate_5A": count_medium / total_targets * 100 if total_targets > 0 else 0,
-                    "mean_rmsd": np.mean(scores),  # Using score as proxy
-                    "median_rmsd": np.median(scores),  # Using score as proxy
+                    "count": len(scores),  
+                    "rate_2A": 0.0,  # Cannot calculate without RMSD
+                    "rate_5A": 0.0,  # Cannot calculate without RMSD
+                    "mean_rmsd": None,  # No RMSD data available
+                    "median_rmsd": None,  # No RMSD data available
+                    "mean_score": np.mean(scores),  # Report alignment scores separately
+                    "median_score": np.median(scores),  # Report alignment scores separately
+                    "error": "RMSD_CALCULATION_FAILED"
                 }
+                
+                logger.warning(f"SUCCESS_RATE_CALC: Benchmark results for {metric_key} are INVALID due to missing RMSD data")
+                logger.warning(f"SUCCESS_RATE_CALC:   Available alignment scores: mean={np.mean(scores):.3f}, median={np.median(scores):.3f}")
+                logger.warning(f"SUCCESS_RATE_CALC:   Check CLI RMSD calculation or molecular structure compatibility")
         
         return metrics
     
