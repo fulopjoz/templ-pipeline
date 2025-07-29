@@ -316,7 +316,7 @@ def setup_parser():
         "--align-metric",
         choices=["shape", "color", "combo"],
         default="combo",
-        help="Shape alignment metric for pose scoring (default: combo)",
+        help="Metric for ranking conformers. Selected conformer is evaluated with all metrics (default: combo)",
     )
     generate_poses_parser.add_argument(
         "--enable-optimization",
@@ -403,7 +403,7 @@ def setup_parser():
         "--align-metric",
         choices=["shape", "color", "combo"],
         default="combo",
-        help="Shape alignment metric for pose scoring (default: combo)",
+        help="Metric for ranking conformers. Selected conformer is evaluated with all metrics (default: combo)",
     )
     run_parser.add_argument(
         "--allowed-pdb-ids",
@@ -564,7 +564,7 @@ def setup_parser():
         "--align-metric",
         choices=["shape", "color", "combo"],
         default="combo",
-        help="Shape alignment metric for pose scoring (default: combo)",
+        help="Metric for ranking conformers. Selected conformer is evaluated with all metrics (default: combo)",
     )
     benchmark_parser.add_argument(
         "--enable-optimization",
