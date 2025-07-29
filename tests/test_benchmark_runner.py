@@ -51,7 +51,7 @@ class TestBenchmarkParams(unittest.TestCase):
         self.assertEqual(params.template_knn, 100)
         self.assertIsNone(params.similarity_threshold)
         self.assertEqual(params.internal_workers, 1)
-        self.assertEqual(params.timeout, 1800)
+        self.assertEqual(params.timeout, 300)
 
     def test_benchmark_params_with_optional_fields(self):
         """Test BenchmarkParams with all optional fields set."""
@@ -64,7 +64,7 @@ class TestBenchmarkParams(unittest.TestCase):
             template_knn=20,
             similarity_threshold=0.8,
             internal_workers=4,
-            timeout=3600
+            timeout=3300
         )
         
         self.assertEqual(params.target_pdb, "4test")
@@ -74,7 +74,7 @@ class TestBenchmarkParams(unittest.TestCase):
         self.assertEqual(params.template_knn, 20)
         self.assertEqual(params.similarity_threshold, 0.8)
         self.assertEqual(params.internal_workers, 4)
-        self.assertEqual(params.timeout, 3600)
+        self.assertEqual(params.timeout, 600)
 
     def test_benchmark_params_empty_exclude_set(self):
         """Test BenchmarkParams with empty exclude set."""
