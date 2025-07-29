@@ -693,7 +693,6 @@ class EmbeddingManager:
         cache_dir: Optional[str] = None,
         enable_batching: bool = True,
         max_batch_size: int = 8,
-        shared_embedding_cache: Optional[str] = None,
     ):
         """Initialize the embedding manager with a path to pre-computed embeddings."""
         # Skip initialization if already initialized (singleton pattern)
@@ -709,7 +708,6 @@ class EmbeddingManager:
         self.on_demand_embeddings = {}  # Dynamically generated embeddings
         self.on_demand_chain_data = {}  # Chain data for on-demand embeddings
         self.pdb_to_uniprot = {}  # For UniProt exclusion
-        self.shared_embedding_cache = shared_embedding_cache  # Shared cache file for multiprocessing
 
         # Cache configuration
         self.use_cache = use_cache
@@ -749,22 +747,9 @@ class EmbeddingManager:
         return self.embedding_db
 
     def _load_embeddings(self) -> bool:
-        """Load pre-computed embeddings from NPZ file or shared cache."""
+        """Load pre-computed embeddings from NPZ file."""
         
-        # Try shared cache first (for multiprocessing)
-        if self.shared_embedding_cache:
-            try:
-                from templ_pipeline.core.utils import load_shared_embedding_cache
-                cached_data = load_shared_embedding_cache(self.shared_embedding_cache)
-                if cached_data:
-                    self.embedding_db = cached_data.get('embedding_db', {})
-                    self.embedding_chain_data = cached_data.get('embedding_chain_data', {})
-                    logger.info(f"Loaded {len(self.embedding_db)} embeddings from shared cache")
-                    return True
-            except Exception as e:
-                logger.warning(f"Failed to load from shared embedding cache: {e}")
-        
-        # Fallback to loading from NPZ file
+        # Load from NPZ file
         if not self.embedding_path or not os.path.exists(self.embedding_path):
             logger.warning(
                 f"Embedding file not found or path is invalid: '{self.embedding_path}'"
@@ -1727,23 +1712,27 @@ def extract_pdb_id_from_file(pdb_file_path: str) -> str:
         header_dict = parse_pdb_header(pdb_file_path)
         # The PDB ID is stored with the key 'idcode'
         if "idcode" in header_dict and header_dict["idcode"]:
-            return header_dict["idcode"].strip()
+            pdb_id = header_dict["idcode"].strip()
+            if len(pdb_id) == 4 and pdb_id.isalnum():
+                return pdb_id
 
-        # Fallback: manually extract from HEADER line
+        # Fallback: manually extract from HEADER line (positions 62-66)
         with open(pdb_file_path, "r") as f:
             for line in f:
                 if line.startswith("HEADER"):
-                    # PDB ID is typically at positions 62-66
+                    # PDB ID is typically at positions 62-66 in HEADER line
                     if len(line) >= 66:
-                        pdb_id = line[62:66].strip()
-                        if pdb_id:
+                        pdb_id = line[62:66].strip().lower()
+                        if len(pdb_id) == 4 and pdb_id.isalnum():
                             return pdb_id
+                elif line.startswith("TITLE") or line.startswith("ATOM"):
+                    # Stop searching after HEADER section
                     break
     except Exception as e:
         logger.warning(f"Could not extract PDB ID from header: {e}")
 
-    # If we get here, we couldn't extract a PDB ID
-    # Create a temporary ID using the filename
+    # If we get here, we couldn't extract a PDB ID from the file header
+    # Create a temporary ID using the filename as last resort
     filename = os.path.basename(pdb_file_path)
     if filename.endswith(".pdb"):
         filename = filename[:-4]  # Remove .pdb extension
@@ -1751,7 +1740,7 @@ def extract_pdb_id_from_file(pdb_file_path: str) -> str:
 
 
 def extract_pdb_id_from_path(file_path: str) -> Optional[str]:
-    """Extract PDB ID from common file path patterns.
+    """Extract PDB ID from file header, not filename.
 
     Args:
         file_path: Path to PDB file
@@ -1759,29 +1748,21 @@ def extract_pdb_id_from_path(file_path: str) -> Optional[str]:
     Returns:
         4-character PDB ID if found, None otherwise
     """
-    import re
-
-    # Get filename without path
-    filename = os.path.basename(file_path)
-
-    # Common patterns for PDB files
-    patterns = [
-        r"^([0-9][a-zA-Z0-9]{3})_.*\.pdb$",
-        r"^([0-9][a-zA-Z0-9]{3})\.pdb$",
-        r"^([0-9][a-zA-Z0-9]{3})_[A-Z]\.pdb$",
-        r".*_([0-9][a-zA-Z0-9]{3})\.pdb$",
-        r".*_([0-9][a-zA-Z0-9]{3})_.*\.pdb$",
-    ]
-
-    for pattern in patterns:
-        match = re.match(pattern, filename, re.IGNORECASE)
-        if match:
-            pdb_id = match.group(1).lower()
-            # Validate PDB ID format (digit + 3 alphanumeric)
-            if len(pdb_id) == 4 and pdb_id[0].isdigit():
-                return pdb_id
-
-    return None
+    try:
+        with open(file_path, "r") as f:
+            for line in f:
+                if line.startswith("HEADER"):
+                    # PDB ID is typically at positions 62-66 in HEADER line
+                    if len(line) >= 66:
+                        pdb_id = line[62:66].strip().lower()
+                        if len(pdb_id) == 4 and pdb_id.isalnum():
+                            return pdb_id
+                elif line.startswith("TITLE") or line.startswith("ATOM"):
+                    # Stop searching after HEADER section
+                    break
+        return None
+    except Exception:
+        return None
 
 
 def filter_templates_by_ca_rmsd(

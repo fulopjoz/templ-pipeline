@@ -600,14 +600,14 @@ def score_and_align(conf: Chem.Mol, tpl: Chem.Mol) -> Tuple[Dict[str, float], Ch
         SanitizeMol(tpl_processed)
         SanitizeMol(prb_processed)
     except Exception as e:
-        log.warning(f"Sanitization failed even after organometallic handling: {e}")
+        logger.warning(f"Sanitization failed even after organometallic handling: {e}")
         # Continue with original molecules as fallback
         try:
             SanitizeMol(tpl)
             SanitizeMol(prb)
             tpl_processed, prb_processed = tpl, prb
         except Exception as e2:
-            log.error(f"Both organometallic handling and fallback sanitization failed: {e2}")
+            logger.error(f"Both organometallic handling and fallback sanitization failed: {e2}")
             # Return default scores to avoid complete failure
             return ({"shape": 0.0, "color": 0.0, "combo": 0.0}, prb)
     
@@ -615,7 +615,7 @@ def score_and_align(conf: Chem.Mol, tpl: Chem.Mol) -> Tuple[Dict[str, float], Ch
         sT, cT = rdShapeAlign.AlignMol(tpl_processed, prb_processed, useColors=True)
         return ({"shape": sT, "color": cT, "combo": 0.5*(sT+cT)}, prb_processed)
     except Exception as e:
-        log.warning(f"Shape alignment failed: {e}")
+        logger.warning(f"Shape alignment failed: {e}")
         return ({"shape": 0.0, "color": 0.0, "combo": 0.0}, prb_processed)
 
 
@@ -773,24 +773,10 @@ def _get_executor_for_context(n_workers: int):
     Uses ThreadPoolExecutor if running in daemon process (to avoid 
     'daemonic processes are not allowed to have children' error),
     otherwise uses ProcessPoolExecutor for better performance.
-    
-    Integrates with ThreadResourceManager to prevent thread exhaustion.
     """
     try:
-        # Import ThreadResourceManager with fallback handling
-        try:
-            from .execution_manager import get_safe_worker_count, log_thread_status, create_robust_process_pool
-            
-            # Get safe worker count for scoring tasks
-            safe_workers = get_safe_worker_count(n_workers, task_type="scoring")
-            
-            # Log thread status for debugging
-            log_thread_status("before_executor_creation")
-            
-        except (ImportError, AttributeError) as import_error:
-            # Fallback if thread manager not available
-            logger.warning(f"Thread manager not available, using conservative worker count: {import_error}")
-            safe_workers = min(n_workers, 4)  # Conservative fallback
+        # Fallback if thread manager not available
+        safe_workers = min(n_workers, 4)  # Conservative fallback
         
         current_process = multiprocessing.current_process()
         if hasattr(current_process, 'daemon') and current_process.daemon:
@@ -798,9 +784,9 @@ def _get_executor_for_context(n_workers: int):
             logger.debug(f"Using ThreadPoolExecutor with {safe_workers} workers (daemon process detected, requested: {n_workers})")
             return ThreadPoolExecutor(max_workers=safe_workers)
         else:
-            # Not in daemon process, use robust process pool like true_mcs.py
-            logger.debug(f"Using robust process pool with {safe_workers} workers (requested: {n_workers})")
-            return create_robust_process_pool(safe_workers, task_type="scoring")
+            # Not in daemon process, use simple process pool
+            logger.debug(f"Using ProcessPoolExecutor with {safe_workers} workers (requested: {n_workers})")
+            return ProcessPoolExecutor(max_workers=safe_workers)
     except Exception as e:
         # Fallback to threads if there's any issue with process detection
         logger.warning(f"Process detection failed, using ThreadPoolExecutor: {e}")
@@ -849,14 +835,8 @@ def select_best(
     executor = None
     if n_workers > 1:
         try:
-            # Import thread monitoring functions (optional)
-            try:
-                from .thread_manager import log_thread_status
-                # Log thread status before creating executor
-                log_thread_status("before_scoring_processing")
-            except ImportError:
-                # Thread monitoring not available, continue without it
-                pass
+            # Thread monitoring not available, continue without it
+            pass
             
             executor = _get_executor_for_context(n_workers)
             logger.debug(f"Created single process pool for all {n_confs} conformers")
