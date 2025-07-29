@@ -497,7 +497,7 @@ def setup_parser():
     benchmark_parser.add_argument(
         "--pipeline-timeout",
         type=int,
-        default=180,
+        default=300,
         help="Timeout in seconds for each individual PDB processing (time-split only)",
     )
     benchmark_parser.add_argument(
@@ -928,14 +928,31 @@ def run_command(args):
         # Calculate RMSD values for each best pose if pipeline succeeded
         rmsd_values = {}
         if results.get("success") and results.get("poses"):
+            logger.info(f"CLI_RMSD: Starting RMSD calculation for successful pipeline")
+            logger.info(f"CLI_RMSD:   Pipeline success: {results.get('success')}")
+            logger.info(f"CLI_RMSD:   Poses available: {list(results.get('poses', {}).keys())}")
+            
             try:
                 # Try to get crystal structure for RMSD calculation
                 crystal_mol = getattr(pipeline, 'crystal_mol', None)
+                has_crystal = crystal_mol is not None
+                
+                logger.info(f"CLI_RMSD: Crystal structure availability check:")
+                logger.info(f"CLI_RMSD:   Pipeline has crystal_mol attribute: {hasattr(pipeline, 'crystal_mol')}")
+                logger.info(f"CLI_RMSD:   Crystal molecule is not None: {has_crystal}")
+                
+                if has_crystal:
+                    logger.info(f"CLI_RMSD:   Crystal molecule atoms: {crystal_mol.GetNumAtoms()}")
+                    logger.info(f"CLI_RMSD:   Crystal molecule conformers: {crystal_mol.GetNumConformers()}")
+                
                 if crystal_mol is not None:
                     from templ_pipeline.core.scoring import rmsd_raw
                     from rdkit import Chem
+                    import numpy as np
                     
                     crystal_noH = Chem.RemoveHs(crystal_mol)
+                    logger.info(f"CLI_RMSD: Processing crystal structure for comparison")
+                    logger.info(f"CLI_RMSD:   Crystal atoms after H removal: {crystal_noH.GetNumAtoms()}")
                     
                     # Calculate RMSD for each metric's best pose
                     for metric, (pose, scores) in results["poses"].items():
@@ -947,22 +964,29 @@ def run_command(args):
                                     "rmsd": float(rmsd) if not np.isnan(rmsd) else None,
                                     "score": float(scores.get(metric, 0.0))
                                 }
+                                if not np.isnan(rmsd):
+                                    logger.info(f"CLI_RMSD: Calculated RMSD for {metric}: {rmsd:.3f}Å")
+                                else:
+                                    logger.debug(f"CLI_RMSD: RMSD calculation returned NaN for {metric} - likely molecular structure incompatibility")
                             except Exception as e:
-                                logger.debug(f"RMSD calculation failed for {metric}: {e}")
+                                logger.warning(f"CLI_RMSD: RMSD calculation failed for {metric}: {e}")
                                 rmsd_values[metric] = {
                                     "rmsd": None,
                                     "score": float(scores.get(metric, 0.0))
                                 }
                 else:
                     # No crystal structure available - just include scores
+                    logger.warning(f"CLI_RMSD: No crystal structure available - using score-only fallback")
                     for metric, (pose, scores) in results["poses"].items():
                         if pose is not None:
                             rmsd_values[metric] = {
                                 "rmsd": None,
                                 "score": float(scores.get(metric, 0.0))
                             }
+                            logger.info(f"CLI_RMSD: Score-only entry for {metric}: {scores.get(metric, 0.0):.3f}")
             except Exception as e:
-                logger.debug(f"RMSD calculation setup failed: {e}")
+                logger.error(f"CLI_RMSD: RMSD calculation setup failed: {e}")
+                logger.error(f"CLI_RMSD: Traceback: {traceback.format_exc()}")
 
         # Output structured JSON for subprocess parsing
         json_output = {

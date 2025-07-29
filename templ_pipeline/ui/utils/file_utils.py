@@ -69,12 +69,15 @@ def extract_pdb_id_from_file(file_path):
                     if len(line) >= 66:
                         pdb_id = line[62:66].strip().lower()
                         if len(pdb_id) == 4 and pdb_id.isalnum():
+                            logger.info(f"Extracted PDB ID '{pdb_id}' from file header")
                             return pdb_id
                 elif line.startswith("TITLE") or line.startswith("ATOM"):
                     # Stop searching after HEADER section
                     break
+        logger.warning(f"No valid PDB ID found in file header: {file_path}")
         return None
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error extracting PDB ID from file {file_path}: {e}")
         return None
 
 

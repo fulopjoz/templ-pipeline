@@ -38,39 +38,6 @@ class PipelineService:
         # Initialize workspace manager
         self._initialize_workspace_manager()
     
-    def _extract_pdb_id_from_filename(self, file_path: str) -> Optional[str]:
-        """Extract PDB ID from filename with enhanced pattern matching."""
-        if not file_path:
-            return None
-            
-        # Extract filename from path
-        filename = os.path.basename(file_path)
-        
-        # Enhanced patterns for PDB ID extraction
-        import re
-        
-        # Multiple patterns to handle various filename formats
-        patterns = [
-            r'^([0-9][a-zA-Z0-9]{3})_',        # 2hyy_protein.pdb, 1abc_complex.pdb
-            r'^([0-9][a-zA-Z0-9]{3})\.',       # 2hyy.pdb, 1abc.cif
-            r'^([0-9][a-zA-Z0-9]{3})$',        # 2hyy, 1abc (no extension)
-            r'_([0-9][a-zA-Z0-9]{3})_',        # protein_2hyy_complex.pdb
-            r'_([0-9][a-zA-Z0-9]{3})\.',       # protein_2hyy.pdb
-            r'([0-9][a-zA-Z0-9]{3})',          # General pattern anywhere in filename
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, filename, re.IGNORECASE)
-            if match:
-                candidate = match.group(1).lower()
-                # Validate that it's a proper PDB ID format
-                if len(candidate) == 4 and candidate[0].isdigit() and candidate[1:].isalnum():
-                    logger.info(f"Extracted PDB ID '{candidate}' from filename '{filename}' using pattern '{pattern}'")
-                    return candidate
-        
-        logger.debug(f"No PDB ID found in filename '{filename}'")
-        return None
-
     def _initialize_workspace_manager(self):
         """Initialize unified workspace manager for the session"""
         try:
@@ -601,9 +568,11 @@ class PipelineService:
         # Use run_full_pipeline with the uploaded PDB file
         try:
             # Try to extract PDB ID from the uploaded file for better identification
-            extracted_pdb_id = self._extract_pdb_id_from_filename(pdb_file)
+            # Use file header extraction instead of filename extraction for uploaded files
+            from ..utils.file_utils import extract_pdb_id_from_file
+            extracted_pdb_id = extract_pdb_id_from_file(pdb_file)
             if extracted_pdb_id:
-                logger.info(f"Extracted PDB ID '{extracted_pdb_id}' from uploaded file")
+                logger.info(f"Extracted PDB ID '{extracted_pdb_id}' from uploaded file header")
                 
                 # Check if this PDB ID already has an embedding in the database
                 embedding_manager = self.pipeline._get_embedding_manager()
