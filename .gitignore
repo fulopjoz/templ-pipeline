@@ -216,3 +216,12 @@ true_mcs.py
 *.ipynb
 benchmark_results_custom/
 diagrams.md
+
+true_mcs.py
+true_mcs_pipeline.py
+time_split_out.txt
+run_custom_split_benchmark.py
+QUICK_DEPLOY.md
+DOCKER_DEPLOYMENT_PLAN.md
+DOCKER_DEPLOYMENT_FINAL.md
+CERIT_DEPLOYMENT.md
