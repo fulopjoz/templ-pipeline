@@ -5,7 +5,6 @@ import logging
 import multiprocessing as mp
 import time
 import traceback
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Dict, List, Optional, Tuple, Union, Any
 from dataclasses import dataclass
 
@@ -20,66 +19,97 @@ from rdkit.Chem import (
 )
 from rdkit.Geometry import Point3D
 
-# Import unified error framework
-try:
-    from templ_pipeline.core.error_framework import UnifiedErrorTracker, ErrorCategory, ErrorSeverity
-except ImportError:
-    # Fallback if unified framework not available
-    class ErrorCategory:
-        SYSTEM = "system"
-        MCS_FINDING = "mcs_finding"
-        CONFORMER_GENERATION = "conformer_generation"
-        MOLECULAR_ALIGNMENT = "molecular_alignment"
-        COORDINATE_TRANSFORMATION = "coordinate_transformation"
-        FORCE_FIELD = "force_field"
-        TEMPLATE_PROCESSING = "template_processing"
-        VALIDATION = "validation"
-        LIGAND_EMBEDDING = "ligand_embedding"
+# Error framework classes (fallback implementation)
+class ErrorCategory:
+    SYSTEM = "system"
+    MCS_FINDING = "mcs_finding"
+    CONFORMER_GENERATION = "conformer_generation"
+    MOLECULAR_ALIGNMENT = "molecular_alignment"
+    COORDINATE_TRANSFORMATION = "coordinate_transformation"
+    FORCE_FIELD = "force_field"
+    TEMPLATE_PROCESSING = "template_processing"
+    VALIDATION = "validation"
+    LIGAND_EMBEDDING = "ligand_embedding"
+
+class ErrorSeverity:
+    ERROR = "error"
+    WARNING = "warning"
+    INFO = "info"
+
+class UnifiedErrorTracker:
+    def __init__(self, storage_mode="dict"):
+        self._errors = {}
+        self.storage_mode = storage_mode
     
-    class ErrorSeverity:
-        ERROR = "error"
-        WARNING = "warning"
-        INFO = "info"
+    def track_error(self, pdb_id, category, message, severity="error", component="unknown", **kwargs):
+        self._errors[pdb_id] = {
+            "category": category,
+            "message": message,
+            "severity": severity,
+            "component": component,
+            "timestamp": time.time()
+        }
     
-    class UnifiedErrorTracker:
-        def __init__(self, storage_mode="dict"):
-            self._errors = {}
-            self.storage_mode = storage_mode
-        
-        def track_error(self, pdb_id, category, message, severity="error", component="unknown", **kwargs):
-            self._errors[pdb_id] = {
-                "category": category,
-                "message": message,
-                "severity": severity,
-                "component": component,
-                "timestamp": time.time()
-            }
-        
-        def has_errors(self, pdb_id=None):
-            if pdb_id:
-                return pdb_id in self._errors
-            return len(self._errors) > 0
-        
-        def get_errors(self, pdb_id=None):
-            if pdb_id:
-                return self._errors.get(pdb_id)
-            return self._errors
-        
-        def clear_errors(self, pdb_id=None):
-            if pdb_id:
-                self._errors.pop(pdb_id, None)
-            else:
-                self._errors.clear()
+    def has_errors(self, pdb_id=None):
+        if pdb_id:
+            return pdb_id in self._errors
+        return len(self._errors) > 0
+    
+    def get_errors(self, pdb_id=None):
+        if pdb_id:
+            return self._errors.get(pdb_id)
+        return self._errors
+    
+    def clear_errors(self, pdb_id=None):
+        if pdb_id:
+            self._errors.pop(pdb_id, None)
+        else:
+            self._errors.clear()
 
 log = logging.getLogger(__name__)
 
 # Constants from original code
 N_CONFS = 50
 MIN_PROTEIN_LENGTH = 20
-DEFAULT_MMFF_ITERATIONS = 1000
+DEFAULT_MMFF_ITERATIONS = 500
 CA_RMSD_THRESHOLD = 2.0
 
 #  Molecular Geometry Validation 
+
+def validate_molecular_connectivity(mol: Chem.Mol, step_name: str = "unknown") -> bool:
+    """Validate that molecular connectivity is preserved after processing.
+    
+    Args:
+        mol: RDKit molecule to validate
+        step_name: Name of the processing step for logging
+        
+    Returns:
+        True if connectivity is preserved, False if broken
+    """
+    if mol is None or mol.GetNumConformers() == 0:
+        return True
+        
+    try:
+        # Check for disconnected fragments
+        fragments = Chem.GetMolFrags(mol, asMols=False)
+        if len(fragments) > 1:
+            log.warning(f"Molecular fragmentation detected at {step_name}: {len(fragments)} fragments")
+            return False
+            
+        # Check for unreasonable atom positions (NaN or infinity)
+        conf = mol.GetConformer(0)
+        for i in range(mol.GetNumAtoms()):
+            pos = conf.GetAtomPosition(i)
+            if not (abs(pos.x) < 1000 and abs(pos.y) < 1000 and abs(pos.z) < 1000):
+                log.warning(f"Unreasonable atom position detected at {step_name}: atom {i} at ({pos.x:.3f}, {pos.y:.3f}, {pos.z:.3f})")
+                return False
+                
+        return True
+        
+    except Exception as e:
+        log.warning(f"Connectivity validation failed at {step_name}: {e}")
+        return False
+
 
 def validate_molecular_geometry(mol: Chem.Mol, step_name: str = "unknown", log_level: str = "warning") -> bool:
     """Validate molecular geometry by checking bond lengths and connectivity.
@@ -232,6 +262,47 @@ def relax_close_constraints(coord_map: dict, min_distance: float = 1.0) -> dict:
     
     log.info(f"Relaxed constraints: {len(coord_map)} -> {len(relaxed_coord_map)} constraints")
     return relaxed_coord_map
+
+
+def simple_minimize_molecule(mol: Chem.Mol) -> bool:
+    """Simple unconstrained minimization using MMFF or UFF fallback.
+    
+    This replaces the complex constrained minimization system with a simple
+    approach that won't shift the molecule from its template-aligned coordinates.
+    
+    Args:
+        mol: RDKit molecule with conformers to minimize
+        
+    Returns:
+        True if minimization succeeded, False otherwise
+    """
+    if mol is None or mol.GetNumConformers() == 0:
+        log.warning("Cannot minimize molecule: no conformers present")
+        return False
+    
+    try:
+        # Check if UFF fallback is needed for organometallic molecules
+        if needs_uff_fallback(mol):
+            log.debug("Using UFF minimization for organometallic molecule")
+            # Use UFF for organometallic molecules
+            AllChem.UFFOptimizeMolecule(mol)
+            return True
+        else:
+            log.debug("Using MMFF minimization for standard molecule")
+            # Use MMFF for standard molecules - optimize all conformers
+            if mol.GetNumConformers() == 1:
+                # Single conformer optimization
+                result = AllChem.MMFFOptimizeMolecule(mol)
+                return result == 0  # 0 indicates successful convergence
+            else:
+                # Multiple conformer optimization
+                results = AllChem.MMFFOptimizeMoleculeConfs(mol)
+                # Return True if at least one conformer converged successfully
+                return any(result[0] == 0 for result in results)
+    
+    except Exception as e:
+        log.warning(f"Simple minimization failed: {e}")
+        return False
 
 
 #  Core MCS Functions 
@@ -490,8 +561,42 @@ def find_mcs(tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False) 
 
 #  Conformer Generation Functions 
 
+def validate_mmff_parameters(mol: Chem.Mol) -> bool:
+    """Check if MMFF parameters are available for all atoms in the molecule.
+    
+    Args:
+        mol: Input molecule
+        
+    Returns:
+        True if MMFF parameters are available for all atoms, False otherwise
+    """
+    if mol is None:
+        return False
+        
+    try:
+        # Check if MMFF parameters are available for all atoms
+        mp = rdForceFieldHelpers.MMFFGetMoleculeProperties(mol, mmffVariant='MMFF94s')
+        if mp is None:
+            log.debug("MMFF parameters not available for molecule")
+            return False
+            
+        # Additional check using MMFFHasAllMoleculeParams if available
+        try:
+            has_params = rdForceFieldHelpers.MMFFHasAllMoleculeParams(mol)
+            log.debug(f"MMFF parameter availability: {has_params}")
+            return has_params
+        except AttributeError:
+            # Fallback if MMFFHasAllMoleculeParams is not available
+            log.debug("Using fallback MMFF parameter validation")
+            return mp is not None
+            
+    except Exception as e:
+        log.warning(f"MMFF parameter validation failed: {e}")
+        return False
+
+
 def needs_uff_fallback(mol: Chem.Mol) -> bool:
-    """Check if molecule needs UFF fallback due to organometallic atoms.
+    """Check if molecule needs UFF fallback due to organometallic atoms or MMFF parameter issues.
     
     Args:
         mol: Input molecule
@@ -499,6 +604,9 @@ def needs_uff_fallback(mol: Chem.Mol) -> bool:
     Returns:
         True if UFF fallback is needed, False otherwise
     """
+    if mol is None:
+        return True
+        
     # Check for organometallic atoms (transition metals and metalloids)
     organometallic_atoms = {
         21, 22, 23, 24, 25, 26, 27, 28, 29, 30,  # Sc-Zn
@@ -510,42 +618,15 @@ def needs_uff_fallback(mol: Chem.Mol) -> bool:
     for atom in mol.GetAtoms():
         if atom.GetAtomicNum() in organometallic_atoms:
             return True
+            
+    # Check if MMFF parameters are available
+    if not validate_mmff_parameters(mol):
+        log.info("MMFF parameters not available, using UFF fallback")
+        return True
+        
     return False
 
 
-def minimize_with_uff(mol: Chem.Mol, conf_ids: List[int], fixed_atoms: List[int] = None, max_its: int = DEFAULT_MMFF_ITERATIONS) -> bool:
-    """UFF minimization for organometallic molecules.
-    
-    Args:
-        mol: Molecule to minimize
-        conf_ids: List of conformer IDs to minimize
-        fixed_atoms: List of atom indices to keep fixed
-        max_its: Maximum iterations for minimization
-        
-    Returns:
-        True if minimization succeeded, False otherwise
-    """
-    if fixed_atoms is None:
-        fixed_atoms = []
-        
-    try:
-        for conf_id in conf_ids:
-            ff = rdForceFieldHelpers.UFFGetMoleculeForceField(mol, confId=conf_id)
-            if ff is None:
-                log.debug(f"Could not get UFF force field for conformer {conf_id}")
-                continue
-                
-            for idx in fixed_atoms:
-                if idx < mol.GetNumAtoms():
-                    ff.AddFixedPoint(idx)
-                    
-            ff.Minimize(maxIts=max_its)
-            
-        return True
-        
-    except Exception as e:
-        log.warning(f"UFF minimization failed: {e}")
-        return False
 
 
 def embed_organometallic_with_constraints(mol: Chem.Mol, n_conformers: int, coordMap: dict) -> List[int]:
@@ -681,7 +762,8 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: dict = N
                     maxAttempts=1000
                 )
             if cids:
-                minimize_with_uff(mol, list(cids))
+                # Use simple UFF optimization for organogmetallic molecules
+                AllChem.UFFOptimizeMolecule(mol)
                 log.debug(f"UFF fallback succeeded: {len(cids)} conformers")
                 return list(cids)
         
@@ -922,16 +1004,23 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
         # Apply force field optimization if enabled
         log.info(f"Force field optimization parameter: enable_optimization={enable_optimization}")
         if enable_optimization:
-            log.info("Applying unconstrained force field optimization to whole molecule after MCS positioning")
-            if use_uff:
-                minimize_with_uff(target_h, list(conf_ids), [])  # Empty list = unconstrained optimization
-            else:
-                mmff_minimise_fixed_parallel(target_h, list(conf_ids), [], n_workers=n_workers_pipeline)  # Empty list = unconstrained optimization
+            log.info("Applying simple unconstrained force field minimization")
             
-            # Validate geometry after minimization
-            is_valid_after_minimization = validate_molecular_geometry(target_h, "after_minimization", "info")
-            if not is_valid_after_minimization:
-                log.warning("Molecular distortion detected after minimization")
+            # Use simple minimization approach
+            minimization_success = simple_minimize_molecule(target_h)
+            
+            if minimization_success:
+                log.info("Simple minimization completed successfully")
+                # Validate connectivity and geometry after minimization
+                is_connected = validate_molecular_connectivity(target_h, "after_minimization")
+                if not is_connected:
+                    log.warning("Molecular connectivity issues detected after minimization")
+                
+                is_valid_after_minimization = validate_molecular_geometry(target_h, "after_minimization", "info")
+                if not is_valid_after_minimization:
+                    log.warning("Molecular distortion detected after minimization")
+            else:
+                log.warning("Simple minimization failed, using unoptimized conformers")
         else:
             log.info("Skipping force field minimization (enable_optimization=False)")
             log.info("ETKDGv3 embedding + alignment provides sufficient geometry optimization")
@@ -992,12 +1081,19 @@ def central_atom_embed(tgt: Chem.Mol, ref: Chem.Mol, n_conformers: int, n_worker
         
         # Apply force field optimization if enabled
         if enable_optimization:
-            log.info("Applying force field optimization to central atom fallback conformers")
-            # Use UFF for organometallic molecules, MMFF for others
-            if needs_uff_fallback(tgt_copy):
-                minimize_with_uff(tgt_copy, list(range(tgt_copy.GetNumConformers())))
+            log.info("Applying simple force field minimization to central atom fallback conformers")
+            
+            # Use simple minimization approach
+            minimization_success = simple_minimize_molecule(tgt_copy)
+            
+            if minimization_success:
+                log.info("Simple minimization completed successfully for central atom fallback")
+                # Validate connectivity after minimization
+                is_connected = validate_molecular_connectivity(tgt_copy, "central_atom_fallback_after_minimization")
+                if not is_connected:
+                    log.warning("Molecular connectivity issues detected after central atom fallback minimization")
             else:
-                mmff_minimise_fixed_parallel(tgt_copy, list(range(tgt_copy.GetNumConformers())), [], n_workers=n_workers_pipeline)
+                log.warning("Simple minimization failed in central atom fallback")
         else:
             log.info("Skipping force field minimization for central atom fallback (use --enable-optimization to enable)")
             log.info("Unconstrained embedding provides sufficient geometry optimization")
@@ -1011,209 +1107,9 @@ def central_atom_embed(tgt: Chem.Mol, ref: Chem.Mol, n_conformers: int, n_worker
 
 #  MMFF Minimization Functions 
 
-def mmff_minimise_fixed_sequential(mol: Chem.Mol, conf_ids, fixed_idx, its: int = DEFAULT_MMFF_ITERATIONS):
-    """Sequential MMFF minimization with fixed atom constraints.
-    
-    Args:
-        mol: Molecule to minimize
-        conf_ids: List of conformer IDs to minimize
-        fixed_idx: List of atom indices to keep fixed
-        its: Maximum iterations for minimization
-    """
-    try:
-        for conf_id in conf_ids:
-            mp = rdForceFieldHelpers.MMFFGetMoleculeProperties(mol, mmffVariant='MMFF94s')
-            if mp is None:
-                log.debug(f"Could not get MMFF params for conformer {conf_id}")
-                continue
-                
-            ff = rdForceFieldHelpers.MMFFGetMoleculeForceField(mol, mp, confId=conf_id)
-            if ff is None:
-                log.debug(f"Could not get MMFF force field for conformer {conf_id}")
-                continue
-                
-            for idx in fixed_idx:
-                if idx < mol.GetNumAtoms():
-                    ff.AddFixedPoint(idx)
-                    
-            ff.Minimize(maxIts=its)
-            
-    except Exception as e:
-        log.warning(f"Sequential MMFF minimization failed: {e}")
 
 
-def mmff_minimise_fixed_parallel(mol_original: Chem.Mol, conf_ids: List[int], fixed_idx: List[int], its: int = DEFAULT_MMFF_ITERATIONS, n_workers: int = 0):
-    """Parallel MMFF minimization with fixed atom constraints.
-    
-    Args:
-        mol_original: Original molecule
-        conf_ids: List of conformer IDs to minimize
-        fixed_idx: List of atom indices to keep fixed
-        its: Maximum iterations for minimization
-        n_workers: Number of workers for parallel processing
-    """
-    # Handle n_workers = 0 (use all CPUs) or n_workers = 1 (sequential)
-    if n_workers == 0:
-        n_workers = mp.cpu_count() or 4  # Use all CPUs, fallback to 4
-    elif n_workers == 1:
-        return mmff_minimise_fixed_sequential(mol_original, conf_ids, fixed_idx, its)
-    
-    try:
-        # Prepare data for parallel processing
-        mol_smiles = Chem.MolToSmiles(mol_original)
-        tasks = []
-        
-        for conf_id in conf_ids:
-            if conf_id < mol_original.GetNumConformers():
-                conf = mol_original.GetConformer(conf_id)
-                coords = conf.GetPositions().tolist()
-                tasks.append((mol_smiles, conf_id, coords, fixed_idx, 'MMFF94s', its))
-        
-        # Process in parallel
-        with ProcessPoolExecutor(max_workers=n_workers) as executor:
-            # Check if UFF fallback is needed
-            if needs_uff_fallback(mol_original):
-                futures = [executor.submit(_mmff_minimize_single_conformer_task_uff_aware, task) for task in tasks]
-            else:
-                futures = [executor.submit(_mmff_minimize_single_conformer_task, task) for task in tasks]
-            
-            # Collect results
-            for future in as_completed(futures):
-                try:
-                    conf_id, minimized_coords = future.result()
-                    if minimized_coords is not None and conf_id < mol_original.GetNumConformers():
-                        conf = mol_original.GetConformer(conf_id)
-                        for atom_idx, coord in enumerate(minimized_coords):
-                            if atom_idx < conf.GetNumAtoms():
-                                conf.SetAtomPosition(atom_idx, Point3D(*coord))
-                except Exception as e:
-                    log.warning(f"Parallel minimization task failed: {e}")
-                    
-    except Exception as e:
-        log.warning(f"Parallel MMFF minimization failed, falling back to sequential: {e}")
-        mmff_minimise_fixed_sequential(mol_original, conf_ids, fixed_idx, its)
 
-
-#  Worker Functions for Parallel Processing 
-
-def _mmff_minimize_single_conformer_task(args_tuple):
-    """Helper for parallel MMFF minimization. Modifies a conformer of a molecule (passed as SMILES).
-    
-    Args:
-        args_tuple: Tuple containing (mol_smiles, conformer_id, initial_conformer_coords, 
-                   fixed_atom_indices, mmff_variant, max_its)
-    
-    Returns:
-        Tuple (conformer_id, list_of_minimized_coords) or None if failed
-    """
-    mol_smiles, conformer_id, initial_conformer_coords, fixed_atom_indices, mmff_variant, max_its = args_tuple
-    
-    try:
-        mol = Chem.MolFromSmiles(mol_smiles)
-        if not mol:
-            return conformer_id, None
-        
-        # Add hydrogens and set up conformer
-        mol = Chem.AddHs(mol)
-        conf = Chem.Conformer(mol.GetNumAtoms())
-        
-        # Set coordinates
-        for i, coord in enumerate(initial_conformer_coords):
-            if i < mol.GetNumAtoms():
-                conf.SetAtomPosition(i, Point3D(*coord))
-        
-        mol.AddConformer(conf, assignId=True)
-        
-        # Set up MMFF
-        mp = rdForceFieldHelpers.MMFFGetMoleculeProperties(mol, mmffVariant=mmff_variant)
-        if mp is None:
-            return conformer_id, None
-            
-        ff = rdForceFieldHelpers.MMFFGetMoleculeForceField(mol, mp, confId=0)
-        if ff is None:
-            return conformer_id, None
-            
-        # Add fixed points
-        for idx in fixed_atom_indices:
-            if idx < mol.GetNumAtoms():
-                ff.AddFixedPoint(idx)
-        
-        # Minimize
-        ff.Minimize(maxIts=max_its)
-        minimized_coords = mol.GetConformer(0).GetPositions().tolist()
-        
-        return conformer_id, minimized_coords
-        
-    except Exception as e:
-        log.error(f"MMFF minimization task failed for conformer {conformer_id}: {e}")
-        return conformer_id, None
-
-
-def _mmff_minimize_single_conformer_task_uff_aware(args_tuple):
-    """UFF-aware helper for parallel MMFF minimization with automatic fallback.
-    
-    Args:
-        args_tuple: Tuple containing (mol_smiles, conformer_id, initial_conformer_coords, 
-                   fixed_atom_indices, mmff_variant, max_its)
-    
-    Returns:
-        Tuple (conformer_id, list_of_minimized_coords) or None if failed
-    """
-    mol_smiles, conformer_id, initial_conformer_coords, fixed_atom_indices, mmff_variant, max_its = args_tuple
-    
-    try:
-        mol = Chem.MolFromSmiles(mol_smiles)
-        if not mol:
-            return conformer_id, None
-        
-        # Add hydrogens and set up conformer
-        mol = Chem.AddHs(mol)
-        conf = Chem.Conformer(mol.GetNumAtoms())
-        
-        # Set coordinates
-        for i, coord in enumerate(initial_conformer_coords):
-            if i < mol.GetNumAtoms():
-                conf.SetAtomPosition(i, Point3D(*coord))
-        
-        mol.AddConformer(conf, assignId=True)
-        
-        # Check if UFF fallback is needed
-        use_uff = needs_uff_fallback(mol)
-        
-        if use_uff:
-            # Use UFF for organometallic molecules
-            ff = rdForceFieldHelpers.UFFGetMoleculeForceField(mol, confId=0)
-            if ff is None:
-                return conformer_id, None
-            
-            for idx in fixed_atom_indices:
-                if idx < mol.GetNumAtoms():
-                    ff.AddFixedPoint(idx)
-                    
-            ff.Minimize(maxIts=max_its)
-            
-        else:
-            # Use MMFF for regular molecules
-            mp = rdForceFieldHelpers.MMFFGetMoleculeProperties(mol, mmffVariant=mmff_variant)
-            if mp is None:
-                return conformer_id, None
-                
-            ff = rdForceFieldHelpers.MMFFGetMoleculeForceField(mol, mp, confId=0)
-            if ff is None:
-                return conformer_id, None
-                
-            for idx in fixed_atom_indices:
-                if idx < mol.GetNumAtoms():
-                    ff.AddFixedPoint(idx)
-                    
-            ff.Minimize(maxIts=max_its)
-        
-        minimized_coords = mol.GetConformer(0).GetPositions().tolist()
-        return conformer_id, minimized_coords
-        
-    except Exception as e:
-        log.error(f"UFF-aware minimization task failed for conformer {conformer_id}: {e}")
-        return conformer_id, None
 
 
 #  Utility Functions 

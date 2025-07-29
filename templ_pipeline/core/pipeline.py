@@ -149,8 +149,7 @@ class TEMPLPipeline:
         """Initialize the embedding manager."""
         try:
             self.embedding_manager = EmbeddingManager(
-                self.embedding_path, 
-                shared_embedding_cache=self.shared_embedding_cache
+                self.embedding_path
             )
             log.info("Embedding manager initialized successfully")
         except Exception as e:
@@ -164,37 +163,66 @@ class TEMPLPipeline:
         return self.embedding_manager
     
     def _extract_pdb_id_from_path(self, file_path: str) -> Optional[str]:
-        """Extract PDB ID from file path with enhanced pattern matching."""
+        """Extract PDB ID from file header using multiple strategies."""
         if not file_path:
             return None
             
-        # Extract filename from path
-        filename = os.path.basename(file_path)
-        
-        # Enhanced patterns for PDB ID extraction
-        import re
-        
-        # Multiple patterns to handle various filename formats
-        patterns = [
-            r'^([0-9][a-zA-Z0-9]{3})_',        # 2hyy_protein.pdb, 1abc_complex.pdb
-            r'^([0-9][a-zA-Z0-9]{3})\.',       # 2hyy.pdb, 1abc.cif
-            r'^([0-9][a-zA-Z0-9]{3})$',        # 2hyy, 1abc (no extension)
-            r'_([0-9][a-zA-Z0-9]{3})_',        # protein_2hyy_complex.pdb
-            r'_([0-9][a-zA-Z0-9]{3})\.',       # protein_2hyy.pdb
-            r'([0-9][a-zA-Z0-9]{3})',          # General pattern anywhere in filename
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, filename, re.IGNORECASE)
-            if match:
-                candidate = match.group(1).lower()
-                # Validate that it's a proper PDB ID format
-                if len(candidate) == 4 and candidate[0].isdigit() and candidate[1:].isalnum():
-                    log.info(f"Extracted PDB ID '{candidate}' from filename '{filename}' using pattern '{pattern}'")
-                    return candidate
-        
-        log.debug(f"No PDB ID found in filename '{filename}'")
-        return None
+        try:
+            with open(file_path, "r") as f:
+                for line in f:
+                    if line.startswith("HEADER"):
+                        # Strategy 1: Standard PDB format - PDB ID at positions 62-66
+                        if len(line) >= 66:
+                            pdb_id = line[62:66].strip().lower()
+                            if len(pdb_id) == 4 and pdb_id.isalnum():
+                                log.info(f"Extracted PDB ID '{pdb_id}' from standard header format")
+                                return pdb_id
+                        
+                        # Strategy 2: Simple header format - "HEADER    PDB_ID" or "HEADER    PDB_ID_PROTEIN"
+                        header_parts = line.strip().split()
+                        if len(header_parts) >= 2:
+                            potential_id = header_parts[1]
+                            
+                            # Remove common suffixes like "_PROTEIN"
+                            if potential_id.endswith("_PROTEIN"):
+                                potential_id = potential_id[:-8]
+                            elif potential_id.endswith("_COMPLEX"):
+                                potential_id = potential_id[:-8]
+                            
+                            # Validate as 4-character PDB ID
+                            if len(potential_id) == 4 and potential_id.isalnum():
+                                pdb_id = potential_id.lower()
+                                log.info(f"Extracted PDB ID '{pdb_id}' from simple header format")
+                                return pdb_id
+                                
+                    elif line.startswith("TITLE") or line.startswith("ATOM"):
+                        # Stop searching after HEADER section
+                        break
+                        
+            # Strategy 3: Filename fallback - extract from filename as last resort
+            import os
+            filename = os.path.basename(file_path)
+            if filename:
+                # Remove extension
+                name_part = os.path.splitext(filename)[0]
+                
+                # Remove common suffixes
+                if name_part.endswith("_protein"):
+                    name_part = name_part[:-8]
+                elif name_part.endswith("_complex"):
+                    name_part = name_part[:-8]
+                
+                # Check if it looks like a PDB ID
+                if len(name_part) == 4 and name_part.isalnum():
+                    pdb_id = name_part.lower()
+                    log.info(f"Extracted PDB ID '{pdb_id}' from filename as fallback")
+                    return pdb_id
+                    
+            log.warning(f"No valid PDB ID found in file header or filename: {file_path}")
+            return None
+        except Exception as e:
+            log.error(f"Error extracting PDB ID from file {file_path}: {e}")
+            return None
 
     def load_target_data(self) -> bool:
         """Load target protein and ligand data."""
@@ -237,7 +265,12 @@ class TEMPLPipeline:
                 self.crystal_mol = self._load_crystal_molecule(target_pdb_id)
                 
                 # Validate target molecule for peptides and other issues
-                pdb_id = target_pdb_id or getattr(self.config, 'protein_pdb_id', 'unknown')
+                # Ensure pdb_id is never None by using multiple fallback strategies
+                pdb_id = target_pdb_id
+                if not pdb_id:
+                    pdb_id = getattr(self.config, 'protein_pdb_id', None)
+                if not pdb_id:
+                    pdb_id = 'unknown'
                 peptide_threshold = getattr(self.config, 'peptide_threshold', 8)
                 
                 is_valid, validation_msg = validate_target_molecule(
@@ -302,31 +335,53 @@ class TEMPLPipeline:
         """Load crystal molecule for RMSD calculation."""
         try:
             if not pdb_id:
+                log.info(f"CRYSTAL_LOADING: No PDB ID provided for crystal structure loading")
                 return None
                 
             # Try to find crystal ligand in processed SDF
-            ligands_sdf_gz = f"{getattr(self.config, 'data_dir', DEFAULT_DATA_DIR)}/ligands/templ_processed_ligands_v1.0.0.sdf.gz"
+            config_data_dir = getattr(self.config, 'data_dir', None)
+            actual_data_dir = config_data_dir if config_data_dir else DEFAULT_DATA_DIR
+            ligands_sdf_gz = f"{actual_data_dir}/ligands/templ_processed_ligands_v1.0.0.sdf.gz"
+            
+            log.info(f"CRYSTAL_LOADING: Loading crystal structure for {pdb_id}")
+            log.info(f"CRYSTAL_LOADING:   Config data_dir: {config_data_dir}")
+            log.info(f"CRYSTAL_LOADING:   Actual data_dir: {actual_data_dir}")
+            log.info(f"CRYSTAL_LOADING:   Looking for SDF: {ligands_sdf_gz}")
+            log.info(f"CRYSTAL_LOADING:   SDF exists: {os.path.exists(ligands_sdf_gz)}")
             
             if not os.path.exists(ligands_sdf_gz):
-                log.debug(f"Crystal ligand SDF not found: {ligands_sdf_gz}")
+                log.warning(f"CRYSTAL_LOADING: Crystal ligand SDF not found: {ligands_sdf_gz}")
                 return None
                 
+            molecules_searched = 0
+            molecules_matched = 0
+            
             with gzip.open(ligands_sdf_gz, 'rb') as fh:
                 for mol in Chem.ForwardSDMolSupplier(fh, removeHs=False, sanitize=False):
+                    molecules_searched += 1
                     if not mol or not mol.GetNumConformers():
                         continue
                     
                     # Check if this is our target
                     mol_name = safe_name(mol, "")
                     if mol_name and mol_name.lower().startswith(pdb_id.lower()):
-                        log.info(f"Found crystal ligand for {pdb_id}")
+                        molecules_matched += 1
+                        log.info(f"CRYSTAL_LOADING: Found crystal ligand for {pdb_id}")
+                        log.info(f"CRYSTAL_LOADING:   Molecule name: {mol_name}")
+                        log.info(f"CRYSTAL_LOADING:   Molecule atoms: {mol.GetNumAtoms()}")
+                        log.info(f"CRYSTAL_LOADING:   Molecule conformers: {mol.GetNumConformers()}")
+                        log.info(f"CRYSTAL_LOADING:   Searched {molecules_searched} molecules total")
                         return Chem.Mol(mol)
                         
-            log.debug(f"No crystal ligand found for {pdb_id}")
+            log.warning(f"CRYSTAL_LOADING: No crystal ligand found for {pdb_id}")
+            log.info(f"CRYSTAL_LOADING:   Searched {molecules_searched} molecules total")
+            log.info(f"CRYSTAL_LOADING:   Matched {molecules_matched} molecules")
             return None
             
         except Exception as e:
-            log.error(f"Failed to load crystal molecule: {e}")
+            log.error(f"CRYSTAL_LOADING: Failed to load crystal molecule for {pdb_id}: {e}")
+            import traceback
+            log.error(f"CRYSTAL_LOADING: Traceback: {traceback.format_exc()}")
             return None
     
     def load_templates(self) -> bool:
@@ -368,63 +423,46 @@ class TEMPLPipeline:
     
     def get_protein_embedding(self, pdb_id: str, pdb_file: str = None) -> Tuple[Optional[np.ndarray], Optional[List[str]]]:
         """Get protein embedding for PDB ID and the chains used.
-        
-        When PDB file is provided:
-        1. Extract PDB ID from file if not provided
-        2. Check if extracted PDB ID exists in embedding database
-        3. Use existing embedding if found, otherwise generate from file
+
+        When a PDB file is provided, this function will first extract the PDB ID, check for
+        an existing embedding in the database, and only generate a new one if not found.
         """
         try:
             if self.embedding_manager is None:
                 log.error("Embedding manager not initialized")
                 return None, None
-            
-            # If PDB file is provided, try to extract PDB ID for database lookup
+
+            # Normalize the provided PDB ID for consistent lookup
+            if pdb_id:
+                pdb_id = pdb_id.upper().split(':')[-1]
+
+            # If a PDB file is provided, extract its PDB ID and prioritize it
             if pdb_file and os.path.exists(pdb_file):
-                # Extract PDB ID from file if not provided or if provided ID is temporary
-                if not pdb_id or pdb_id.startswith("TEMP_"):
-                    extracted_pdb_id = self._extract_pdb_id_from_path(pdb_file)
-                    if extracted_pdb_id:
-                        pdb_id = extracted_pdb_id
-                        log.info(f"Extracted PDB ID '{pdb_id}' from uploaded file")
-                
-                # Check if extracted/provided PDB ID exists in embedding database
-                if pdb_id and self.embedding_manager.has_embedding(pdb_id):
-                    log.info(f"Using existing embedding for PDB ID '{pdb_id}' from database")
-                    embedding, chains_str = self.embedding_manager.get_embedding(pdb_id)
-                    if embedding is not None:
-                        chains = chains_str.split(',') if chains_str else []
-                        return embedding, chains
-                
-                # If no existing embedding found, generate from uploaded file
-                log.info(f"Generating embedding from uploaded file for PDB ID '{pdb_id}'")
+                extracted_pdb_id = self._extract_pdb_id_from_path(pdb_file)
+                if extracted_pdb_id:
+                    pdb_id = extracted_pdb_id.upper()
+                    log.info(f"Using PDB ID '{pdb_id}' extracted from file for embedding lookup")
+
+            # Always check for an existing embedding first
+            if pdb_id and self.embedding_manager.has_embedding(pdb_id):
+                log.info(f"Found existing embedding for PDB ID '{pdb_id}'. Using it.")
+                embedding, chains_str = self.embedding_manager.get_embedding(pdb_id)
+                if embedding is not None:
+                    return embedding, (chains_str.split(',') if chains_str else [])
+
+            # If no embedding is found, generate a new one ONLY if a file is provided
+            if pdb_file and os.path.exists(pdb_file):
+                log.info(f"No existing embedding for '{pdb_id}'. Generating new embedding from {pdb_file}.")
                 embedding, chains_str = self.embedding_manager.get_embedding(pdb_id, pdb_file=pdb_file)
-            
-            # Handle PDB ID without file (database lookup)
-            elif pdb_id:
-                # Check existing embeddings first
-                if self.embedding_manager.has_embedding(pdb_id):
-                    log.info(f"Using existing embedding for PDB ID '{pdb_id}' from database")
-                    embedding, chains_str = self.embedding_manager.get_embedding(pdb_id)
-                else:
-                    # Try to find PDB file in database
-                    pdb_file_path = pdb_path(pdb_id, getattr(self.config, 'data_dir', DEFAULT_DATA_DIR))
-                    if pdb_file_path and os.path.exists(pdb_file_path):
-                        log.info(f"Generating embedding for PDB ID '{pdb_id}' from database file")
-                        embedding, chains_str = self.embedding_manager.get_embedding(pdb_id, pdb_file=pdb_file_path)
-                    else:
-                        log.error(f"PDB ID '{pdb_id}' not found in embedding database or file system")
-                        return None, None
-            else:
-                log.error("No PDB ID or file provided")
-                return None, None
-            
-            if embedding is not None:
-                chains = chains_str.split(',') if chains_str else []
-                return embedding, chains
-            
+                if embedding is not None:
+                    return embedding, (chains_str.split(',') if chains_str else [])
+
+            # If no file is provided and the PDB ID is not in the database, fail gracefully
+            if pdb_id and not pdb_file:
+                log.error(f"PDB ID '{pdb_id}' not found in embedding database and no PDB file was provided.")
+
             return None, None
-            
+
         except Exception as e:
             log.error(f"Failed to get protein embedding for {pdb_id}: {e}", exc_info=True)
             return None, None
@@ -489,7 +527,7 @@ class TEMPLPipeline:
                     continue
 
                 # Get chain info for the mobile protein
-                _, mob_chains = self.get_protein_embedding(pdb_id)
+                _, mob_chains = self.get_protein_embedding(pdb_id, pdb_file=pdb_file)
                 
                 if self.reference_protein is not None:
                     transformed_mol = transform_ligand(
@@ -749,9 +787,30 @@ class TEMPLPipeline:
             # Get target embedding and chains
             target_pdb_file = getattr(self.config, 'target_pdb', None)
             query_embedding, ref_chains = self.get_protein_embedding(query_pdb_id, pdb_file=target_pdb_file)
+
             if query_embedding is None:
                 log.error(f"Failed to get/generate protein embedding for {query_pdb_id}")
                 return False
+
+            # If chains were not found during embedding, try to get them now
+            if not ref_chains:
+                log.warning(f"No chains returned with embedding for {query_pdb_id}. Attempting to extract from file.")
+                if target_pdb_file and os.path.exists(target_pdb_file):
+                    _, ref_chains = get_protein_sequence(target_pdb_file)
+                    if ref_chains:
+                        log.info(f"Successfully extracted chains: {ref_chains}")
+                    else:
+                        log.error(f"Could not extract chains from {target_pdb_file}")
+                        return False
+                else:
+                    # Attempt to get chain data from the embedding manager as a last resort
+                    chains_str = self.embedding_manager.get_chain_data(query_pdb_id)
+                    if chains_str:
+                        ref_chains = chains_str.split(',')
+                        log.info(f"Successfully retrieved chains from embedding metadata: {ref_chains}")
+                    else:
+                        log.error(f"No PDB file available and no chain data in embedding for {query_pdb_id}")
+                        return False
 
             num_templates = getattr(self.config, 'num_templates', 100)
             exclude_pdb_ids = getattr(self, 'exclude_pdb_ids', set())
