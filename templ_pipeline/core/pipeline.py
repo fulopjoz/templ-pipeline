@@ -432,6 +432,18 @@ class TEMPLPipeline:
                 log.error("Embedding manager not initialized")
                 return None, None
 
+            # Input validation: detect if a file path was passed instead of PDB ID
+            if pdb_id and ('/' in pdb_id or '\\' in pdb_id or pdb_id.endswith('.pdb')):
+                log.warning(f"File path detected as PDB ID: '{pdb_id}'. Attempting to extract PDB ID from path.")
+                extracted_id = self._extract_pdb_id_from_path(pdb_id)
+                if extracted_id:
+                    original_input = pdb_id
+                    pdb_id = extracted_id
+                    log.info(f"Extracted PDB ID '{pdb_id}' from path '{original_input}'")
+                else:
+                    log.error(f"Could not extract valid PDB ID from path: '{pdb_id}'")
+                    return None, None
+
             # Normalize the provided PDB ID for consistent lookup
             if pdb_id:
                 pdb_id = pdb_id.upper().split(':')[-1]
@@ -460,6 +472,7 @@ class TEMPLPipeline:
             # If no file is provided and the PDB ID is not in the database, fail gracefully
             if pdb_id and not pdb_file:
                 log.error(f"PDB ID '{pdb_id}' not found in embedding database and no PDB file was provided.")
+                log.error(f"Available options: 1) Provide PDB file path, 2) Check if PDB ID exists in database, 3) Verify PDB ID format (should be 4 characters)")
 
             return None, None
 
@@ -763,29 +776,27 @@ class TEMPLPipeline:
             if not self.load_target_data():
                 return False
 
-            query_pdb_id = getattr(self.config, 'protein_pdb_id', None) or getattr(self.config, 'target_pdb', None)
+            query_pdb_id = getattr(self.config, 'protein_pdb_id', None)
+            target_pdb_file = getattr(self.config, 'target_pdb', None)
             
-            # If no PDB ID is found but we have a file path, try to extract it
-            if not query_pdb_id:
-                target_pdb_file = getattr(self.config, 'target_pdb', None)
-                if target_pdb_file:
-                    extracted_id = self._extract_pdb_id_from_path(target_pdb_file)
-                    if extracted_id:
-                        query_pdb_id = extracted_id
-                        log.info(f"Using extracted PDB ID '{query_pdb_id}' for pipeline execution")
-                    else:
-                        # Use the filename without extension as fallback
-                        query_pdb_id = os.path.splitext(os.path.basename(target_pdb_file))[0]
-                        log.info(f"Using filename '{query_pdb_id}' as fallback PDB ID")
+            # If no explicit PDB ID is provided, try to extract it from the file path
+            if not query_pdb_id and target_pdb_file:
+                extracted_id = self._extract_pdb_id_from_path(target_pdb_file)
+                if extracted_id:
+                    query_pdb_id = extracted_id
+                    log.info(f"Using extracted PDB ID '{query_pdb_id}' for pipeline execution")
                 else:
-                    log.error("No protein PDB ID or file provided")
-                    return False
+                    # Use the filename without extension as fallback
+                    query_pdb_id = os.path.splitext(os.path.basename(target_pdb_file))[0]
+                    log.info(f"Using filename '{query_pdb_id}' as fallback PDB ID")
+            elif not query_pdb_id and not target_pdb_file:
+                log.error("No protein PDB ID or file provided")
+                return False
 
             # Setup enhanced output folder structure
             self.output_manager.setup_output_folder(query_pdb_id)
 
             # Get target embedding and chains
-            target_pdb_file = getattr(self.config, 'target_pdb', None)
             query_embedding, ref_chains = self.get_protein_embedding(query_pdb_id, pdb_file=target_pdb_file)
 
             if query_embedding is None:
