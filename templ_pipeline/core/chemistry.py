@@ -205,7 +205,7 @@ def has_rhenium_complex(mol: Chem.Mol, pdb_id: str = "") -> Tuple[bool, str]:
         return False, ""
 
     # Special case for 3rj7 - allow processing with substitution
-    if pdb_id.lower() == "3rj7":
+    if pdb_id and pdb_id.lower() == "3rj7":
         for atom in mol.GetAtoms():
             if atom.GetAtomicNum() == 75:  # Rhenium
                 logger.info(
