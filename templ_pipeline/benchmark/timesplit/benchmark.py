@@ -66,7 +66,7 @@ def run_timesplit_benchmark(
     results_dir: str = None,
     poses_output_dir: str = None,
     similarity_threshold: float = None,
-    timeout: int = 600,
+    timeout: int = 300,
     quiet: bool = False,
     # Ablation study parameters
     unconstrained: bool = False,
@@ -298,7 +298,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--timeout",
         type=int,
-        default=600,
+        default=300,
         help="Timeout per molecule in seconds",
     )
     

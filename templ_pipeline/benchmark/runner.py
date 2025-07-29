@@ -286,14 +286,13 @@ def cleanup_memory():
 class BenchmarkRunner:
     """Memory-optimized TEMPL pipeline runner for benchmarks."""
 
-    def __init__(self, data_dir: str, poses_output_dir: Optional[str] = None, enable_error_tracking: bool = True, shared_cache_file: Optional[str] = None, shared_embedding_cache: Optional[str] = None, peptide_threshold: int = 8):
+    def __init__(self, data_dir: str, poses_output_dir: Optional[str] = None, enable_error_tracking: bool = True, shared_cache_file: Optional[str] = None, peptide_threshold: int = 8):
         self.data_dir = Path(data_dir)
         self.poses_output_dir = Path(poses_output_dir) if poses_output_dir else None
         self.pipeline = None
         self.log = logging.getLogger(__name__)
         self._molecule_cache = None  # Will use shared cache
         self._shared_cache_file = shared_cache_file
-        self._shared_embedding_cache = shared_embedding_cache
         self.peptide_threshold = peptide_threshold
         
         # Initialize error tracking if enabled
@@ -357,16 +356,14 @@ class BenchmarkRunner:
             if embedding_path.exists():
                 self.pipeline = TEMPLPipeline(
                     embedding_path=str(embedding_path), 
-                    output_dir=str(output_dir),
-                    shared_embedding_cache=self._shared_embedding_cache
+                    output_dir=str(output_dir)
                 )
             else:
                 self.log.warning(
                     f"Embedding file not found at {embedding_path}, initializing pipeline without embeddings"
                 )
                 self.pipeline = TEMPLPipeline(
-                    output_dir=str(output_dir),
-                    shared_embedding_cache=self._shared_embedding_cache
+                    output_dir=str(output_dir)
                 )
 
             self.log.info(
@@ -987,7 +984,6 @@ def run_templ_pipeline_for_benchmark(
     data_dir: str = None,
     poses_output_dir: str = None,
     shared_cache_file: str = None,
-    shared_embedding_cache: str = None,
     unconstrained: bool = False,
     align_metric: str = "combo",
     enable_optimization: bool = False,
@@ -999,14 +995,11 @@ def run_templ_pipeline_for_benchmark(
     # Lazy imports to speed up module loading
     from templ_pipeline.core.pipeline import TEMPLPipeline
     from templ_pipeline.core.utils import (
-        load_molecules_with_shared_cache,
         load_sdf_molecules_cached,
         find_ligand_by_pdb_id,
         calculate_rmsd,
         get_protein_file_paths,
         find_ligand_file_paths,
-        get_worker_config,
-        get_global_molecule_cache,
     )
 
     if data_dir is None:
@@ -1030,21 +1023,52 @@ def run_templ_pipeline_for_benchmark(
         allowed_pdb_ids=allowed_pdb_ids,  # NEW: pass allowed templates to pipeline
     )
 
+    # Pipeline execution detailed logging
+    logger.info(f"PIPELINE_EXEC: Starting benchmark execution for {target_pdb}:")
+    logger.info(f"PIPELINE_EXEC:   Data directory: {data_dir}")
+    logger.info(f"PIPELINE_EXEC:   Template restrictions: {len(allowed_pdb_ids) if allowed_pdb_ids else 0} allowed")
+    logger.info(f"PIPELINE_EXEC:   Excluded PDB IDs: {len(exclude_pdb_ids)}")
+    logger.info(f"PIPELINE_EXEC:   Conformers requested: {n_conformers}")
+    logger.info(f"PIPELINE_EXEC:   Template KNN: {template_knn}")
+    logger.info(f"PIPELINE_EXEC:   Internal workers: {internal_workers}")
+    logger.info(f"PIPELINE_EXEC:   Align metric: {align_metric}")
+    
     runner = BenchmarkRunner(
         data_dir, 
         poses_output_dir, 
-        shared_cache_file=shared_cache_file,
-        shared_embedding_cache=shared_embedding_cache
+        shared_cache_file=shared_cache_file
     )
+    
+    logger.info(f"PIPELINE_EXEC: BenchmarkRunner initialized, executing pipeline...")
     result = runner.run_single_target(params)
+    
+    # Log pipeline execution results
+    logger.info(f"PIPELINE_EXEC: Pipeline execution completed for {target_pdb}:")
+    if isinstance(result, dict):
+        logger.info(f"PIPELINE_EXEC:   Success: {result.get('success', False)}")
+        logger.info(f"PIPELINE_EXEC:   Runtime: {result.get('runtime', 0):.2f}s")
+        rmsd_values = result.get('rmsd_values', {})
+        logger.info(f"PIPELINE_EXEC:   RMSD metrics available: {list(rmsd_values.keys())}")
+        
+        # Log RMSD values from pipeline execution
+        for metric, values in rmsd_values.items():
+            rmsd_val = values.get("rmsd") if isinstance(values, dict) else None
+            score_val = values.get("score") if isinstance(values, dict) else None
+            logger.info(f"PIPELINE_EXEC:   {metric}: RMSD={rmsd_val}, Score={score_val}")
+    else:
+        logger.warning(f"PIPELINE_EXEC:   Unexpected result type: {type(result)}")
     
     # Ensure result is properly converted to dictionary
     if hasattr(result, 'to_dict'):
-        return result.to_dict()
+        final_result = result.to_dict()
+        logger.info(f"PIPELINE_EXEC: Result converted to dict via to_dict() method")
+        return final_result
     elif isinstance(result, dict):
+        logger.info(f"PIPELINE_EXEC: Result already in dict format")
         return result
     else:
         # Fallback for unexpected return types
+        logger.error(f"PIPELINE_EXEC: Unexpected result type {type(result)}, returning error dict")
         return {
             "success": False,
             "rmsd_values": {},
