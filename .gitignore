@@ -37,9 +37,7 @@ coverage.xml
 *.cover
 *.py,cover
 .hypothesis/
-htmlcov/
-test-cache/
-test-profiles/
+tests/artifacts/
 coverage-analysis/
 
 # Virtual environments
@@ -83,7 +81,8 @@ output/
 workspace/
 web_app_results/
 template_test_*/
-benchmark_workspace_*/
+benchmarks/workspaces/
+benchmarks/results/
 templ_benchmark_results_*/
 qa-dashboard/
 error_tracking/
@@ -192,38 +191,25 @@ tmp*/
 temp/
 .temp/
 
+# ==============================================
+# NEW ADDITIONS FOR REORGANIZATION
+# ==============================================
 
-# CLAUDE
-CLAUDE.md
-.mypy_cache/benchmark_workspace_time-split_*/
+# Claude AI settings and cache
+.claude/
+.claude/settings.local.json
+
+# Streamlit configuration
+.streamlit/
+.streamlit/config.toml.backup
+.streamlit/config_production.tomlclear
+
+# Jupyter notebooks (if any)
+*.ipynb
+.ipynb_checkpoints/
+
+# Additional ignores
 .mypy_cache/
-
 data/embeddings/
 data/ligands/
-
-
-# GEMINI
-GEMINI.md
-shift_molvis_fix.md
-docs/templ.md
-
-
-# templ
-true_mcs.py
-
 ~/
-
-*.ipynb
-benchmark_results_custom/
-diagrams.md
-
-true_mcs.py
-true_mcs_pipeline.py
-time_split_out.txt
-run_custom_split_benchmark.py
-QUICK_DEPLOY.md
-DOCKER_DEPLOYMENT_PLAN.md
-DOCKER_DEPLOYMENT_FINAL.md
-CERIT_DEPLOYMENT.md
-
-TEMPL_COMMANDS_REFERENCE.md
