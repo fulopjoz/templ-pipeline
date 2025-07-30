@@ -1,0 +1,14 @@
+{
+    "folders": [
+        {
+            "path": "."
+        }
+    ],
+    "settings": {
+        "python.interpreter.path": "/home/ubuntu/mcs/templ_pipeline/.templ/bin/python",
+        "python.defaultInterpreterPath": "/home/ubuntu/mcs/templ_pipeline/.templ/bin/python",
+        "python.terminal.activateEnvironment": true,
+        "python.terminal.activateEnvInCurrentTerminal": true,
+        "python.envFile": "${workspaceFolder}/.env"
+    }
+}
