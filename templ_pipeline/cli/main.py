@@ -1031,12 +1031,36 @@ def load_template_molecules_from_sdf(template_pdbs):
         raise
 
 
+def _resolve_workspace_dir(workspace_dir):
+    """Resolve workspace directory with backward compatibility for old locations."""
+    from pathlib import Path
+    
+    workspace_path = Path(workspace_dir)
+    
+    # If the new path exists, use it
+    if workspace_path.exists():
+        return workspace_path
+    
+    # Check if this might be an old workspace name in root directory
+    workspace_name = workspace_path.name
+    old_location = Path(workspace_name)
+    if old_location.exists():
+        logger.info(f"Found workspace in old location: {old_location}")
+        return old_location
+    
+    # If neither exists, return the original path (might be created later)
+    return workspace_path
+
+
 def _generate_unified_summary(workspace_dir, benchmark_type):
     """Generate unified summary files for benchmark results."""
     try:
         from templ_pipeline.benchmark.summary_generator import BenchmarkSummaryGenerator
         import json
         from pathlib import Path
+        
+        # Resolve workspace directory with backward compatibility
+        workspace_dir = _resolve_workspace_dir(workspace_dir)
         
         generator = BenchmarkSummaryGenerator()
         raw_results_dir = workspace_dir / "raw_results"
@@ -1047,7 +1071,7 @@ def _generate_unified_summary(workspace_dir, benchmark_type):
         if benchmark_type == "polaris":
             # Look for Polaris JSON results in workspace directory first, then fallback to old location
             polaris_workspace_dir = raw_results_dir / "polaris"
-            polaris_fallback_dir = Path("templ_benchmark_results_polaris")
+            polaris_fallback_dir = Path("benchmarks") / "results" / "polaris"
             
             logger.info(f"Searching for Polaris results in: {polaris_workspace_dir}")
             if polaris_workspace_dir.exists():
@@ -1061,6 +1085,13 @@ def _generate_unified_summary(workspace_dir, benchmark_type):
                 fallback_files = list(polaris_fallback_dir.glob("*.json"))
                 result_files.extend(fallback_files)
                 logger.info(f"Found {len(fallback_files)} JSON files in fallback directory: {polaris_fallback_dir}")
+            
+            # Check old location for backward compatibility
+            old_polaris_dir = Path("templ_benchmark_results_polaris")
+            if not result_files and old_polaris_dir.exists():
+                old_files = list(old_polaris_dir.glob("*.json"))
+                result_files.extend(old_files)
+                logger.info(f"Found {len(old_files)} JSON files in old polaris directory: {old_polaris_dir}")
             
             # Additional search in raw_results_dir root
             if not result_files and raw_results_dir.exists():
@@ -1221,7 +1252,7 @@ def benchmark_command(args):
     from datetime import datetime
     from pathlib import Path
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    workspace_dir = Path(f"benchmark_workspace_{args.suite}_{timestamp}")
+    workspace_dir = Path("benchmarks") / "workspaces" / f"benchmark_workspace_{args.suite}_{timestamp}"
     workspace_dir.mkdir(parents=True, exist_ok=True)
     
     # Create subdirectories for organization

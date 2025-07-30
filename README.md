@@ -143,19 +143,6 @@ templ benchmark time-split --test-only
 
 ---
 
-## System Requirements
-
-**Minimum:**
-- Python 3.9+
-- 4GB RAM
-- 1GB disk space
-
-**Recommended:**
-- 8+ CPU cores
-- 16GB+ RAM
-- GPU with 4GB+ VRAM (optional)
-
----
 
 ## Citation
 
@@ -164,15 +151,20 @@ If you use TEMPL in your research, please cite:
 ```bibtex
 @article{templ2025,
   title={TEMPL: Template-based Protein-Ligand Pose Prediction},
-  author={},
+  author={J. Fülöp and M. Šícho and W. Dehaen},
   journal={},
-  year={2024}
+  year={2025}
 }
 ```
+
+---
+
+## Acknowledgments
+
+J.F., M.S. and W.D. were supported by the Ministry of Education, Youth and Sports of the Czech Republic – National Infrastructure for Chemical Biology (CZ-OPENSCREEN, LM2023052). W.D. was supported by the Ministry of Education, Youth and Sports of the Czech Republic by the project "New Technologies for Translational Research in Pharmaceutical Sciences/NETPHARM", project ID CZ.02.01.01/00/22_008/0004607, cofunded by the European Union.
 
 ---
 
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
-
