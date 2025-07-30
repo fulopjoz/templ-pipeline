@@ -1,3 +1,5 @@
+ [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 # TEMPL Pipeline
 
 Template-based protein–ligand pose prediction with command-line interface and web application.
@@ -69,6 +71,34 @@ After downloading, extract both folders into `data/PDBBind/` using the standard 
 
 ---
 
+## Project Structure
+
+```
+templ_pipeline/
+├── benchmarks/          # Benchmark workspaces and results
+│   ├── workspaces/      # Generated benchmark workspaces
+│   └── results/         # Benchmark result files
+├── data/                # Data files and embeddings
+├── deploy/              # Deployment configurations
+│   ├── docker/          # Docker files
+│   ├── kubernetes/      # Kubernetes manifests
+│   └── scripts/         # Deployment scripts
+├── docs/                # Documentation
+│   ├── api/             # API documentation
+│   ├── deployment/      # Deployment guides
+│   └── guides/          # User guides and references
+├── examples/            # Example usage scripts
+├── output/              # Pipeline output results
+├── scripts/             # Entry point scripts
+├── templ_pipeline/      # Main Python package
+├── tests/               # Test suite
+│   ├── artifacts/       # Test coverage and artifacts
+│   └── temp/            # Temporary test files
+└── tools/               # Development tools and configs
+```
+
+---
+
 ## Usage
 
 ### Command Line Interface
@@ -88,7 +118,7 @@ templ --help
 
 ### Web Interface
 ```bash
-python run_streamlit_app.py
+python scripts/run_streamlit_app.py
 ```
 
 ### Benchmarking
