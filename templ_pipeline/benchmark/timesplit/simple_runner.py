@@ -21,11 +21,6 @@ from typing import Dict, List, Optional, Set
 from tqdm import tqdm
 
 from templ_pipeline.benchmark.runner import LazyMoleculeLoader
-from templ_pipeline.benchmark.shared_data_manager import (
-    EnhancedSharedDataManager, 
-    EnhancedMemoryMappedLigandLoader,
-    BenchmarkSharedMemoryManager
-)
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +54,6 @@ class SimpleTimeSplitRunner:
         
         # Enhanced shared data management
         self.use_shared_data = use_shared_data
-        self.shared_data_manager = None
         self.shared_cache_files = {}
         self.shm_manager = None
         self.shared_embedding_cache = None
@@ -569,13 +563,7 @@ class SimpleTimeSplitRunner:
             else:
                 logger.debug("No shared embedding cache to clean up")
             
-            # Clean up shared data manager with proper reference counting
-            if self.shared_data_manager:
-                logger.info("Cleaning up enhanced shared data manager...")
-                self.shared_data_manager.cleanup()
-                self.shared_data_manager = None
-                logger.info("✓ Shared data manager cleaned up")
-                
+            
             # Clean up shared memory manager
             if self.shm_manager:
                 logger.info("Cleaning up shared memory manager...")
