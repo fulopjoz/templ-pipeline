@@ -697,6 +697,7 @@ class EmbeddingManager:
         """Initialize the embedding manager with a path to pre-computed embeddings."""
         # Skip initialization if already initialized (singleton pattern)
         if self._initialized:
+            logger.debug("EmbeddingManager already initialized, skipping")
             return
             
         resolved_path = _resolve_embedding_path(embedding_path)
@@ -748,6 +749,11 @@ class EmbeddingManager:
 
     def _load_embeddings(self) -> bool:
         """Load pre-computed embeddings from NPZ file."""
+        
+        # Check if embeddings are already loaded to prevent repeated loading
+        if self.embedding_db:
+            logger.debug("Embeddings already loaded, skipping reload")
+            return True
         
         # Load from NPZ file
         if not self.embedding_path or not os.path.exists(self.embedding_path):
