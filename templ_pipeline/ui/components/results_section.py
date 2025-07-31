@@ -450,7 +450,7 @@ class ResultsSection:
                     )
                     
                     if query_molecule:
-                        display_molecule(query_molecule, width=220, height=300)
+                        display_molecule(query_molecule, width=400, height=400)
                     else:
                         # Show fallback information
                         if input_smiles:
@@ -462,7 +462,7 @@ class ResultsSection:
                                 from rdkit import Chem
                                 fallback_mol = Chem.MolFromSmiles(input_smiles)
                                 if fallback_mol:
-                                    display_molecule(fallback_mol, width=220, height=300)
+                                    display_molecule(fallback_mol, width=400, height=400)
                                     st.success("Displayed from SMILES fallback")
                             except Exception as e:
                                 logger.error(f"SMILES fallback visualization failed: {e}")
@@ -477,7 +477,7 @@ class ResultsSection:
                     )
                     
                     if template_molecule:
-                        display_molecule(template_molecule, width=220, height=300)
+                        display_molecule(template_molecule, width=400, height=400)
                     else:
                         # Enhanced fallback with template info
                         template_info = self.session.get(SESSION_KEYS["TEMPLATE_INFO"])
@@ -491,7 +491,7 @@ class ResultsSection:
                                     from rdkit import Chem
                                     fallback_template_mol = Chem.MolFromSmiles(template_smiles)
                                     if fallback_template_mol:
-                                        display_molecule(fallback_template_mol, width=220, height=300)
+                                        display_molecule(fallback_template_mol, width=400, height=400)
                                         st.success(f"Template: {template_name}")
                                     else:
                                         st.warning(f"Template: {template_name}")
@@ -513,7 +513,7 @@ class ResultsSection:
                     mcs_molecule = create_mcs_molecule_from_info(mcs_info)
                     
                     if mcs_molecule:
-                        display_molecule(mcs_molecule, width=220, height=300)
+                        display_molecule(mcs_molecule, width=400, height=400)
                         # Show atom count if available
                         try:
                             atom_count = mcs_molecule.GetNumAtoms()
@@ -530,7 +530,7 @@ class ResultsSection:
                             if mcs_smarts and len(mcs_smarts.strip()) > 0:
                                 mcs_mol_fallback = create_mcs_molecule_from_info(mcs_smarts)
                                 if mcs_mol_fallback:
-                                    display_molecule(mcs_mol_fallback, width=220, height=300)
+                                    display_molecule(mcs_mol_fallback, width=400, height=400)
                                     try:
                                         atom_count = mcs_mol_fallback.GetNumAtoms()
                                         st.success(f"MCS found ({atom_count} atoms)")
