@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: templ-pipeline
+  labels:
+    app: templ-pipeline
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: templ-pipeline
+  template:
+    metadata:
+      labels:
+        app: templ-pipeline
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: templ-pipeline
+        image: hub.cerit.io/[your-username]/templ-pipeline:latest  # Replace with your Harbor username
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        env:
+        - name: KUBERNETES_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: KUBERNETES_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: KUBERNETES_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        
+        # Security-sensitive environment variables from secrets
+        - name: TEMPL_PASSWORD_HASH
+          valueFrom:
+            secretKeyRef:
+              name: templ-pipeline-secrets
+              key: TEMPL_PASSWORD_HASH
+        - name: STREAMLIT_SERVER_COOKIE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: templ-pipeline-secrets
+              key: STREAMLIT_SERVER_COOKIE_SECRET
+        
+        - name: TEMPL_ENV
+          value: "production"
+        - name: STREAMLIT_SERVER_HEADLESS
+          value: "true"
+        - name: STREAMLIT_SERVER_PORT
+          value: "8501"
+        - name: STREAMLIT_SERVER_ADDRESS
+          value: "0.0.0.0"
+        - name: STREAMLIT_GLOBAL_LOG_LEVEL
+          value: "info"
+        - name: TEMPL_DATA_DIR
+          value: "/app/data"
+        - name: TEMPL_TEMP_DIR
+          value: "/app/temp"
+        
+        # Load non-sensitive configuration from ConfigMap
+        envFrom:
+        - configMapRef:
+            name: templ-pipeline-config
+        
+        ports:
+        - containerPort: 8501
+          name: streamlit
+        volumeMounts:
+        - mountPath: /app/data
+          name: data-volume
+          readOnly: true
+        - mountPath: /app/temp
+          name: temp-volume
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "500m"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+        livenessProbe:
+          httpGet:
+            path: /_stcore/health
+            port: 8501
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /_stcore/health
+            port: 8501
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+      volumes:
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: templ-data-pvc
+      - name: temp-volume
+        emptyDir: {}

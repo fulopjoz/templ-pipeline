@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  templ-pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data:ro  # Mount data as read-only
+      - templ_temp:/app/temp
+    environment:
+      - TEMPL_ENV=development
+      - STREAMLIT_SERVER_HEADLESS=true
+      - STREAMLIT_GLOBAL_LOG_LEVEL=info
+      - TEMPL_DATA_DIR=/app/data
+      - TEMPL_TEMP_DIR=/app/temp
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+volumes:
+  templ_temp:
+    driver: local

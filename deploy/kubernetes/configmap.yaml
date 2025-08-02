@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: templ-pipeline-config
+  namespace: default
+  labels:
+    app: templ-pipeline
+    component: configuration
+data:
+  # Data paths - standard TEMPL configuration
+  TEMPL_DATA_DIR: "/app/data"
+  TEMPL_TEMP_DIR: "/app/temp"
+  TEMPL_EMBEDDING_PATH: "/app/data/embeddings/templ_protein_embeddings_v1.0.0.npz"
+  TEMPL_LIGANDS_PATH: "/app/data/ligands/templ_processed_ligands_v1.0.0.sdf.gz"
+  
+  # Python environment
+  PYTHONPATH: "/app"
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  
+  # Streamlit configuration
+  STREAMLIT_SERVER_PORT: "8501"
+  STREAMLIT_SERVER_ADDRESS: "0.0.0.0"
+  STREAMLIT_SERVER_HEADLESS: "true"
+  STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+  STREAMLIT_SERVER_MAX_UPLOAD_SIZE: "200"
+  STREAMLIT_GLOBAL_LOG_LEVEL: "info"
+  STREAMLIT_SERVER_FILE_WATCHER_TYPE: "none"
+  STREAMLIT_SERVER_RUN_ON_SAVE: "false"
+  
+  # TEMPL Pipeline configuration - clean settings only
+  TEMPL_WORKERS: "auto"
+  
+  # Display configuration for RDKit
+  DISPLAY: ":0"

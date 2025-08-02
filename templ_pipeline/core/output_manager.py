@@ -38,21 +38,24 @@ class EnhancedOutputManager:
         Create timestamped output folder for a specific PDB ID.
         
         Args:
-            pdb_id: PDB ID for naming
+            pdb_id: PDB ID for naming (can be a path)
             
         Returns:
             Path to the created timestamped folder
         """
-        self.pdb_id = pdb_id
+        # Use only the base name (strip directories and extension)
+        import os
+        base_pdb_id = os.path.splitext(os.path.basename(pdb_id))[0]
+        self.pdb_id = base_pdb_id
         
         # Create timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
         # Create folder name
         if self.run_id:
-            folder_name = f"templ_run_{timestamp}_{self.run_id}_{pdb_id}"
+            folder_name = f"templ_run_{timestamp}_{self.run_id}_{base_pdb_id}"
         else:
-            folder_name = f"templ_run_{timestamp}_{pdb_id}"
+            folder_name = f"templ_run_{timestamp}_{base_pdb_id}"
         
         # Create full path
         self.timestamped_folder = self.base_output_dir / folder_name
@@ -81,43 +84,26 @@ class EnhancedOutputManager:
                       template: Chem.Mol,
                       mcs_details: Dict,
                       crystal_mol: Optional[Chem.Mol] = None) -> Path:
-        """
-        Save top 3 poses with enhanced properties.
-        
-        Args:
-            poses: Dictionary of poses from select_best
-            template: Template molecule used for MCS
-            mcs_details: MCS information dictionary
-            crystal_mol: Crystal structure for RMSD calculation (optional)
-            
-        Returns:
-            Path to the saved SDF file
-        """
-        # Validate poses input
-        if not self._validate_poses_structure(poses):
-            raise ValueError("Invalid poses structure provided to save_top_poses")
-        
-        output_file = self.get_output_path(f"{self.pdb_id}_top3_poses.sdf")
-        
+        """Save top poses to SDF file with enhanced metadata."""
+        # Use only the base name for output file
+        import os
+        if hasattr(self, 'run_id') and self.run_id:
+            base_name = self.run_id
+        elif template is not None and template.HasProp('template_pid'):
+            base_name = template.GetProp('template_pid')
+        else:
+            base_name = "templ_output"
+        # If base_name is a path, strip directories and extension
+        base_name = os.path.splitext(os.path.basename(base_name))[0]
+        output_file = self.get_output_path(f"{base_name}_top3_poses.sdf")
+        from rdkit import Chem
         with Chem.SDWriter(str(output_file)) as writer:
-            for metric, pose_data in poses.items():
-                # Additional validation per pose
-                if not self._validate_single_pose(metric, pose_data):
-                    log.warning(f"Skipping invalid pose for metric: {metric}")
-                    continue
-                
-                pose, scores = pose_data
-                if pose is None:
-                    continue
-                
-                # Create enhanced pose with all properties
-                enhanced_pose = self._create_enhanced_pose(
-                    pose, metric, scores, template, mcs_details, crystal_mol
-                )
-                
-                writer.write(enhanced_pose)
-        
-        log.info(f"Saved top 3 poses to: {output_file}")
+            for metric, (pose, scores) in poses.items():
+                if pose is not None:
+                    enhanced_pose = self._create_enhanced_pose(
+                        pose, metric, scores, template, mcs_details, crystal_mol
+                    )
+                    writer.write(enhanced_pose)
         return output_file
         
     def save_all_poses(self, 
@@ -126,42 +112,24 @@ class EnhancedOutputManager:
                       mcs_details: Dict,
                       crystal_mol: Optional[Chem.Mol] = None,
                       max_poses: Optional[int] = None) -> Path:
-        """
-        Save all ranked poses with enhanced properties.
-        
-        Args:
-            ranked_poses: List of (pose, scores, original_cid) tuples sorted by combo score
-            template: Template molecule used for MCS
-            mcs_details: MCS information dictionary
-            crystal_mol: Crystal structure for RMSD calculation (optional)
-            max_poses: Maximum number of poses to save (optional)
-            
-        Returns:
-            Path to the saved SDF file
-        """
-        output_file = self.get_output_path(f"{self.pdb_id}_all_poses.sdf")
-        
-        # Limit poses if requested
-        poses_to_save = ranked_poses[:max_poses] if max_poses else ranked_poses
-        
+        """Save all ranked poses to SDF file."""
+        import os
+        if hasattr(self, 'run_id') and self.run_id:
+            base_name = self.run_id
+        elif template is not None and template.HasProp('template_pid'):
+            base_name = template.GetProp('template_pid')
+        else:
+            base_name = "templ_output"
+        base_name = os.path.splitext(os.path.basename(base_name))[0]
+        output_file = self.get_output_path(f"{base_name}_all_poses.sdf")
+        from rdkit import Chem
         with Chem.SDWriter(str(output_file)) as writer:
-            for rank, (original_cid, scores, pose) in enumerate(poses_to_save, 1):
-                if pose is None:
-                    continue
-                
-                # Create enhanced pose with all properties
-                enhanced_pose = self._create_enhanced_pose(
-                    pose, "combo", scores, template, mcs_details, crystal_mol,
-                    pose_rank=rank, total_poses=len(ranked_poses), 
-                    original_conformer_id=original_cid
-                )
-                
-                # Set name for all poses
-                enhanced_pose.SetProp("_Name", f"{self.pdb_id}_pose_rank_{rank}")
-                
-                writer.write(enhanced_pose)
-        
-        log.info(f"Saved {len(poses_to_save)} poses to: {output_file}")
+            for conf_id, scores, pose in ranked_poses:
+                if pose is not None:
+                    enhanced_pose = self._create_enhanced_pose(
+                        pose, "combo", scores, template, mcs_details, crystal_mol, pose_rank=conf_id
+                    )
+                    writer.write(enhanced_pose)
         return output_file
         
     def save_template(self, template: Chem.Mol) -> Path:
@@ -174,7 +142,9 @@ class EnhancedOutputManager:
         Returns:
             Path to the saved template SDF file
         """
-        output_file = self.get_output_path(f"{self.pdb_id}_template.sdf")
+        import os
+        base_name = os.path.splitext(os.path.basename(self.pdb_id))[0]
+        output_file = self.get_output_path(f"{base_name}_template.sdf")
         
         with Chem.SDWriter(str(output_file)) as writer:
             writer.write(template)
@@ -193,8 +163,9 @@ class EnhancedOutputManager:
             Path to the saved JSON file
         """
         import json
-        
-        output_file = self.get_output_path(f"{self.pdb_id}_pipeline_results.json")
+        import os
+        base_name = os.path.splitext(os.path.basename(self.pdb_id))[0]
+        output_file = self.get_output_path(f"{base_name}_pipeline_results.json")
         
         with open(output_file, 'w') as f:
             json.dump(results_data, f, indent=2, default=str)

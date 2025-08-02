@@ -428,4 +428,4 @@ def create_molecule_info(mol, smiles: str = None) -> Dict[str, Any]:
     if smiles:
         info["smiles"] = smiles
     
-    return info
+    return info 

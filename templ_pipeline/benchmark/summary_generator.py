@@ -10,7 +10,7 @@ and metrics across different benchmark types.
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Union, Tuple
 from datetime import datetime
 from collections import defaultdict
 
@@ -187,9 +187,17 @@ class BenchmarkSummaryGenerator:
         successful_groups = defaultdict(list)
         
         for result in individual_results:
-            split = result.get("target_split", "unknown")
+            # Handle missing target_split by extracting from context or defaulting
+            split = result.get("target_split")
+            if split is None:
+                # Extract split from filename or default to "test"
+                split = "test"  # Default for timesplit benchmarks
+            
             split_groups[split].append(result)
-            if result.get("success", False):
+            
+            # Consider a result successful if it has success=True AND generated poses (non-empty rmsd_values)
+            has_poses = result.get("rmsd_values") and bool(result["rmsd_values"])
+            if result.get("success", False) and has_poses:
                 successful_groups[split].append(result)
         
         table_data = []
@@ -202,12 +210,12 @@ class BenchmarkSummaryGenerator:
             successful_results = successful_groups.get(split_name, [])
             logger.debug(f"Split {split_name}: {len(successful_results)} successful out of {len(split_results)} total")
                 
-            # Use successful results for metrics calculation
-            metrics = self._calculate_timesplit_metrics(successful_results)
+            # Use successful results for metrics calculation and get exclusion analysis
+            total_processed = len(split_results)
+            metrics, exclusion_stats = self._calculate_timesplit_metrics_with_exclusions(split_results, successful_results, total_processed)
             
             # Count successful results
             successful_count = len(successful_results)
-            total_processed = len(split_results)
             
             # Calculate average exclusions and runtime
             avg_exclusions = np.mean([r.get("exclusions_count", 0) for r in split_results])
@@ -223,13 +231,15 @@ class BenchmarkSummaryGenerator:
                             "Split": split_name.title(),
                             "Metric": metric.title(),
                             "Total_Targets": total_processed,
-                            "Successful_Poses": successful_count,
+                            "Targets_With_RMSD": successful_count,
+                            "Excluded_Targets": exclusion_stats.get("excluded_count", 0),
                             "Success_Rate_2A": f"{metric_data.get('rate_2A', 0):.1f}%",
                             "Success_Rate_5A": f"{metric_data.get('rate_5A', 0):.1f}%",
                             "Mean_RMSD": f"{metric_data.get('mean_rmsd', 0):.2f}",
                             "Median_RMSD": f"{metric_data.get('median_rmsd', 0):.2f}",
                             "Avg_Exclusions": f"{avg_exclusions:.0f}",
-                            "Avg_Runtime": f"{avg_runtime:.1f}s"
+                            "Avg_Runtime": f"{avg_runtime:.1f}s",
+                            "Exclusion_Reasons": exclusion_stats.get("exclusion_breakdown", {})
                         })
             else:
                 # No successful results - add summary entry
@@ -238,13 +248,15 @@ class BenchmarkSummaryGenerator:
                     "Split": split_name.title(),
                     "Metric": "Summary",
                     "Total_Targets": total_processed,
-                    "Successful_Poses": successful_count,
+                    "Targets_With_RMSD": successful_count,
+                    "Excluded_Targets": exclusion_stats.get("excluded_count", 0),
                     "Success_Rate_2A": "0.0%",
                     "Success_Rate_5A": "0.0%",
                     "Mean_RMSD": "N/A",
                     "Median_RMSD": "N/A",
                     "Avg_Exclusions": f"{avg_exclusions:.0f}",
-                    "Avg_Runtime": f"{avg_runtime:.1f}s"
+                    "Avg_Runtime": f"{avg_runtime:.1f}s",
+                    "Exclusion_Reasons": exclusion_stats.get("exclusion_breakdown", {})
                 })
         
         return self._format_output(table_data, output_format)
@@ -264,12 +276,23 @@ class BenchmarkSummaryGenerator:
         
         total_molecules = len(individual_results)
         
+        # Success rate calculation detailed logging for Polaris
+        logger.info(f"SUCCESS_RATE_CALC: Processing Polaris results:")
+        logger.info(f"SUCCESS_RATE_CALC:   Total molecules to analyze: {total_molecules}")
+        
+        successful_results = 0
+        results_with_rmsd = 0
+        
         for result in individual_results.values():
             if result.get("success") and result.get("rmsd_values"):
+                successful_results += 1
+                has_rmsd_values = False
+                
                 for metric_key, values_dict in result["rmsd_values"].items():
                     rmsd = values_dict.get("rmsd")
                     score = values_dict.get("score")
                     if rmsd is not None and not np.isnan(rmsd):
+                        has_rmsd_values = True
                         metrics["all_rmsds"][metric_key].append(rmsd)
                         if rmsd <= 2.0:
                             metrics["rmsd_counts_2A"][metric_key] += 1
@@ -277,50 +300,284 @@ class BenchmarkSummaryGenerator:
                             metrics["rmsd_counts_5A"][metric_key] += 1
                     if score is not None:
                         metrics["all_scores"][metric_key].append(score)
+                
+                if has_rmsd_values:
+                    results_with_rmsd += 1
+        
+        logger.info(f"SUCCESS_RATE_CALC: Polaris data collection summary:")
+        logger.info(f"SUCCESS_RATE_CALC:   Successful results: {successful_results}/{total_molecules}")
+        logger.info(f"SUCCESS_RATE_CALC:   Results with RMSD values: {results_with_rmsd}/{successful_results}")
+        
+        # Log RMSD data by metric
+        for metric_key in metrics["all_rmsds"]:
+            rmsd_count = len(metrics["all_rmsds"][metric_key])
+            count_2A = metrics["rmsd_counts_2A"][metric_key]
+            count_5A = metrics["rmsd_counts_5A"][metric_key]
+            logger.info(f"SUCCESS_RATE_CALC:   {metric_key}: {rmsd_count} RMSD values, {count_2A} ≤2A, {count_5A} ≤5A")
         
         # Calculate success rates
         metrics["success_rates"] = {}
         for metric_key in metrics["all_rmsds"]:
             n_results = len(metrics["all_rmsds"][metric_key])
             if n_results > 0 and total_molecules > 0:
+                rate_2A = metrics["rmsd_counts_2A"][metric_key] / total_molecules * 100
+                rate_5A = metrics["rmsd_counts_5A"][metric_key] / total_molecules * 100
+                mean_rmsd = np.mean(metrics["all_rmsds"][metric_key])
+                median_rmsd = np.median(metrics["all_rmsds"][metric_key])
+                
                 metrics["success_rates"][metric_key] = {
                     "count": n_results,
-                    "rate_2A": metrics["rmsd_counts_2A"][metric_key] / total_molecules * 100,
-                    "rate_5A": metrics["rmsd_counts_5A"][metric_key] / total_molecules * 100,
-                    "mean_rmsd": np.mean(metrics["all_rmsds"][metric_key]),
-                    "median_rmsd": np.median(metrics["all_rmsds"][metric_key]),
+                    "rate_2A": rate_2A,
+                    "rate_5A": rate_5A,
+                    "mean_rmsd": mean_rmsd,
+                    "median_rmsd": median_rmsd,
                 }
+                
+                # Log calculated success rates
+                logger.info(f"SUCCESS_RATE_CALC: Final Polaris rates for {metric_key}:")
+                logger.info(f"SUCCESS_RATE_CALC:   2A success: {rate_2A:.1f}% ({metrics['rmsd_counts_2A'][metric_key]}/{total_molecules})")
+                logger.info(f"SUCCESS_RATE_CALC:   5A success: {rate_5A:.1f}% ({metrics['rmsd_counts_5A'][metric_key]}/{total_molecules})")
+                logger.info(f"SUCCESS_RATE_CALC:   Mean RMSD: {mean_rmsd:.3f}A")
         
         return metrics
     
-    def _calculate_timesplit_metrics(self, split_results: List[Dict]) -> Dict:
+    def _validate_rmsd_calculation(self, split_results: List[Dict]) -> Dict:
+        """Validate RMSD calculation integrity in benchmark results."""
+        validation_report = {
+            "total_results": len(split_results),
+            "successful_results": 0,
+            "results_with_rmsd": 0,
+            "results_with_null_rmsd": 0,
+            "metrics_with_rmsd_failures": []
+        }
+        
+        for result in split_results:
+            if result.get("success"):
+                validation_report["successful_results"] += 1
+                rmsd_values = result.get("rmsd_values", {})
+                
+                has_valid_rmsd = False
+                metrics_with_failures = []
+                
+                for metric_key, values_dict in rmsd_values.items():
+                    rmsd = values_dict.get("rmsd")
+                    if rmsd is not None and not np.isnan(rmsd):
+                        has_valid_rmsd = True
+                    else:
+                        metrics_with_failures.append(metric_key)
+                
+                if has_valid_rmsd:
+                    validation_report["results_with_rmsd"] += 1
+                else:
+                    validation_report["results_with_null_rmsd"] += 1
+                    validation_report["metrics_with_rmsd_failures"].extend(metrics_with_failures)
+        
+        # Log validation results
+        if validation_report["results_with_null_rmsd"] > 0:
+            failure_rate = (validation_report["results_with_null_rmsd"] / validation_report["successful_results"]) * 100
+            logger.error(f"RMSD_VALIDATION: {validation_report['results_with_null_rmsd']}/{validation_report['successful_results']} ({failure_rate:.1f}%) successful results lack RMSD data")
+            logger.error(f"RMSD_VALIDATION: This indicates CLI pipeline or molecular structure issues")
+        else:
+            logger.info(f"RMSD_VALIDATION: All {validation_report['results_with_rmsd']} successful results have valid RMSD data")
+        
+        return validation_report
+
+    def _parse_exclusion_reason(self, error_msg: str) -> str:
+        """Parse exclusion reason from error message."""
+        if not error_msg:
+            return "unknown_error"
+        
+        error_msg_lower = error_msg.lower()
+        
+        # Parse skip reasons
+        if "skipped" in error_msg_lower:
+            if "molecule_too_small" in error_msg_lower:
+                return "molecule_too_small"
+            elif "molecule_too_large" in error_msg_lower:
+                return "molecule_too_large"
+            elif "poor_quality" in error_msg_lower:
+                return "poor_quality_crystal"
+            elif "peptide" in error_msg_lower:
+                return "peptide_excluded"
+            elif "invalid_smiles" in error_msg_lower:
+                return "invalid_smiles"
+            elif "sanitization_failed" in error_msg_lower:
+                return "molecule_sanitization_failed"
+            else:
+                return "validation_failed"
+        
+        # Parse pipeline errors
+        elif "file not found" in error_msg_lower:
+            if "protein" in error_msg_lower:
+                return "protein_file_missing"
+            elif "ligand" in error_msg_lower:
+                return "ligand_data_missing"
+            else:
+                return "file_not_found"
+        elif "pose generation" in error_msg_lower or "no poses generated" in error_msg_lower:
+            return "pose_generation_failed"
+        elif "rmsd calculation failed" in error_msg_lower:
+            return "rmsd_calculation_failed"
+        elif "conformer generation failed" in error_msg_lower:
+            return "conformer_generation_failed"
+        elif "alignment failed" in error_msg_lower:
+            return "molecular_alignment_failed"
+        elif "mcs" in error_msg_lower:
+            return "mcs_calculation_failed"
+        elif "embedding failed" in error_msg_lower:
+            return "embedding_failed"
+        elif "timeout" in error_msg_lower:
+            return "timeout"
+        elif "memory" in error_msg_lower:
+            return "memory_error"
+        else:
+            return "pipeline_error"
+
+    def _calculate_timesplit_metrics_with_exclusions(self, all_results: List[Dict], successful_results: List[Dict], total_targets: int) -> Tuple[Dict, Dict]:
+        """Calculate metrics for Timesplit benchmark results with exclusion analysis.
+        
+        Args:
+            all_results: All target results including failed ones
+            successful_results: Only successful results with RMSD values
+            total_targets: Total number of targets processed
+            
+        Returns:
+            Tuple of (metrics_dict, exclusion_stats_dict)
+        """
+        # Calculate standard metrics using successful results
+        metrics = self._calculate_timesplit_metrics(successful_results, total_targets)
+        
+        # Analyze exclusions and failures
+        exclusion_breakdown = defaultdict(int)
+        excluded_count = 0
+        
+        for result in all_results:
+            if not result.get("success", False) or not result.get("rmsd_values"):
+                excluded_count += 1
+                error_msg = result.get("error", "")
+                exclusion_reason = self._parse_exclusion_reason(error_msg)
+                exclusion_breakdown[exclusion_reason] += 1
+        
+        exclusion_stats = {
+            "excluded_count": excluded_count,
+            "exclusion_breakdown": dict(exclusion_breakdown),
+            "successful_count": len(successful_results),
+            "total_targets": total_targets
+        }
+        
+        # Log exclusion analysis
+        logger.info(f"EXCLUSION_ANALYSIS: Target processing summary:")
+        logger.info(f"EXCLUSION_ANALYSIS:   Total targets: {total_targets}")
+        logger.info(f"EXCLUSION_ANALYSIS:   Successful (with RMSD): {len(successful_results)}")
+        logger.info(f"EXCLUSION_ANALYSIS:   Excluded/Failed: {excluded_count}")
+        
+        if exclusion_breakdown:
+            logger.info(f"EXCLUSION_ANALYSIS: Exclusion breakdown:")
+            for reason, count in sorted(exclusion_breakdown.items(), key=lambda x: x[1], reverse=True):
+                percentage = (count / total_targets) * 100 if total_targets > 0 else 0
+                logger.info(f"EXCLUSION_ANALYSIS:   {reason}: {count} ({percentage:.1f}%)")
+        
+        return metrics, exclusion_stats
+
+    def _calculate_timesplit_metrics(self, split_results: List[Dict], total_targets: int) -> Dict:
         """Calculate metrics for Timesplit benchmark results."""
         metrics = {}
         
-        # Collect RMSD values by metric
+        # Validate RMSD calculation integrity
+        validation_report = self._validate_rmsd_calculation(split_results)
+        
+        # Success rate calculation detailed logging for Timesplit
+        logger.info(f"SUCCESS_RATE_CALC: Processing Timesplit results:")
+        logger.info(f"SUCCESS_RATE_CALC:   Total targets to analyze: {total_targets}")
+        logger.info(f"SUCCESS_RATE_CALC:   Split results length: {len(split_results)}")
+        logger.info(f"SUCCESS_RATE_CALC:   Results with valid RMSD: {validation_report['results_with_rmsd']}/{validation_report['successful_results']}")
+        
+        # Collect RMSD values and scores by metric
         rmsd_by_metric = defaultdict(list)
+        score_by_metric = defaultdict(list)
+        
+        successful_results = 0
+        results_with_rmsd = 0
         
         for result in split_results:
             if result.get("success") and result.get("rmsd_values"):
+                successful_results += 1
+                has_rmsd_values = False
+                
                 for metric_key, values_dict in result["rmsd_values"].items():
                     rmsd = values_dict.get("rmsd")
+                    score = values_dict.get("score")
+                    
+                    # Collect RMSD values if available
                     if rmsd is not None and not np.isnan(rmsd):
+                        has_rmsd_values = True
                         rmsd_by_metric[metric_key].append(rmsd)
+                    
+                    # Collect scores for fallback success calculation
+                    if score is not None and not np.isnan(score):
+                        score_by_metric[metric_key].append(score)
+                
+                if has_rmsd_values:
+                    results_with_rmsd += 1
+        
+        logger.info(f"SUCCESS_RATE_CALC: Timesplit data collection summary:")
+        logger.info(f"SUCCESS_RATE_CALC:   Successful results: {successful_results}/{len(split_results)}")
+        logger.info(f"SUCCESS_RATE_CALC:   Results with RMSD values: {results_with_rmsd}/{successful_results}")
+        
+        # Log RMSD data by metric
+        for metric_key in rmsd_by_metric:
+            rmsd_count = len(rmsd_by_metric[metric_key])
+            logger.info(f"SUCCESS_RATE_CALC:   {metric_key}: {rmsd_count} RMSD values collected")
         
         # Calculate statistics for each metric
-        total_targets = len(split_results)
-        for metric_key, rmsds in rmsd_by_metric.items():
+        for metric_key in set(list(rmsd_by_metric.keys()) + list(score_by_metric.keys())):
+            rmsds = rmsd_by_metric.get(metric_key, [])
+            scores = score_by_metric.get(metric_key, [])
+            
             if rmsds:
+                # Use RMSD-based calculation when available
                 count_2A = sum(1 for rmsd in rmsds if rmsd <= 2.0)
                 count_5A = sum(1 for rmsd in rmsds if rmsd <= 5.0)
+                rate_2A = count_2A / total_targets * 100 if total_targets > 0 else 0
+                rate_5A = count_5A / total_targets * 100 if total_targets > 0 else 0
+                mean_rmsd = np.mean(rmsds)
+                median_rmsd = np.median(rmsds)
                 
                 metrics[metric_key] = {
                     "count": len(rmsds),
-                    "rate_2A": count_2A / total_targets * 100,
-                    "rate_5A": count_5A / total_targets * 100,
-                    "mean_rmsd": np.mean(rmsds),
-                    "median_rmsd": np.median(rmsds),
+                    "rate_2A": rate_2A,
+                    "rate_5A": rate_5A,
+                    "mean_rmsd": mean_rmsd,
+                    "median_rmsd": median_rmsd,
                 }
+                
+                # Log calculated success rates
+                logger.info(f"SUCCESS_RATE_CALC: Final Timesplit rates for {metric_key} (RMSD-based):")
+                logger.info(f"SUCCESS_RATE_CALC:   2A success: {rate_2A:.1f}% ({count_2A}/{total_targets})")
+                logger.info(f"SUCCESS_RATE_CALC:   5A success: {rate_5A:.1f}% ({count_5A}/{total_targets})")
+                logger.info(f"SUCCESS_RATE_CALC:   Mean RMSD: {mean_rmsd:.3f}A")
+                
+            elif scores:
+                # CRITICAL ERROR: RMSD data unavailable - cannot calculate meaningful success rates
+                logger.error(f"SUCCESS_RATE_CALC: RMSD calculation failed for {metric_key} - CLI pipeline error detected")
+                logger.error(f"SUCCESS_RATE_CALC:   Cannot calculate 2A/5A success rates without RMSD values")
+                logger.error(f"SUCCESS_RATE_CALC:   This indicates a pipeline configuration or molecular structure issue")
+                
+                # Report invalid results - do not provide misleading success rates
+                metrics[metric_key] = {
+                    "count": len(scores),  
+                    "rate_2A": 0.0,  # Cannot calculate without RMSD
+                    "rate_5A": 0.0,  # Cannot calculate without RMSD
+                    "mean_rmsd": None,  # No RMSD data available
+                    "median_rmsd": None,  # No RMSD data available
+                    "mean_score": np.mean(scores),  # Report alignment scores separately
+                    "median_score": np.median(scores),  # Report alignment scores separately
+                    "error": "RMSD_CALCULATION_FAILED"
+                }
+                
+                logger.warning(f"SUCCESS_RATE_CALC: Benchmark results for {metric_key} are INVALID due to missing RMSD data")
+                logger.warning(f"SUCCESS_RATE_CALC:   Available alignment scores: mean={np.mean(scores):.3f}, median={np.median(scores):.3f}")
+                logger.warning(f"SUCCESS_RATE_CALC:   Check CLI RMSD calculation or molecular structure compatibility")
         
         return metrics
     
@@ -430,11 +687,39 @@ class BenchmarkSummaryGenerator:
                     else:
                         data_to_save = {"data": str(summary_data)}
                     
+                    # Enhanced JSON structure with exclusion metadata
+                    enhanced_data = {
+                        "timestamp": timestamp,
+                        "summary": data_to_save
+                    }
+                    
+                    # Add exclusion summary if available
+                    if isinstance(data_to_save, list) and data_to_save:
+                        total_exclusions = {}
+                        total_targets = 0
+                        total_with_rmsd = 0
+                        
+                        for entry in data_to_save:
+                            if isinstance(entry, dict):
+                                total_targets += entry.get("Total_Targets", 0)
+                                total_with_rmsd += entry.get("Targets_With_RMSD", 0)
+                                
+                                exclusion_reasons = entry.get("Exclusion_Reasons", {})
+                                if exclusion_reasons:
+                                    for reason, count in exclusion_reasons.items():
+                                        total_exclusions[reason] = total_exclusions.get(reason, 0) + count
+                        
+                        if total_exclusions:
+                            enhanced_data["exclusion_summary"] = {
+                                "total_targets_processed": total_targets,
+                                "total_targets_with_rmsd": total_with_rmsd,
+                                "total_excluded": sum(total_exclusions.values()),
+                                "exclusion_breakdown": total_exclusions,
+                                "success_rate": (total_with_rmsd / total_targets * 100) if total_targets > 0 else 0
+                            }
+                    
                     with open(file_path, 'w') as f:
-                        json.dump({
-                            "timestamp": timestamp,
-                            "summary": data_to_save
-                        }, f, indent=2, default=str)
+                        json.dump(enhanced_data, f, indent=2, default=str)
                     saved_files["json"] = file_path
                     
                 elif fmt == "markdown" and df is not None:
@@ -541,10 +826,24 @@ if __name__ == "__main__":
     
     # Set up logging
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-    
+
+    # Process results files
+    all_files = []
+    for path_str in args.results_files:
+        path = Path(path_str)
+        if path.is_dir():
+            all_files.extend(path.glob('**/*.json'))
+            all_files.extend(path.glob('**/*.jsonl'))
+        else:
+            all_files.append(path)
+
+    if not all_files:
+        print("Error: No valid results files found.")
+        sys.exit(1)
+
     try:
         saved_files = generate_summary_from_files(
-            args.results_files,
+            all_files,
             args.output_dir,
             args.benchmark_type
         )
@@ -559,4 +858,4 @@ if __name__ == "__main__":
             
     except Exception as e:
         print(f"Error: {e}")
-        sys.exit(1)
+        sys.exit(1) 

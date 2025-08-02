@@ -600,14 +600,14 @@ def score_and_align(conf: Chem.Mol, tpl: Chem.Mol) -> Tuple[Dict[str, float], Ch
         SanitizeMol(tpl_processed)
         SanitizeMol(prb_processed)
     except Exception as e:
-        log.warning(f"Sanitization failed even after organometallic handling: {e}")
+        logger.warning(f"Sanitization failed even after organometallic handling: {e}")
         # Continue with original molecules as fallback
         try:
             SanitizeMol(tpl)
             SanitizeMol(prb)
             tpl_processed, prb_processed = tpl, prb
         except Exception as e2:
-            log.error(f"Both organometallic handling and fallback sanitization failed: {e2}")
+            logger.error(f"Both organometallic handling and fallback sanitization failed: {e2}")
             # Return default scores to avoid complete failure
             return ({"shape": 0.0, "color": 0.0, "combo": 0.0}, prb)
     
@@ -615,7 +615,7 @@ def score_and_align(conf: Chem.Mol, tpl: Chem.Mol) -> Tuple[Dict[str, float], Ch
         sT, cT = rdShapeAlign.AlignMol(tpl_processed, prb_processed, useColors=True)
         return ({"shape": sT, "color": cT, "combo": 0.5*(sT+cT)}, prb_processed)
     except Exception as e:
-        log.warning(f"Shape alignment failed: {e}")
+        logger.warning(f"Shape alignment failed: {e}")
         return ({"shape": 0.0, "color": 0.0, "combo": 0.0}, prb_processed)
 
 
@@ -773,24 +773,10 @@ def _get_executor_for_context(n_workers: int):
     Uses ThreadPoolExecutor if running in daemon process (to avoid 
     'daemonic processes are not allowed to have children' error),
     otherwise uses ProcessPoolExecutor for better performance.
-    
-    Integrates with ThreadResourceManager to prevent thread exhaustion.
     """
     try:
-        # Import ThreadResourceManager with fallback handling
-        try:
-            from .execution_manager import get_safe_worker_count, log_thread_status, create_robust_process_pool
-            
-            # Get safe worker count for scoring tasks
-            safe_workers = get_safe_worker_count(n_workers, task_type="scoring")
-            
-            # Log thread status for debugging
-            log_thread_status("before_executor_creation")
-            
-        except (ImportError, AttributeError) as import_error:
-            # Fallback if thread manager not available
-            logger.warning(f"Thread manager not available, using conservative worker count: {import_error}")
-            safe_workers = min(n_workers, 4)  # Conservative fallback
+        # Fallback if thread manager not available
+        safe_workers = min(n_workers, 4)  # Conservative fallback
         
         current_process = multiprocessing.current_process()
         if hasattr(current_process, 'daemon') and current_process.daemon:
@@ -798,9 +784,9 @@ def _get_executor_for_context(n_workers: int):
             logger.debug(f"Using ThreadPoolExecutor with {safe_workers} workers (daemon process detected, requested: {n_workers})")
             return ThreadPoolExecutor(max_workers=safe_workers)
         else:
-            # Not in daemon process, use robust process pool like true_mcs.py
-            logger.debug(f"Using robust process pool with {safe_workers} workers (requested: {n_workers})")
-            return create_robust_process_pool(safe_workers, task_type="scoring")
+            # Not in daemon process, use simple process pool
+            logger.debug(f"Using ProcessPoolExecutor with {safe_workers} workers (requested: {n_workers})")
+            return ProcessPoolExecutor(max_workers=safe_workers)
     except Exception as e:
         # Fallback to threads if there's any issue with process detection
         logger.warning(f"Process detection failed, using ThreadPoolExecutor: {e}")
@@ -815,11 +801,26 @@ def select_best(
     no_realign: bool = False,
     n_workers: int = 1,
     return_all_ranked: bool = False,
+    align_metric: str = "combo",
 ) -> Union[
     Dict[str, Tuple[Chem.Mol, Dict[str, float]]],
     List[Tuple[Chem.Mol, Dict[str, float], int]],
 ]:
-    """Select best poses using shape/color/combo scoring with memory optimization."""
+    """Select best poses using shape/color/combo scoring with memory optimization.
+    
+    Args:
+        confs: Molecule with multiple conformers to score
+        tpl: Template molecule for alignment and scoring
+        no_realign: Skip pose realignment
+        n_workers: Number of parallel workers
+        return_all_ranked: Return all ranked results instead of best poses
+        align_metric: Metric to use for conformer selection ('shape', 'color', 'combo')
+    
+    Returns:
+        If return_all_ranked=False: Dict mapping metric names to (molecule, scores) tuples.
+                                   All metrics use the same conformer selected by align_metric.
+        If return_all_ranked=True: List of all ranked (molecule, scores, conf_id) tuples.
+    """
 
     if confs is None or tpl is None:
         logger.error("Invalid input molecules for pose selection")
@@ -848,14 +849,8 @@ def select_best(
     executor = None
     if n_workers > 1:
         try:
-            # Import thread monitoring functions (optional)
-            try:
-                from .thread_manager import log_thread_status
-                # Log thread status before creating executor
-                log_thread_status("before_scoring_processing")
-            except ImportError:
-                # Thread monitoring not available, continue without it
-                pass
+            # Thread monitoring not available, continue without it
+            pass
             
             executor = _get_executor_for_context(n_workers)
             logger.debug(f"Created single process pool for all {n_confs} conformers")
@@ -1013,52 +1008,49 @@ def select_best(
     if return_all_ranked:
         return all_results
 
-    # Select best poses by each metric
+    # Select best pose based on specified align_metric, then compute all scores from that conformer
     best_poses = {}
+    
+    # Find best conformer based on the specified align_metric
+    metric_results = [(r[0], r[1], r[2]) for r in all_results if align_metric in r[1]]
+    if not metric_results:
+        logger.warning(f"No results found for align_metric '{align_metric}'")
+        return {} if not return_all_ranked else []
+    
+    # Sort by the specified metric and select the best conformer
+    metric_results.sort(key=lambda x: x[1][align_metric], reverse=True)
+    best_conf_id, best_scores, best_mol = metric_results[0]
+    
+    logger.info(f"Selected conformer {best_conf_id} based on {align_metric} score: {best_scores[align_metric]:.3f}")
+    
+    # Create clean copy for output with robust error handling
+    try:
+        # Validate the best_mol before copying
+        if best_mol is None:
+            logger.warning(f"Best molecule is None")
+            return {} if not return_all_ranked else []
 
-    for metric in ["shape", "color", "combo"]:
-        # Find best pose for this metric
-        metric_results = [(r[0], r[1], r[2]) for r in all_results if metric in r[1]]
-        if metric_results:
-            metric_results.sort(key=lambda x: x[1][metric], reverse=True)
-            best_conf_id, best_scores, best_mol = metric_results[
-                0
-            ]  # Fixed unpacking order
+        if not isinstance(best_mol, Chem.Mol):
+            logger.error(f"Best molecule has invalid type: {type(best_mol)}")
+            return {} if not return_all_ranked else []
 
-            # Create clean copy for output with robust error handling
-            try:
-                # Validate the best_mol before copying
-                if best_mol is None:
-                    logger.warning(f"Best molecular for {metric} is None, skipping")
-                    continue
+        output_mol = FixedMolecularProcessor.create_independent_copy(best_mol)
 
-                if not isinstance(best_mol, Chem.Mol):
-                    logger.error(
-                        f"Best molecule for {metric} has invalid type: {type(best_mol)}"
-                    )
-                    continue
+        if output_mol is None:
+            logger.warning("Failed to create copy of best pose, trying direct assignment")
+            # Fallback: use original molecule if copying fails
+            output_mol = best_mol
 
-                output_mol = FixedMolecularProcessor.create_independent_copy(best_mol)
-
-                if output_mol is None:
-                    logger.warning(
-                        f"Failed to create copy of best {metric} pose, trying direct assignment"
-                    )
-                    # Fallback: use original molecule if copying fails
-                    output_mol = best_mol
-
+        # Return all three metrics using the same conformer
+        for metric in ["shape", "color", "combo"]:
+            if metric in best_scores:
                 best_poses[metric] = (output_mol, best_scores)
-                logger.debug(
-                    f"Best {metric}: conf {best_conf_id}, score {best_scores[metric]:.3f}"
-                )
+                logger.debug(f"Using selected conformer for {metric}: score {best_scores[metric]:.3f}")
 
-            except Exception as e:
-                logger.error(f"Failed to process best {metric} pose: {e}")
-                logger.error(
-                    f"Best molecule type: {type(best_mol)}, scores: {best_scores}"
-                )
-                # Skip this metric rather than failing the entire function
-                continue
+    except Exception as e:
+        logger.error(f"Failed to process best pose: {e}")
+        logger.error(f"Best molecule type: {type(best_mol)}, scores: {best_scores}")
+        return {} if not return_all_ranked else []
 
     # Final cleanup
     cleanup_memory()

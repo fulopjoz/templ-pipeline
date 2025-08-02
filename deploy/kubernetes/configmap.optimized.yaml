@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: templ-pipeline-config
+  namespace: default
+  labels:
+    app: templ-pipeline
+    component: configuration
+    version: optimized
+data:
+  # === Core TEMPL Configuration ===
+  TEMPL_DATA_DIR: "/app/data"
+  TEMPL_TEMP_DIR: "/app/temp"
+  TEMPL_EMBEDDING_PATH: "/app/data/embeddings/templ_protein_embeddings_v1.0.0.npz"
+  TEMPL_LIGANDS_PATH: "/app/data/ligands/templ_processed_ligands_v1.0.0.sdf.gz"
+  
+  # === Python Environment Optimization ===
+  PYTHONPATH: "/app"
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONHASHSEED: "0"  # Reproducible hash seeds
+  
+  # === Streamlit Optimization ===
+  STREAMLIT_SERVER_PORT: "8501"
+  STREAMLIT_SERVER_ADDRESS: "0.0.0.0"
+  STREAMLIT_SERVER_HEADLESS: "true"
+  STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+  STREAMLIT_SERVER_MAX_UPLOAD_SIZE: "200"
+  STREAMLIT_GLOBAL_LOG_LEVEL: "info"
+  STREAMLIT_SERVER_FILE_WATCHER_TYPE: "none"
+  STREAMLIT_SERVER_RUN_ON_SAVE: "false"
+  STREAMLIT_SERVER_ENABLE_CORS: "false"
+  STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION: "true"
+  
+  # === Performance Optimization ===
+  TEMPL_WORKERS: "auto"
+  UV_THREADS: "auto"
+  OMP_NUM_THREADS: "auto"
+  MKL_NUM_THREADS: "auto"
+  OPENBLAS_NUM_THREADS: "auto"
+  
+  # === Memory Management ===
+  MALLOC_ARENA_MAX: "4"  # Reduce memory fragmentation
+  MALLOC_MMAP_THRESHOLD_: "131072"  # Optimize memory allocation
+  
+  # === Caching Configuration ===
+  TEMPL_CACHE_DIR: "/app/temp/.cache"
+  TRANSFORMERS_CACHE: "/app/temp/.transformers"
+  HF_HOME: "/app/temp/.huggingface"
+  
+  # === Graphics and Display ===
+  DISPLAY: ":0"
+  QT_X11_NO_MITSHM: "1"
+  MPLBACKEND: "Agg"  # Use non-interactive matplotlib backend
+  
+  # === Security Headers ===
+  # Note: STREAMLIT_SERVER_COOKIE_SECRET should be set from Kubernetes secret
+  # See deployment.yaml for secret reference
+  
+  # === Logging Configuration ===
+  TEMPL_LOG_LEVEL: "INFO"
+  TEMPL_LOG_FORMAT: "json"  # Structured logging for better parsing
+  
+  # === Development vs Production ===
+  TEMPL_DEBUG: "false"
+  TEMPL_PROFILING: "false"

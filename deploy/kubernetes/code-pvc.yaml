@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: templ-code-pvc
+  labels:
+    app: templ-pipeline
+    component: code-storage
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 2Gi  # Sufficient for code files
+  storageClassName: nfs-csi  # Use NFS storage class
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: templ-data-pvc
+  labels:
+    app: templ-pipeline
+    component: data-storage
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 20Gi  # Increased for data files
+  storageClassName: nfs-csi  # Use NFS storage class 

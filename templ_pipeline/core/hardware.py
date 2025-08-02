@@ -180,40 +180,40 @@ def get_optimized_worker_config(
     # Base configuration based on workload type - CONSERVATIVE FOR SYSTEM STABILITY
     if workload_type == "cpu_intensive":
         # CRITICAL FIX: Use conservative worker count to prevent resource exhaustion
-        # Previous: max 16 workers caused "cannot allocate memory for thread-local data" errors
+        # Cap at 20 workers maximum to prevent "cannot allocate memory for thread-local data" errors
         n_workers = max(2, min(20, int(total_cpus * 0.75)))  # Use 75% of CPUs, max 20 workers
         internal_pipeline_workers = min(2, total_cpus // n_workers) if n_workers > 1 else 1
 
     elif workload_type == "io_intensive":
-        # Maximize parallel targets for I/O-bound tasks - remove artificial caps
-        n_workers = total_cpus  # Use all CPUs instead of capping at 16
+        # Conservative parallel targets for I/O-bound tasks with system stability
+        n_workers = min(total_cpus, 20)  # Cap at 20 workers for system stability
         internal_pipeline_workers = 1
 
     elif workload_type == "memory_intensive":
-        # Optimized allocation for molecular tasks with higher memory utilization
-        # Use 6GB per worker instead of 8GB for better utilization
-        max_workers_by_memory = max(1, int(memory_info["available_gb"] * 0.9 // 6))  # 90% instead of 80%, 6GB instead of 8GB
-        n_workers = min(total_cpus, max_workers_by_memory)  # Remove cap at 3
+        # Conservative allocation for molecular tasks - use 2GB per worker for stability
+        # This prevents system memory exhaustion seen with 4GB per worker
+        max_workers_by_memory = max(1, int(memory_info["available_gb"] * 0.7 // 2))  # 70% memory, 2GB per worker
+        n_workers = min(total_cpus, max_workers_by_memory, 20)  # Cap at 20 workers
         internal_pipeline_workers = 1
 
     else:  # balanced
-        # Default: maximize parallelization using all available hardware
-        n_workers = total_cpus
+        # Default: conservative parallelization for system stability
+        n_workers = min(total_cpus, 20)  # Cap at 20 workers
         internal_pipeline_workers = 1
 
-    # Adjust for large datasets
+    # Adjust for large datasets - conservative approach
     if dataset_size > 1000:
-        # For very large datasets, prioritize throughput
-        n_workers = min(n_workers * 2, total_cpus)
+        # For very large datasets, maintain stability rather than maximizing throughput
+        n_workers = min(n_workers, 20)  # Keep 20 worker cap even for large datasets
         internal_pipeline_workers = 1
 
-    # Apply hardware-specific optimizations - MAXIMIZE UTILIZATION
+    # Apply hardware-specific optimizations - SYSTEM STABILITY FIRST
     if hardware_info.gpu_available and hardware_info.gpu_memory_gb > 4.0:
-        # GPU available - significantly boost parallel work capacity
-        n_workers = min(n_workers + 4, total_cpus * 2)  # Allow oversubscription with GPU
-        internal_pipeline_workers = min(internal_pipeline_workers + 1, 4)  # Boost internal workers too
+        # GPU available - modest boost but maintain system stability
+        n_workers = min(n_workers + 2, 20)  # Small boost, keep 20 worker cap
+        internal_pipeline_workers = min(internal_pipeline_workers + 1, 2)  # Modest internal worker boost
     elif hardware_info.total_ram_gb < 8.0:
-        # Limited RAM - still optimize but be slightly more conservative
+        # Limited RAM - be more conservative
         n_workers = min(n_workers, max(4, total_cpus // 2))  # Use at least half CPUs, minimum 4 workers
 
     config = {
@@ -226,7 +226,7 @@ def get_optimized_worker_config(
         "gpu_available": hardware_info.gpu_available,
     }
 
-    logger.info(
+    logger.debug(
         f"Optimized config ({workload_type}) → n_workers={n_workers}, "
         f"internal_workers={internal_pipeline_workers}, CPUs={total_cpus}, "
         f"RAM={memory_info['available_gb']:.1f}GB"

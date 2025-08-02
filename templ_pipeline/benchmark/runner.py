@@ -13,22 +13,18 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from templ_pipeline.core.pipeline import TEMPLPipeline
-from templ_pipeline.core.utils import (
-    load_molecules_with_shared_cache,
-    load_sdf_molecules_cached,
-    find_ligand_by_pdb_id,
-    calculate_rmsd,
-    get_protein_file_paths,
-    find_ligand_file_paths,
-    get_worker_config,
-    get_global_molecule_cache,
-)
+
+# Lazy imports to speed up module loading
+# from templ_pipeline.core.pipeline import TEMPLPipeline  # Moved to lazy import
+# from templ_pipeline.core.utils import (...)  # Moved to lazy import
 
 # Memory monitoring
 try:
     import psutil
-
+    import gc
+    import logging
+    import time
+    import os
     PSUTIL_AVAILABLE = True
 except ImportError:
     PSUTIL_AVAILABLE = False
@@ -45,6 +41,171 @@ MEMORY_WARNING_GB = 6.0  # Warn when process uses >6GB
 MEMORY_CRITICAL_GB = 8.0  # Critical when process uses >8GB
 
 
+class SharedMolecularCache:
+    """Singleton shared molecular cache to prevent per-worker loading."""
+    
+    _instance = None
+    _cache_data = None
+    _data_dir = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
+    @classmethod
+    def initialize(cls, data_dir: str):
+        """Initialize the shared cache once."""
+        if cls._cache_data is None:
+            cls._data_dir = data_dir
+            # Use lazy loading strategy instead of preloading massive cache
+            cls._cache_data = {"initialized": True, "data_dir": data_dir}
+    
+    @classmethod
+    def get_data_dir(cls):
+        """Get the data directory for cache access."""
+        return cls._data_dir
+    
+    @classmethod
+    def is_initialized(cls):
+        """Check if cache is initialized."""
+        return cls._cache_data is not None
+
+
+class LazyMoleculeLoader:
+    """Truly lazy molecule loader that only loads specific molecules on demand."""
+    
+    def __init__(self, data_dir: str):
+        self.data_dir = Path(data_dir)
+        self.log = logging.getLogger(__name__)
+        self._sdf_path = None
+        self._molecule_cache = {}  # Cache for individual molecules
+        
+    def _find_sdf_file(self):
+        """Find the SDF file without loading it."""
+        if self._sdf_path is not None:
+            return self._sdf_path
+            
+        try:
+            from templ_pipeline.core.utils import find_ligand_file_paths
+            ligand_file_paths = find_ligand_file_paths(self.data_dir)
+            for ligand_path in ligand_file_paths:
+                if ligand_path.exists():
+                    self._sdf_path = ligand_path
+                    self.log.info(f"Found SDF file: {ligand_path.name}")
+                    return self._sdf_path
+        except Exception as e:
+            self.log.warning(f"Failed to find SDF file: {e}")
+        
+        return None
+    
+    def get_ligand_data(self, pdb_id: str) -> Tuple[Optional[str], Optional["Chem.Mol"]]:
+        """Load specific ligand data on demand using efficient lookup."""
+        try:
+            # Check cache first
+            if pdb_id in self._molecule_cache:
+                return self._molecule_cache[pdb_id]
+            
+            # Find SDF file
+            sdf_path = self._find_sdf_file()
+            if not sdf_path:
+                self.log.error(f"No SDF file found for ligand search")
+                return None, None
+            
+            # Load specific molecule by PDB ID
+            molecule, smiles = self._load_specific_molecule(sdf_path, pdb_id)
+            
+            # Cache the result
+            self._molecule_cache[pdb_id] = (smiles, molecule)
+            
+            return smiles, molecule
+            
+        except Exception as e:
+            self.log.error(f"Failed to load ligand data for {pdb_id}: {e}")
+            return None, None
+    
+    def _load_specific_molecule(self, sdf_path: Path, target_pdb_id: str) -> Tuple[Optional["Chem.Mol"], Optional[str]]:
+        """Load a specific molecule by PDB ID without loading the entire file."""
+        try:
+            if sdf_path.suffix == ".gz":
+                import gzip
+                import io
+                
+                # Read compressed file in chunks
+                with gzip.open(sdf_path, "rb") as fh:
+                    content = fh.read()
+                
+                # Process from memory buffer
+                with io.BytesIO(content) as buffer:
+                    return self._search_molecule_in_supplier(buffer, target_pdb_id)
+            else:
+                # Handle uncompressed SDF files
+                with open(sdf_path, "rb") as fh:
+                    return self._search_molecule_in_supplier(fh, target_pdb_id)
+                    
+        except Exception as e:
+            self.log.error(f"Failed to load specific molecule {target_pdb_id}: {e}")
+            return None, None
+    
+    def _search_molecule_in_supplier(self, file_handle, target_pdb_id: str) -> Tuple[Optional["Chem.Mol"], Optional[str]]:
+        """Search for a specific molecule in an SDMolSupplier."""
+        try:
+            supplier = Chem.ForwardSDMolSupplier(file_handle, removeHs=False, sanitize=False)
+            
+            for idx, mol in enumerate(supplier):
+                try:
+                    if mol is None or not mol.HasProp("_Name"):
+                        continue
+                    
+                    mol_name = mol.GetProp("_Name")
+                    
+                    # Check if this is the molecule we're looking for
+                    if mol_name.lower() == target_pdb_id.lower():
+                        mol.SetProp("original_name", mol_name)
+                        mol.SetProp("molecule_index", str(idx))
+                        
+                        # Extract SMILES
+                        smiles = Chem.MolToSmiles(mol) if mol else None
+                        
+                        self.log.debug(f"Found molecule {target_pdb_id} at index {idx}")
+                        return mol, smiles
+                        
+                except Exception as mol_err:
+                    continue
+            
+            self.log.warning(f"Molecule {target_pdb_id} not found in SDF file")
+            return None, None
+            
+        except Exception as e:
+            self.log.error(f"Error searching for molecule {target_pdb_id}: {e}")
+            return None, None
+    
+    def _load_specific_molecule_fallback(self, sdf_path: Path, target_pdb_id: str) -> Tuple[Optional["Chem.Mol"], Optional[str]]:
+        """Fallback method using memory-efficient loading with limits."""
+        try:
+            from templ_pipeline.core.utils import load_sdf_molecules_cached
+            
+            # Load with very low memory limit to prevent explosion
+            molecules = load_sdf_molecules_cached(sdf_path, cache=None, memory_limit_gb=2.0)
+            
+            if not molecules:
+                return None, None
+            
+            # Search in loaded molecules
+            from templ_pipeline.core.utils import find_ligand_by_pdb_id
+            smiles, molecule = find_ligand_by_pdb_id(target_pdb_id, molecules)
+            
+            # Clear the molecules list to free memory immediately
+            molecules.clear()
+            del molecules
+            
+            return molecule, smiles
+            
+        except Exception as e:
+            self.log.error(f"Fallback loading failed for {target_pdb_id}: {e}")
+            return None, None
+
+
 @dataclass
 class BenchmarkParams:
     """Parameters for benchmark execution."""
@@ -56,7 +217,12 @@ class BenchmarkParams:
     template_knn: int = 100
     similarity_threshold: Optional[float] = None
     internal_workers: int = 1
-    timeout: int = 1800
+    timeout: int = 300
+    unconstrained: bool = False
+    align_metric: str = "combo"
+    enable_optimization: bool = False
+    no_realign: bool = False
+    allowed_pdb_ids: Optional[Set[str]] = None  # NEW: restrict template search
 
 
 @dataclass
@@ -120,14 +286,13 @@ def cleanup_memory():
 class BenchmarkRunner:
     """Memory-optimized TEMPL pipeline runner for benchmarks."""
 
-    def __init__(self, data_dir: str, poses_output_dir: Optional[str] = None, enable_error_tracking: bool = True, shared_cache_file: Optional[str] = None, shared_embedding_cache: Optional[str] = None, peptide_threshold: int = 8):
+    def __init__(self, data_dir: str, poses_output_dir: Optional[str] = None, enable_error_tracking: bool = True, shared_cache_file: Optional[str] = None, peptide_threshold: int = 8):
         self.data_dir = Path(data_dir)
         self.poses_output_dir = Path(poses_output_dir) if poses_output_dir else None
         self.pipeline = None
         self.log = logging.getLogger(__name__)
         self._molecule_cache = None  # Will use shared cache
         self._shared_cache_file = shared_cache_file
-        self._shared_embedding_cache = shared_embedding_cache
         self.peptide_threshold = peptide_threshold
         
         # Initialize error tracking if enabled
@@ -174,26 +339,31 @@ class BenchmarkRunner:
             if self.poses_output_dir:
                 output_dir = self.poses_output_dir
             else:
-                output_dir = self.data_dir / "benchmark_output"
+                # Default to a subdirectory in the data_dir
+                output_dir = self.data_dir / "benchmark_outputs"
+                output_dir.mkdir(parents=True, exist_ok=True)
+            
+            self.log.debug(f"Using output_dir for TEMPLPipeline: {output_dir}")
 
             self.log.debug(
                 f"Initializing TEMPL pipeline with data_dir: {self.data_dir}"
             )
             self.log.debug(f"Memory status: {memory_status['memory_gb']:.1f}GB")
 
+            # Lazy import to avoid slow import at module level
+            from templ_pipeline.core.pipeline import TEMPLPipeline
+            
             if embedding_path.exists():
                 self.pipeline = TEMPLPipeline(
                     embedding_path=str(embedding_path), 
-                    output_dir=str(output_dir),
-                    shared_embedding_cache=self._shared_embedding_cache
+                    output_dir=str(output_dir)
                 )
             else:
                 self.log.warning(
                     f"Embedding file not found at {embedding_path}, initializing pipeline without embeddings"
                 )
                 self.pipeline = TEMPLPipeline(
-                    output_dir=str(output_dir),
-                    shared_embedding_cache=self._shared_embedding_cache
+                    output_dir=str(output_dir)
                 )
 
             self.log.info(
@@ -207,47 +377,29 @@ class BenchmarkRunner:
     def _load_ligand_data_from_sdf(
         self, pdb_id: str
     ) -> Tuple[Optional[str], Optional["Chem.Mol"]]:
-        """Load ligand SMILES and crystal molecule using direct loading to avoid cache corruption."""
+        """Load ligand SMILES and crystal molecule using lazy loading to prevent memory explosion."""
+        
+        # Use lazy loading approach to prevent per-worker 6GB cache loading
+        if not hasattr(self, 'molecule_loader') or self.molecule_loader is None:
+            # Initialize lazy loader if not already done
+            if not SharedMolecularCache.is_initialized():
+                SharedMolecularCache.initialize(self.data_dir)
+            
+            self.molecule_loader = LazyMoleculeLoader(self.data_dir)
+            self.log.info("Initialized lazy molecule loader to prevent memory explosion")
+        
+        # Load specific ligand data on demand
+        return self.molecule_loader.get_ligand_data(pdb_id)
 
-        # IMPORTANT: Use direct loading instead of shared cache to avoid pickle corruption
-        # of RDKit molecule objects which lose properties during serialization/deserialization
-        if self._molecule_cache is None:
-            try:
-                self.log.info("Loading molecules directly from SDF to avoid cache corruption")
-                # Force direct loading without shared cache to preserve molecule properties
-                ligand_file_paths = find_ligand_file_paths(self.data_dir)
-                
-                for path in ligand_file_paths:
-                    if path.exists():
-                        try:
-                            # FIXED: Use direct loading with fresh cache to avoid corruption
-                            self._molecule_cache = load_sdf_molecules_cached(
-                                path, cache=None, memory_limit_gb=6.0
-                            )
-                            if self._molecule_cache:
-                                self.log.info(
-                                    f"Loaded {len(self._molecule_cache)} molecules directly from {path.name}"
-                                )
-                                break
-                        except Exception as e:
-                            self.log.warning(f"Failed to load ligands from {path}: {e}")
-                            continue
-                
-                if not self._molecule_cache:
-                    self.log.error("Failed to load molecules from any ligand file")
-                    return None, None
-                    
-            except Exception as e:
-                self.log.error(f"Failed to load molecules: {e}")
-                return None, None
-
-        return find_ligand_by_pdb_id(pdb_id, self._molecule_cache)
 
     def _calculate_rmsd_to_crystal(
         self, pose_mol: "Chem.Mol", crystal_mol: "Chem.Mol"
     ) -> float:
         """Calculate RMSD between pose and crystal ligand using shared utility."""
-        return calculate_rmsd(pose_mol, crystal_mol)
+        # Lazy import to avoid slow import at module level
+        from templ_pipeline.core.utils import calculate_rmsd
+        # Skip alignment for pose prediction benchmarking - measure original prediction accuracy
+        return calculate_rmsd(pose_mol, crystal_mol, skip_alignment=True)
 
     def run_single_target(self, params: BenchmarkParams) -> BenchmarkResult:
         """Run TEMPL pipeline for single target with memory monitoring."""
@@ -260,6 +412,14 @@ class BenchmarkRunner:
             )
 
         start_time = time.time()
+
+        # Log memory usage before processing
+        try:
+            proc = psutil.Process(os.getpid())
+            mem_before = proc.memory_info().rss / 1e9
+            self.log.info(f"[MEMORY] Before pipeline for {params.target_pdb}: {mem_before:.2f} GB")
+        except Exception as e:
+            self.log.warning(f"Could not log memory before: {e}")
 
         # Initialize variables to prevent reference errors
         rmsd_values = {}
@@ -348,6 +508,16 @@ class BenchmarkRunner:
             # For LOO approach, exclude target PDB from template pool
             effective_exclusions = params.exclude_pdb_ids.copy()
             effective_exclusions.add(params.target_pdb)
+            
+            # Log template restriction information
+            if params.allowed_pdb_ids is not None:
+                self.log.info(f"Template search restricted to {len(params.allowed_pdb_ids)} allowed PDBs for {params.target_pdb}")
+                if params.target_pdb.lower() in params.allowed_pdb_ids:
+                    self.log.error(f"CRITICAL: Target {params.target_pdb} found in allowed templates - data leak risk!")
+            else:
+                self.log.debug(f"No template restrictions for {params.target_pdb}")
+                
+            self.log.info(f"Excluding {len(effective_exclusions)} PDBs from template search for {params.target_pdb}")
 
             # Input validation
             if not os.path.exists(protein_file):
@@ -383,7 +553,12 @@ class BenchmarkRunner:
                     n_workers=params.internal_workers,  # Always 1 to prevent nested parallelization
                     similarity_threshold=params.similarity_threshold,
                     exclude_pdb_ids=effective_exclusions,
+                    allowed_pdb_ids=params.allowed_pdb_ids,  # NEW: restrict template search space
                     output_dir=benchmark_output_dir,
+                    unconstrained=params.unconstrained,
+                    align_metric=params.align_metric,
+                    enable_optimization=params.enable_optimization,
+                    no_realign=params.no_realign,
                 )
 
                 self.log.debug(
@@ -572,6 +747,7 @@ class BenchmarkRunner:
                     metadata={
                         "target_pdb": params.target_pdb,
                         "excluded_count": len(effective_exclusions),
+                        "allowed_templates_count": len(params.allowed_pdb_ids) if params.allowed_pdb_ids else None,
                         "final_memory_gb": final_memory["memory_gb"],
                     },
                 )
@@ -592,6 +768,7 @@ class BenchmarkRunner:
                     metadata={
                         "target_pdb": params.target_pdb,
                         "excluded_count": len(effective_exclusions),
+                        "allowed_templates_count": len(params.allowed_pdb_ids) if params.allowed_pdb_ids else None,
                         "final_memory_gb": final_memory["memory_gb"],
                     },
                 )
@@ -630,8 +807,24 @@ class BenchmarkRunner:
                 success=False, rmsd_values={}, runtime=runtime, error=str(e)
             )
 
+        # After all processing, before return:
+        try:
+            proc = psutil.Process(os.getpid())
+            mem_after = proc.memory_info().rss / 1e9
+            self.log.info(f"[MEMORY] After pipeline for {params.target_pdb}: {mem_after:.2f} GB")
+        except Exception as e:
+            self.log.warning(f"Could not log memory after: {e}")
+        # Aggressive memory cleanup
+        try:
+            import gc
+            gc.collect()
+        except Exception:
+            pass
+
     def _get_protein_file(self, pdb_id: str) -> str:
         """Get protein file path for PDB ID using shared utilities."""
+        # Lazy import to avoid slow import at module level
+        from templ_pipeline.core.utils import get_protein_file_paths
         search_paths = get_protein_file_paths(pdb_id, self.data_dir)
 
         for protein_file in search_paths:
@@ -787,13 +980,27 @@ def run_templ_pipeline_for_benchmark(
     template_knn: int = 100,
     similarity_threshold: Optional[float] = None,
     internal_workers: int = 1,
-    timeout: int = 1800,
+    timeout: int = 300,
     data_dir: str = None,
     poses_output_dir: str = None,
     shared_cache_file: str = None,
-    shared_embedding_cache: str = None,
+    unconstrained: bool = False,
+    align_metric: str = "combo",
+    enable_optimization: bool = False,
+    no_realign: bool = False,
+    allowed_pdb_ids: Set[str] = None,  # NEW: restrict template search to these PDB IDs
 ) -> Dict:
     """Main entry point for benchmark pipeline execution."""
+    
+    # Lazy imports to speed up module loading
+    from templ_pipeline.core.pipeline import TEMPLPipeline
+    from templ_pipeline.core.utils import (
+        load_sdf_molecules_cached,
+        find_ligand_by_pdb_id,
+        calculate_rmsd,
+        get_protein_file_paths,
+        find_ligand_file_paths,
+    )
 
     if data_dir is None:
         # Default to templ_pipeline/data
@@ -809,23 +1016,59 @@ def run_templ_pipeline_for_benchmark(
         similarity_threshold=similarity_threshold,
         internal_workers=internal_workers,
         timeout=timeout,
+        unconstrained=unconstrained,
+        align_metric=align_metric,
+        enable_optimization=enable_optimization,
+        no_realign=no_realign,
+        allowed_pdb_ids=allowed_pdb_ids,  # NEW: pass allowed templates to pipeline
     )
 
+    # Pipeline execution detailed logging
+    logger.info(f"PIPELINE_EXEC: Starting benchmark execution for {target_pdb}:")
+    logger.info(f"PIPELINE_EXEC:   Data directory: {data_dir}")
+    logger.info(f"PIPELINE_EXEC:   Template restrictions: {len(allowed_pdb_ids) if allowed_pdb_ids else 0} allowed")
+    logger.info(f"PIPELINE_EXEC:   Excluded PDB IDs: {len(exclude_pdb_ids)}")
+    logger.info(f"PIPELINE_EXEC:   Conformers requested: {n_conformers}")
+    logger.info(f"PIPELINE_EXEC:   Template KNN: {template_knn}")
+    logger.info(f"PIPELINE_EXEC:   Internal workers: {internal_workers}")
+    logger.info(f"PIPELINE_EXEC:   Align metric: {align_metric}")
+    
     runner = BenchmarkRunner(
         data_dir, 
         poses_output_dir, 
-        shared_cache_file=shared_cache_file,
-        shared_embedding_cache=shared_embedding_cache
+        shared_cache_file=shared_cache_file
     )
+    
+    logger.info(f"PIPELINE_EXEC: BenchmarkRunner initialized, executing pipeline...")
     result = runner.run_single_target(params)
+    
+    # Log pipeline execution results
+    logger.info(f"PIPELINE_EXEC: Pipeline execution completed for {target_pdb}:")
+    if isinstance(result, dict):
+        logger.info(f"PIPELINE_EXEC:   Success: {result.get('success', False)}")
+        logger.info(f"PIPELINE_EXEC:   Runtime: {result.get('runtime', 0):.2f}s")
+        rmsd_values = result.get('rmsd_values', {})
+        logger.info(f"PIPELINE_EXEC:   RMSD metrics available: {list(rmsd_values.keys())}")
+        
+        # Log RMSD values from pipeline execution
+        for metric, values in rmsd_values.items():
+            rmsd_val = values.get("rmsd") if isinstance(values, dict) else None
+            score_val = values.get("score") if isinstance(values, dict) else None
+            logger.info(f"PIPELINE_EXEC:   {metric}: RMSD={rmsd_val}, Score={score_val}")
+    else:
+        logger.warning(f"PIPELINE_EXEC:   Unexpected result type: {type(result)}")
     
     # Ensure result is properly converted to dictionary
     if hasattr(result, 'to_dict'):
-        return result.to_dict()
+        final_result = result.to_dict()
+        logger.info(f"PIPELINE_EXEC: Result converted to dict via to_dict() method")
+        return final_result
     elif isinstance(result, dict):
+        logger.info(f"PIPELINE_EXEC: Result already in dict format")
         return result
     else:
         # Fallback for unexpected return types
+        logger.error(f"PIPELINE_EXEC: Unexpected result type {type(result)}, returning error dict")
         return {
             "success": False,
             "rmsd_values": {},

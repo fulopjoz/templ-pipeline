@@ -62,9 +62,9 @@ class DatasetSplits:
         logger.debug(f"Using splits directory: {self.splits_dir}")
 
         # Load all splits
-        self.train_pdbs = self._load_split("timesplit_train.txt")
-        self.val_pdbs = self._load_split("timesplit_val.txt")
-        self.test_pdbs = self._load_split("timesplit_test.txt")
+        self.train_pdbs = self._load_split("timesplit_train")
+        self.val_pdbs = self._load_split("timesplit_val")
+        self.test_pdbs = self._load_split("timesplit_test")
 
         # Log split sizes
         logger.info(

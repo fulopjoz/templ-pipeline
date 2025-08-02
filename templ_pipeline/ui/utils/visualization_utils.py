@@ -61,7 +61,7 @@ def generate_molecule_image(mol_binary, width=400, height=300, highlight_atoms=N
         return None
 
 
-@st.cache_data(ttl=1800, show_spinner=False)  # 30 minute cache for molecular displays
+@st.cache_data(ttl=300, show_spinner=False)  
 def cached_display_molecule_data(
     mol_binary, width=400, height=300, highlight_atoms=None
 ):

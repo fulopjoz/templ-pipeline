@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: templ-pipeline-svc
+  labels:
+    app: templ-pipeline
+    component: service
+    version: optimized
+  annotations:
+    # Service optimization annotations
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"  # For AWS (optional)
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "false"
+spec:
+  type: ClusterIP
+  
+  # Optimize session affinity for better user experience
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800  # 3 hours
+  
+  # Port configuration
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8501
+    protocol: TCP
+  
+  # Selector (ensure it matches deployment labels)
+  selector:
+    app: templ-pipeline
+    component: application
+  
+  # Optimize service discovery
+  publishNotReadyAddresses: false  # Only route to ready pods
