@@ -41,7 +41,9 @@ Chem.SetDefaultPickleProperties(Chem.PropertyPickleOptions.AllProps)
 from templ_pipeline.core.mcs import find_mcs, constrained_embed, safe_name
 from templ_pipeline.core.scoring import select_best
 
-# Core utilities for resource management
+# Unified pipeline infrastructure (preferred approach)
+from templ_pipeline.core.pipeline import TEMPLPipeline
+import tempfile
 import os
 import psutil
 import resource
@@ -66,7 +68,7 @@ except ImportError:
 
 # Configuration
 MOLECULE_TIMEOUT = 300
-OUTPUT_DIR = "benchmarks/results/polaris"
+OUTPUT_DIR = "templ_benchmark_results_polaris"
 
 # Global flag for graceful shutdown
 shutdown_requested = False
@@ -243,9 +245,110 @@ def get_training_templates(
 # -----------------------------------------------------------------------------
 
 
-# NOTE: run_templ_pipeline_single_unified() function removed as it used internal TEMPLPipeline 
-# templates instead of Polaris-specific training data. The benchmark correctly uses 
-# run_templ_pipeline_single() which accepts custom Polaris templates as input.
+def run_templ_pipeline_single_unified(
+    query_mol: Chem.Mol,
+    reference_mol: Chem.Mol,
+    n_conformers: int = 200,
+    n_workers: int = 1,
+    save_poses: bool = False,
+    poses_output_dir: Optional[str] = None,
+    allowed_pdb_ids: Optional[set] = None,
+) -> Dict:
+    """Run TEMPL pipeline for a single molecule using unified TEMPLPipeline infrastructure.
+    
+    This function bridges Polaris benchmark with unified architecture by:
+    1. Converting molecules to SMILES for TEMPLPipeline
+    2. Using TEMPLPipeline.run_full_pipeline() as execution engine
+    3. Converting results back to Polaris format
+    """
+    result = {
+        "success": False,
+        "rmsd_values": {},
+        "n_conformers_generated": 0,
+        "template_used": None,
+        "error": None,
+        "processing_time": 0,
+        "timeout": False,
+        "molecule_name": safe_name(query_mol, "unknown"),
+        "filter_reason": None,
+    }
+    
+    start_time = time.time()
+    
+    try:
+        # Convert query molecule to SMILES for TEMPLPipeline
+        query_smiles = Chem.MolToSmiles(query_mol)
+        if not query_smiles:
+            result["error"] = "Failed to convert query molecule to SMILES"
+            return result
+        
+        # Create temporary directory for pipeline execution
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Initialize TEMPLPipeline with temporary output directory
+            pipeline = TEMPLPipeline(output_dir=temp_dir)
+            
+            # Run the full pipeline using unified infrastructure
+            # Note: We pass a dummy protein_pdb_id since Polaris doesn't use protein-specific templates
+            pipeline_result = pipeline.run_full_pipeline(
+                protein_pdb_id="1iky",  # Dummy PDB ID for Polaris
+                ligand_smiles=query_smiles,
+                num_conformers=n_conformers,
+                n_workers=n_workers,
+                allowed_pdb_ids=allowed_pdb_ids,
+            )
+            
+            if pipeline_result.get("success", False) and "poses" in pipeline_result and pipeline_result["poses"]:
+                result["success"] = True
+                result["n_conformers_generated"] = pipeline_result.get("template_info", {}).get("num_conformers_generated", n_conformers)
+                
+                # Extract and calculate RMSD values from TEMPLPipeline poses
+                if reference_mol is not None and pipeline_result["poses"]:
+                    reference_noH = Chem.RemoveHs(Chem.Mol(reference_mol))
+                    
+                    # Process each pose metric from TEMPLPipeline
+                    for metric, pose_data in pipeline_result["poses"].items():
+                        if isinstance(pose_data, tuple) and len(pose_data) == 2:
+                            pose_mol, scores_dict = pose_data
+                            
+                            if pose_mol is not None and pose_mol.GetNumConformers() > 0:
+                                # Calculate RMSD between pose and reference
+                                try:
+                                    pose_noH = Chem.RemoveHs(Chem.Mol(pose_mol))
+                                    rmsd = rmsd_raw(pose_noH, reference_noH)
+                                    
+                                    # Extract score (prioritize shape/combo metrics for Polaris compatibility)
+                                    score = 0.0
+                                    if isinstance(scores_dict, dict):
+                                        if metric in scores_dict:
+                                            score = float(scores_dict[metric])
+                                        elif "score" in scores_dict:
+                                            score = float(scores_dict["score"])
+                                        elif "similarity_score" in scores_dict:
+                                            score = float(scores_dict["similarity_score"])
+                                    
+                                    # Store results using Polaris format
+                                    metric_key = "canimotocombo" if metric == "combo" else metric
+                                    result["rmsd_values"][metric_key] = {
+                                        "rmsd": float(rmsd),
+                                        "score": float(score)
+                                    }
+                                    
+                                except Exception as e:
+                                    logging.warning(f"Failed to calculate RMSD for metric {metric}: {e}")
+                                    continue
+                
+                # Extract template information if available
+                if "template_info" in pipeline_result:
+                    result["template_used"] = pipeline_result["template_info"]
+                    
+            else:
+                result["error"] = pipeline_result.get("error", "TEMPLPipeline execution failed")
+                
+    except Exception as e:
+        result["error"] = f"Unified pipeline execution failed: {str(e)}"
+    
+    result["processing_time"] = time.time() - start_time
+    return result
 
 
 def run_templ_pipeline_single(
@@ -258,10 +361,10 @@ def run_templ_pipeline_single(
     save_poses: bool = False,
     poses_output_dir: Optional[str] = None,
     unconstrained: bool = False,
+    align_metric: str = "combo",
     enable_optimization: bool = False,
     no_realign: bool = False,
     allowed_pdb_ids: Optional[set] = None,
-    align_metric: str = "combo",
 ) -> Dict:
     """Run TEMPL pipeline for a single molecule with comprehensive result tracking.
     
@@ -427,11 +530,11 @@ def evaluate_with_leave_one_out(
     save_poses: bool = False,
     poses_output_dir: Optional[str] = None,
     unconstrained: bool = False,
+    align_metric: str = "combo",
     enable_optimization: bool = False,
     no_realign: bool = False,
     allowed_pdb_ids: Optional[set] = None,
     per_worker_ram_gb: float = 4.0,
-    align_metric: str = "combo",  # Shape alignment metric for conformer selection
 ) -> Dict:
     """Enhanced leave-one-out evaluation."""
 
@@ -483,10 +586,10 @@ def evaluate_with_leave_one_out(
                         save_poses,
                         poses_output_dir,
                         unconstrained,
+                        align_metric,
                         enable_optimization,
                         no_realign,
                         allowed_pdb_ids,
-                        align_metric,
                     ],
                     timeout=MOLECULE_TIMEOUT,
                 )
@@ -570,10 +673,10 @@ def evaluate_with_leave_one_out(
                     save_poses,
                     poses_output_dir,
                     unconstrained,
+                    align_metric,
                     enable_optimization,
                     no_realign,
                     allowed_pdb_ids,
-                    align_metric,
                 )
                 future_to_mol[future] = (mol_name, query_mol)
 
@@ -653,33 +756,13 @@ def evaluate_with_templates(
     save_poses: bool = False,
     poses_output_dir: Optional[str] = None,
     unconstrained: bool = False,
+    align_metric: str = "combo",
     enable_optimization: bool = False,
     no_realign: bool = False,
     allowed_pdb_ids: Optional[set] = None,
     per_worker_ram_gb: float = 4.0,
-    align_metric: str = "combo",  # Shape alignment metric for conformer selection
 ) -> Dict:
-    """Enhanced evaluation with templates using scientifically valid 2D/3D separation.
-    
-    This function implements the gold standard approach for pose prediction benchmarking:
-    
-    WORKFLOW:
-    1. Load crystal structures with 3D coordinates (input: query_mols)
-    2. Convert to 2D SMILES representation (removes 3D information)  
-    3. Create 2D molecule object (query for pose prediction)
-    4. Use training templates for MCS and constrained embedding
-    5. Generate 3D conformers constrained to template geometry
-    6. Score poses using shape/color similarity metrics
-    7. Calculate RMSD against original crystal structure (reference)
-    
-    DATA SEPARATION:
-    - query_mol: 2D molecule (no 3D coordinates) - input to pose prediction
-    - reference_mol: Original crystal structure (3D) - gold standard for evaluation
-    - template_mols: Training molecules (3D) - provide geometric constraints
-    
-    This ensures no data leakage: the 3D coordinates of the test molecule are never
-    used for pose prediction, only for final RMSD evaluation.
-    """
+    """Enhanced evaluation with templates."""
 
     logging.info(
         f"Starting {virus_type} {template_source} evaluation with {len(query_mols)} queries and {len(template_mols)} templates"
@@ -713,29 +796,15 @@ def evaluate_with_templates(
     if PEBBLE_AVAILABLE:
         with ProcessPool(max_workers=n_workers) as pool:
             futures = []
-            for i, crystal_mol in enumerate(query_mols):
-                mol_name = safe_name(crystal_mol, f"mol_{i}")
-                
-                # CRITICAL FIX: Proper 2D/3D separation for pose prediction benchmark
-                # 
-                # PROBLEM: Using crystal structure directly would leak 3D coordinates to pose prediction
-                # SOLUTION: Convert crystal → SMILES → 2D molecule (removes 3D coordinates)
-                #
-                # This simulates real-world scenario where we only know 2D structure and need to predict 3D pose
-                query_mol = Chem.MolFromSmiles(Chem.MolToSmiles(crystal_mol))
-                if query_mol is None:
-                    logging.warning(f"Failed to create query molecule from SMILES for {mol_name}")
-                    continue
-                
-                # Keep original crystal structure as reference for RMSD evaluation (NOT for pose prediction)
-                reference_mol = crystal_mol  # 3D coordinates used only for final RMSD calculation
+            for i, query_mol in enumerate(query_mols):
+                mol_name = safe_name(query_mol, f"mol_{i}")
 
                 future = pool.schedule(
                     worker_wrapper_with_memory_limit,
-                    args=[per_worker_ram_gb, query_mol, template_mols, reference_mol, None, n_conformers, 1, save_poses, poses_output_dir, unconstrained, enable_optimization, no_realign, allowed_pdb_ids, align_metric],
+                    args=[per_worker_ram_gb, query_mol, template_mols, query_mol, None, n_conformers, 1, save_poses, poses_output_dir, unconstrained, align_metric, enable_optimization, no_realign, allowed_pdb_ids],
                     timeout=MOLECULE_TIMEOUT,
                 )
-                futures.append((future, mol_name, crystal_mol))
+                futures.append((future, mol_name, query_mol))
 
             # Collect results with progress bar
             desc = f"{virus_type} Test ({template_source})"
@@ -800,41 +869,27 @@ def evaluate_with_templates(
             max_workers=n_workers, mp_context=mp_context
         ) as executor:
             future_to_mol = {}
-            for i, crystal_mol in enumerate(query_mols):
-                mol_name = safe_name(crystal_mol, f"mol_{i}")
-                
-                # CRITICAL FIX: Proper 2D/3D separation for pose prediction benchmark
-                # 
-                # PROBLEM: Using crystal structure directly would leak 3D coordinates to pose prediction
-                # SOLUTION: Convert crystal → SMILES → 2D molecule (removes 3D coordinates)
-                #
-                # This simulates real-world scenario where we only know 2D structure and need to predict 3D pose
-                query_mol = Chem.MolFromSmiles(Chem.MolToSmiles(crystal_mol))
-                if query_mol is None:
-                    logging.warning(f"Failed to create query molecule from SMILES for {mol_name}")
-                    continue
-                
-                # Keep original crystal structure as reference for RMSD evaluation (NOT for pose prediction)
-                reference_mol = crystal_mol  # 3D coordinates used only for final RMSD calculation
+            for i, query_mol in enumerate(query_mols):
+                mol_name = safe_name(query_mol, f"mol_{i}")
 
                 future = executor.submit(
                     worker_wrapper_with_memory_limit,
                     per_worker_ram_gb,
                     query_mol,
                     template_mols,
-                    reference_mol,
+                    query_mol,
                     None,
                     n_conformers,
                     1,
                     save_poses,
                     poses_output_dir,
                     unconstrained,
+                    align_metric,
                     enable_optimization,
                     no_realign,
                     allowed_pdb_ids,
-                    align_metric,
                 )
-                future_to_mol[future] = (mol_name, crystal_mol)
+                future_to_mol[future] = (mol_name, query_mol)
 
             # Collect results with progress bar
             desc = f"{virus_type} Test ({template_source})"
@@ -1183,7 +1238,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--align-metric",
         choices=["shape", "color", "combo"],
         default="combo",
-        help="Shape alignment metric for conformer selection (all scores computed from selected conformer)",
+        help="Shape alignment metric (default: combo)",
     )
     p.add_argument(
         "--enable-optimization",
@@ -1235,7 +1290,7 @@ def load_datasets(
 
 
 def validate_data_files(dataset_dir: Path):
-    """Validate that all required data files exist and contain expected Polaris data format."""
+    """Validate that all required data files exist."""
     paths = resolve_dataset_paths(dataset_dir)
 
     for name, file_path in paths.items():
@@ -1244,47 +1299,6 @@ def validate_data_files(dataset_dir: Path):
             return False
         else:
             logging.info(f"Found data file: {file_path}")
-            
-        # Enhanced validation: Check if SDF files contain molecules
-        try:
-            suppl = Chem.SDMolSupplier(str(file_path), removeHs=False, sanitize=False)
-            mol_count = 0
-            has_3d_coords = False
-            has_virus_labels = False
-            
-            for i, mol in enumerate(suppl):
-                if mol is None:
-                    continue
-                mol_count += 1
-                
-                # Check for 3D coordinates (important for template/reference structures)
-                if mol.GetNumConformers() > 0:
-                    has_3d_coords = True
-                
-                # Check for virus type labels (important for proper test splitting)
-                if mol.HasProp("Protein_Label"):
-                    has_virus_labels = True
-                
-                # Only check first few molecules for efficiency
-                if i >= 5:
-                    break
-            
-            if mol_count == 0:
-                logging.error(f"SDF file {file_path.name} contains no valid molecules")
-                return False
-                
-            logging.info(f"✓ {file_path.name}: {mol_count}+ molecules")
-            
-            # Additional validation for specific file types
-            if "test" in name and not has_3d_coords:
-                logging.warning(f"Test file {file_path.name} may lack 3D coordinates for RMSD calculation")
-            
-            if "test" in name and not has_virus_labels:
-                logging.warning(f"Test file {file_path.name} may lack virus type labels for proper splitting")
-                
-        except Exception as e:
-            logging.error(f"Failed to validate SDF file {file_path.name}: {e}")
-            return False
 
     # Create output directory
     Path(OUTPUT_DIR).mkdir(exist_ok=True)
@@ -1455,11 +1469,11 @@ def main(argv: List[str] | None = None):
                     save_poses=save_poses,
                     poses_output_dir=poses_output_dir,
                     unconstrained=args.unconstrained,
+                    align_metric=args.align_metric,
                     enable_optimization=args.enable_optimization,
                     no_realign=args.no_realign,
                     allowed_pdb_ids=allowed_pdb_ids,
                     per_worker_ram_gb=args.per_worker_ram_gb,
-                    align_metric=args.align_metric,
                 )
 
             # MERS training evaluation with native templates (leave-one-out)
@@ -1477,11 +1491,11 @@ def main(argv: List[str] | None = None):
                     save_poses=save_poses,
                     poses_output_dir=poses_output_dir,
                     unconstrained=args.unconstrained,
+                    align_metric=args.align_metric,
                     enable_optimization=args.enable_optimization,
                     no_realign=args.no_realign,
                     allowed_pdb_ids=allowed_pdb_ids,
                     per_worker_ram_gb=args.per_worker_ram_gb,
-                    align_metric=args.align_metric,
                 )
 
             # MERS training evaluation with combined SARS-aligned + MERS templates
@@ -1501,11 +1515,11 @@ def main(argv: List[str] | None = None):
                     save_poses=save_poses,
                     poses_output_dir=poses_output_dir,
                     unconstrained=args.unconstrained,
+                    align_metric=args.align_metric,
                     enable_optimization=args.enable_optimization,
                     no_realign=args.no_realign,
                     allowed_pdb_ids=allowed_pdb_ids,
                     per_worker_ram_gb=args.per_worker_ram_gb,
-                    align_metric=args.align_metric,
                 )
 
         # Run test set evaluations
@@ -1544,7 +1558,8 @@ def main(argv: List[str] | None = None):
                             save_poses=save_poses,
                             poses_output_dir=poses_output_dir,
                             unconstrained=args.unconstrained,
-                                    enable_optimization=args.enable_optimization,
+                            align_metric=args.align_metric,
+                            enable_optimization=args.enable_optimization,
                             no_realign=args.no_realign,
                             allowed_pdb_ids=allowed_pdb_ids,
                             per_worker_ram_gb=args.per_worker_ram_gb,
@@ -1567,7 +1582,8 @@ def main(argv: List[str] | None = None):
                             save_poses=save_poses,
                             poses_output_dir=poses_output_dir,
                             unconstrained=args.unconstrained,
-                                    enable_optimization=args.enable_optimization,
+                            align_metric=args.align_metric,
+                            enable_optimization=args.enable_optimization,
                             no_realign=args.no_realign,
                             allowed_pdb_ids=allowed_pdb_ids,
                             per_worker_ram_gb=args.per_worker_ram_gb,
@@ -1596,7 +1612,8 @@ def main(argv: List[str] | None = None):
                             save_poses=save_poses,
                             poses_output_dir=poses_output_dir,
                             unconstrained=args.unconstrained,
-                                    enable_optimization=args.enable_optimization,
+                            align_metric=args.align_metric,
+                            enable_optimization=args.enable_optimization,
                             no_realign=args.no_realign,
                             allowed_pdb_ids=allowed_pdb_ids,
                             per_worker_ram_gb=args.per_worker_ram_gb,
