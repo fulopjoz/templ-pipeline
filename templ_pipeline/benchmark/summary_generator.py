@@ -10,7 +10,7 @@ and metrics across different benchmark types.
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Union, Tuple
 from datetime import datetime
 from collections import defaultdict
 
@@ -210,9 +210,9 @@ class BenchmarkSummaryGenerator:
             successful_results = successful_groups.get(split_name, [])
             logger.debug(f"Split {split_name}: {len(successful_results)} successful out of {len(split_results)} total")
                 
-            # Use successful results for metrics calculation
+            # Use successful results for metrics calculation and get exclusion analysis
             total_processed = len(split_results)
-            metrics = self._calculate_timesplit_metrics(successful_results, total_processed)
+            metrics, exclusion_stats = self._calculate_timesplit_metrics_with_exclusions(split_results, successful_results, total_processed)
             
             # Count successful results
             successful_count = len(successful_results)
@@ -231,13 +231,15 @@ class BenchmarkSummaryGenerator:
                             "Split": split_name.title(),
                             "Metric": metric.title(),
                             "Total_Targets": total_processed,
-                            "Successful_Poses": successful_count,
+                            "Targets_With_RMSD": successful_count,
+                            "Excluded_Targets": exclusion_stats.get("excluded_count", 0),
                             "Success_Rate_2A": f"{metric_data.get('rate_2A', 0):.1f}%",
                             "Success_Rate_5A": f"{metric_data.get('rate_5A', 0):.1f}%",
                             "Mean_RMSD": f"{metric_data.get('mean_rmsd', 0):.2f}",
                             "Median_RMSD": f"{metric_data.get('median_rmsd', 0):.2f}",
                             "Avg_Exclusions": f"{avg_exclusions:.0f}",
-                            "Avg_Runtime": f"{avg_runtime:.1f}s"
+                            "Avg_Runtime": f"{avg_runtime:.1f}s",
+                            "Exclusion_Reasons": exclusion_stats.get("exclusion_breakdown", {})
                         })
             else:
                 # No successful results - add summary entry
@@ -246,13 +248,15 @@ class BenchmarkSummaryGenerator:
                     "Split": split_name.title(),
                     "Metric": "Summary",
                     "Total_Targets": total_processed,
-                    "Successful_Poses": successful_count,
+                    "Targets_With_RMSD": successful_count,
+                    "Excluded_Targets": exclusion_stats.get("excluded_count", 0),
                     "Success_Rate_2A": "0.0%",
                     "Success_Rate_5A": "0.0%",
                     "Mean_RMSD": "N/A",
                     "Median_RMSD": "N/A",
                     "Avg_Exclusions": f"{avg_exclusions:.0f}",
-                    "Avg_Runtime": f"{avg_runtime:.1f}s"
+                    "Avg_Runtime": f"{avg_runtime:.1f}s",
+                    "Exclusion_Reasons": exclusion_stats.get("exclusion_breakdown", {})
                 })
         
         return self._format_output(table_data, output_format)
@@ -377,6 +381,103 @@ class BenchmarkSummaryGenerator:
             logger.info(f"RMSD_VALIDATION: All {validation_report['results_with_rmsd']} successful results have valid RMSD data")
         
         return validation_report
+
+    def _parse_exclusion_reason(self, error_msg: str) -> str:
+        """Parse exclusion reason from error message."""
+        if not error_msg:
+            return "unknown_error"
+        
+        error_msg_lower = error_msg.lower()
+        
+        # Parse skip reasons
+        if "skipped" in error_msg_lower:
+            if "molecule_too_small" in error_msg_lower:
+                return "molecule_too_small"
+            elif "molecule_too_large" in error_msg_lower:
+                return "molecule_too_large"
+            elif "poor_quality" in error_msg_lower:
+                return "poor_quality_crystal"
+            elif "peptide" in error_msg_lower:
+                return "peptide_excluded"
+            elif "invalid_smiles" in error_msg_lower:
+                return "invalid_smiles"
+            elif "sanitization_failed" in error_msg_lower:
+                return "molecule_sanitization_failed"
+            else:
+                return "validation_failed"
+        
+        # Parse pipeline errors
+        elif "file not found" in error_msg_lower:
+            if "protein" in error_msg_lower:
+                return "protein_file_missing"
+            elif "ligand" in error_msg_lower:
+                return "ligand_data_missing"
+            else:
+                return "file_not_found"
+        elif "pose generation" in error_msg_lower or "no poses generated" in error_msg_lower:
+            return "pose_generation_failed"
+        elif "rmsd calculation failed" in error_msg_lower:
+            return "rmsd_calculation_failed"
+        elif "conformer generation failed" in error_msg_lower:
+            return "conformer_generation_failed"
+        elif "alignment failed" in error_msg_lower:
+            return "molecular_alignment_failed"
+        elif "mcs" in error_msg_lower:
+            return "mcs_calculation_failed"
+        elif "embedding failed" in error_msg_lower:
+            return "embedding_failed"
+        elif "timeout" in error_msg_lower:
+            return "timeout"
+        elif "memory" in error_msg_lower:
+            return "memory_error"
+        else:
+            return "pipeline_error"
+
+    def _calculate_timesplit_metrics_with_exclusions(self, all_results: List[Dict], successful_results: List[Dict], total_targets: int) -> Tuple[Dict, Dict]:
+        """Calculate metrics for Timesplit benchmark results with exclusion analysis.
+        
+        Args:
+            all_results: All target results including failed ones
+            successful_results: Only successful results with RMSD values
+            total_targets: Total number of targets processed
+            
+        Returns:
+            Tuple of (metrics_dict, exclusion_stats_dict)
+        """
+        # Calculate standard metrics using successful results
+        metrics = self._calculate_timesplit_metrics(successful_results, total_targets)
+        
+        # Analyze exclusions and failures
+        exclusion_breakdown = defaultdict(int)
+        excluded_count = 0
+        
+        for result in all_results:
+            if not result.get("success", False) or not result.get("rmsd_values"):
+                excluded_count += 1
+                error_msg = result.get("error", "")
+                exclusion_reason = self._parse_exclusion_reason(error_msg)
+                exclusion_breakdown[exclusion_reason] += 1
+        
+        exclusion_stats = {
+            "excluded_count": excluded_count,
+            "exclusion_breakdown": dict(exclusion_breakdown),
+            "successful_count": len(successful_results),
+            "total_targets": total_targets
+        }
+        
+        # Log exclusion analysis
+        logger.info(f"EXCLUSION_ANALYSIS: Target processing summary:")
+        logger.info(f"EXCLUSION_ANALYSIS:   Total targets: {total_targets}")
+        logger.info(f"EXCLUSION_ANALYSIS:   Successful (with RMSD): {len(successful_results)}")
+        logger.info(f"EXCLUSION_ANALYSIS:   Excluded/Failed: {excluded_count}")
+        
+        if exclusion_breakdown:
+            logger.info(f"EXCLUSION_ANALYSIS: Exclusion breakdown:")
+            for reason, count in sorted(exclusion_breakdown.items(), key=lambda x: x[1], reverse=True):
+                percentage = (count / total_targets) * 100 if total_targets > 0 else 0
+                logger.info(f"EXCLUSION_ANALYSIS:   {reason}: {count} ({percentage:.1f}%)")
+        
+        return metrics, exclusion_stats
 
     def _calculate_timesplit_metrics(self, split_results: List[Dict], total_targets: int) -> Dict:
         """Calculate metrics for Timesplit benchmark results."""
@@ -586,11 +687,39 @@ class BenchmarkSummaryGenerator:
                     else:
                         data_to_save = {"data": str(summary_data)}
                     
+                    # Enhanced JSON structure with exclusion metadata
+                    enhanced_data = {
+                        "timestamp": timestamp,
+                        "summary": data_to_save
+                    }
+                    
+                    # Add exclusion summary if available
+                    if isinstance(data_to_save, list) and data_to_save:
+                        total_exclusions = {}
+                        total_targets = 0
+                        total_with_rmsd = 0
+                        
+                        for entry in data_to_save:
+                            if isinstance(entry, dict):
+                                total_targets += entry.get("Total_Targets", 0)
+                                total_with_rmsd += entry.get("Targets_With_RMSD", 0)
+                                
+                                exclusion_reasons = entry.get("Exclusion_Reasons", {})
+                                if exclusion_reasons:
+                                    for reason, count in exclusion_reasons.items():
+                                        total_exclusions[reason] = total_exclusions.get(reason, 0) + count
+                        
+                        if total_exclusions:
+                            enhanced_data["exclusion_summary"] = {
+                                "total_targets_processed": total_targets,
+                                "total_targets_with_rmsd": total_with_rmsd,
+                                "total_excluded": sum(total_exclusions.values()),
+                                "exclusion_breakdown": total_exclusions,
+                                "success_rate": (total_with_rmsd / total_targets * 100) if total_targets > 0 else 0
+                            }
+                    
                     with open(file_path, 'w') as f:
-                        json.dump({
-                            "timestamp": timestamp,
-                            "summary": data_to_save
-                        }, f, indent=2, default=str)
+                        json.dump(enhanced_data, f, indent=2, default=str)
                     saved_files["json"] = file_path
                     
                 elif fmt == "markdown" and df is not None:

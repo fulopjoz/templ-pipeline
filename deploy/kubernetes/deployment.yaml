@@ -40,6 +40,19 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
+        
+        # Security-sensitive environment variables from secrets
+        - name: TEMPL_PASSWORD_HASH
+          valueFrom:
+            secretKeyRef:
+              name: templ-pipeline-secrets
+              key: TEMPL_PASSWORD_HASH
+        - name: STREAMLIT_SERVER_COOKIE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: templ-pipeline-secrets
+              key: STREAMLIT_SERVER_COOKIE_SECRET
+        
         - name: TEMPL_ENV
           value: "production"
         - name: STREAMLIT_SERVER_HEADLESS
@@ -54,6 +67,12 @@ spec:
           value: "/app/data"
         - name: TEMPL_TEMP_DIR
           value: "/app/temp"
+        
+        # Load non-sensitive configuration from ConfigMap
+        envFrom:
+        - configMapRef:
+            name: templ-pipeline-config
+        
         ports:
         - containerPort: 8501
           name: streamlit
