@@ -364,6 +364,7 @@ def run_templ_pipeline_single(
     enable_optimization: bool = False,
     no_realign: bool = False,
     allowed_pdb_ids: Optional[set] = None,
+    align_metric: str = "combo",
 ) -> Dict:
     """Run TEMPL pipeline for a single molecule with comprehensive result tracking.
     
@@ -440,7 +441,7 @@ def run_templ_pipeline_single(
 
         # Select best poses (using same algorithm as TEMPLPipeline)
         best_poses = select_best(
-            confs, template_mol, no_realign=no_realign, n_workers=n_workers
+            confs, template_mol, no_realign=no_realign, n_workers=n_workers, align_metric=align_metric
         )
 
         # Calculate RMSD to reference
@@ -533,7 +534,7 @@ def evaluate_with_leave_one_out(
     no_realign: bool = False,
     allowed_pdb_ids: Optional[set] = None,
     per_worker_ram_gb: float = 4.0,
-    align_metric: str = "combo",  # CLI compatibility parameter (ignored - uses multi-metric)
+    align_metric: str = "combo",  # Shape alignment metric for conformer selection
 ) -> Dict:
     """Enhanced leave-one-out evaluation."""
 
@@ -588,6 +589,7 @@ def evaluate_with_leave_one_out(
                         enable_optimization,
                         no_realign,
                         allowed_pdb_ids,
+                        align_metric,
                     ],
                     timeout=MOLECULE_TIMEOUT,
                 )
@@ -674,6 +676,7 @@ def evaluate_with_leave_one_out(
                     enable_optimization,
                     no_realign,
                     allowed_pdb_ids,
+                    align_metric,
                 )
                 future_to_mol[future] = (mol_name, query_mol)
 
@@ -757,7 +760,7 @@ def evaluate_with_templates(
     no_realign: bool = False,
     allowed_pdb_ids: Optional[set] = None,
     per_worker_ram_gb: float = 4.0,
-    align_metric: str = "combo",  # CLI compatibility parameter (ignored - uses multi-metric)
+    align_metric: str = "combo",  # Shape alignment metric for conformer selection
 ) -> Dict:
     """Enhanced evaluation with templates."""
 
@@ -808,7 +811,7 @@ def evaluate_with_templates(
 
                 future = pool.schedule(
                     worker_wrapper_with_memory_limit,
-                    args=[per_worker_ram_gb, query_mol, template_mols, reference_mol, None, n_conformers, 1, save_poses, poses_output_dir, unconstrained, enable_optimization, no_realign, allowed_pdb_ids],
+                    args=[per_worker_ram_gb, query_mol, template_mols, reference_mol, None, n_conformers, 1, save_poses, poses_output_dir, unconstrained, enable_optimization, no_realign, allowed_pdb_ids, align_metric],
                     timeout=MOLECULE_TIMEOUT,
                 )
                 futures.append((future, mol_name, crystal_mol))
@@ -904,6 +907,7 @@ def evaluate_with_templates(
                     enable_optimization,
                     no_realign,
                     allowed_pdb_ids,
+                    align_metric,
                 )
                 future_to_mol[future] = (mol_name, crystal_mol)
 
@@ -1254,7 +1258,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--align-metric",
         choices=["shape", "color", "combo"],
         default="combo",
-        help="Shape alignment metric (CLI compatibility - uses multi-metric evaluation)",
+        help="Shape alignment metric for conformer selection (all scores computed from selected conformer)",
     )
     p.add_argument(
         "--enable-optimization",
