@@ -49,6 +49,16 @@ from .output_manager import EnhancedOutputManager
 
 log = logging.getLogger(__name__)
 
+# Custom exception for molecule validation failures
+class MoleculeValidationException(Exception):
+    """Exception raised when molecule validation fails during pipeline execution."""
+    
+    def __init__(self, message, reason, details, molecule_info=None):
+        super().__init__(message)
+        self.reason = reason
+        self.details = details
+        self.molecule_info = molecule_info
+
 # Constants
 DEFAULT_N_CONFS = 50
 DEFAULT_N_WORKERS = 0  # Auto-detect based on CPU count
@@ -66,6 +76,7 @@ class PipelineConfig:
     target_smiles: str = ""
     protein_pdb_id: Optional[str] = None
     ligand_smiles: Optional[str] = None
+    ligand_file: Optional[str] = None
     
     # Data paths
     data_dir: str = DEFAULT_DATA_DIR
@@ -87,6 +98,12 @@ class PipelineConfig:
     use_cache: bool = True
     enable_batching: bool = True
     max_batch_size: int = 8
+    no_realign: bool = False
+    enable_optimization: bool = False
+    
+    # Ablation study options
+    unconstrained: bool = False
+    align_metric: str = "combo"
     
     def __post_init__(self):
         """Set default paths if not provided."""
@@ -132,8 +149,7 @@ class TEMPLPipeline:
         """Initialize the embedding manager."""
         try:
             self.embedding_manager = EmbeddingManager(
-                self.embedding_path, 
-                shared_embedding_cache=self.shared_embedding_cache
+                self.embedding_path
             )
             log.info("Embedding manager initialized successfully")
         except Exception as e:
@@ -147,37 +163,66 @@ class TEMPLPipeline:
         return self.embedding_manager
     
     def _extract_pdb_id_from_path(self, file_path: str) -> Optional[str]:
-        """Extract PDB ID from file path with enhanced pattern matching."""
+        """Extract PDB ID from file header using multiple strategies."""
         if not file_path:
             return None
             
-        # Extract filename from path
-        filename = os.path.basename(file_path)
-        
-        # Enhanced patterns for PDB ID extraction
-        import re
-        
-        # Multiple patterns to handle various filename formats
-        patterns = [
-            r'^([0-9][a-zA-Z0-9]{3})_',        # 2hyy_protein.pdb, 1abc_complex.pdb
-            r'^([0-9][a-zA-Z0-9]{3})\.',       # 2hyy.pdb, 1abc.cif
-            r'^([0-9][a-zA-Z0-9]{3})$',        # 2hyy, 1abc (no extension)
-            r'_([0-9][a-zA-Z0-9]{3})_',        # protein_2hyy_complex.pdb
-            r'_([0-9][a-zA-Z0-9]{3})\.',       # protein_2hyy.pdb
-            r'([0-9][a-zA-Z0-9]{3})',          # General pattern anywhere in filename
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, filename, re.IGNORECASE)
-            if match:
-                candidate = match.group(1).lower()
-                # Validate that it's a proper PDB ID format
-                if len(candidate) == 4 and candidate[0].isdigit() and candidate[1:].isalnum():
-                    log.info(f"Extracted PDB ID '{candidate}' from filename '{filename}' using pattern '{pattern}'")
-                    return candidate
-        
-        log.debug(f"No PDB ID found in filename '{filename}'")
-        return None
+        try:
+            with open(file_path, "r") as f:
+                for line in f:
+                    if line.startswith("HEADER"):
+                        # Strategy 1: Standard PDB format - PDB ID at positions 62-66
+                        if len(line) >= 66:
+                            pdb_id = line[62:66].strip().lower()
+                            if len(pdb_id) == 4 and pdb_id.isalnum():
+                                log.info(f"Extracted PDB ID '{pdb_id}' from standard header format")
+                                return pdb_id
+                        
+                        # Strategy 2: Simple header format - "HEADER    PDB_ID" or "HEADER    PDB_ID_PROTEIN"
+                        header_parts = line.strip().split()
+                        if len(header_parts) >= 2:
+                            potential_id = header_parts[1]
+                            
+                            # Remove common suffixes like "_PROTEIN"
+                            if potential_id.endswith("_PROTEIN"):
+                                potential_id = potential_id[:-8]
+                            elif potential_id.endswith("_COMPLEX"):
+                                potential_id = potential_id[:-8]
+                            
+                            # Validate as 4-character PDB ID
+                            if len(potential_id) == 4 and potential_id.isalnum():
+                                pdb_id = potential_id.lower()
+                                log.info(f"Extracted PDB ID '{pdb_id}' from simple header format")
+                                return pdb_id
+                                
+                    elif line.startswith("TITLE") or line.startswith("ATOM"):
+                        # Stop searching after HEADER section
+                        break
+                        
+            # Strategy 3: Filename fallback - extract from filename as last resort
+            import os
+            filename = os.path.basename(file_path)
+            if filename:
+                # Remove extension
+                name_part = os.path.splitext(filename)[0]
+                
+                # Remove common suffixes
+                if name_part.endswith("_protein"):
+                    name_part = name_part[:-8]
+                elif name_part.endswith("_complex"):
+                    name_part = name_part[:-8]
+                
+                # Check if it looks like a PDB ID
+                if len(name_part) == 4 and name_part.isalnum():
+                    pdb_id = name_part.lower()
+                    log.info(f"Extracted PDB ID '{pdb_id}' from filename as fallback")
+                    return pdb_id
+                    
+            log.warning(f"No valid PDB ID found in file header or filename: {file_path}")
+            return None
+        except Exception as e:
+            log.error(f"Error extracting PDB ID from file {file_path}: {e}")
+            return None
 
     def load_target_data(self) -> bool:
         """Load target protein and ligand data."""
@@ -207,6 +252,8 @@ class TEMPLPipeline:
             
             # Load target molecule
             target_smiles = getattr(self.config, 'target_smiles', None) or getattr(self.config, 'ligand_smiles', None)
+            ligand_file = getattr(self.config, 'ligand_file', None)
+
             if target_smiles:
                 _, self.target_mol = load_target_data(pdb_to_load or "", target_smiles)
                 if self.target_mol is None:
@@ -218,7 +265,12 @@ class TEMPLPipeline:
                 self.crystal_mol = self._load_crystal_molecule(target_pdb_id)
                 
                 # Validate target molecule for peptides and other issues
-                pdb_id = target_pdb_id or getattr(self.config, 'protein_pdb_id', 'unknown')
+                # Ensure pdb_id is never None by using multiple fallback strategies
+                pdb_id = target_pdb_id
+                if not pdb_id:
+                    pdb_id = getattr(self.config, 'protein_pdb_id', None)
+                if not pdb_id:
+                    pdb_id = 'unknown'
                 peptide_threshold = getattr(self.config, 'peptide_threshold', 8)
                 
                 is_valid, validation_msg = validate_target_molecule(
@@ -244,14 +296,7 @@ class TEMPLPipeline:
                         
                         log.warning(f"Molecule validation failed for {pdb_id}: {validation_msg}")
                         
-                        # Create a custom exception that can be caught by benchmark runner
-                        class MoleculeValidationException(Exception):
-                            def __init__(self, message, reason, details, molecule_info=None):
-                                super().__init__(message)
-                                self.reason = reason
-                                self.details = details
-                                self.molecule_info = molecule_info
-                        
+                        # Raise the module-level MoleculeValidationException
                         raise MoleculeValidationException(
                             validation_msg, 
                             skip_reason, 
@@ -263,42 +308,80 @@ class TEMPLPipeline:
                         # Skip tracker not available, just log and fail
                         log.error(f"Target molecule validation failed: {validation_msg}")
                         return False
-            
+            elif ligand_file:
+                # Load the first molecule from the SDF file
+                from rdkit import Chem
+                supplier = Chem.SDMolSupplier(ligand_file, removeHs=False)
+                mols = [mol for mol in supplier if mol is not None]
+                if mols:
+                    self.target_mol = mols[0]
+                    log.info(f"Loaded target molecule from SDF: {ligand_file} with {self.target_mol.GetNumAtoms()} atoms")
+                else:
+                    log.error(f"Failed to load any valid molecule from SDF: {ligand_file}")
+                    return False
+            else:
+                log.error("No ligand SMILES or ligand file provided")
+                return False
+
             return True
             
         except Exception as e:
+            import traceback
             log.error(f"Failed to load target data: {e}")
+            log.error(f"Traceback: {traceback.format_exc()}")
             return False
     
     def _load_crystal_molecule(self, pdb_id: str) -> Optional[Chem.Mol]:
         """Load crystal molecule for RMSD calculation."""
         try:
             if not pdb_id:
+                log.info(f"CRYSTAL_LOADING: No PDB ID provided for crystal structure loading")
                 return None
                 
             # Try to find crystal ligand in processed SDF
-            ligands_sdf_gz = f"{getattr(self.config, 'data_dir', DEFAULT_DATA_DIR)}/ligands/templ_processed_ligands_v1.0.0.sdf.gz"
+            config_data_dir = getattr(self.config, 'data_dir', None)
+            actual_data_dir = config_data_dir if config_data_dir else DEFAULT_DATA_DIR
+            ligands_sdf_gz = f"{actual_data_dir}/ligands/templ_processed_ligands_v1.0.0.sdf.gz"
+            
+            log.info(f"CRYSTAL_LOADING: Loading crystal structure for {pdb_id}")
+            log.info(f"CRYSTAL_LOADING:   Config data_dir: {config_data_dir}")
+            log.info(f"CRYSTAL_LOADING:   Actual data_dir: {actual_data_dir}")
+            log.info(f"CRYSTAL_LOADING:   Looking for SDF: {ligands_sdf_gz}")
+            log.info(f"CRYSTAL_LOADING:   SDF exists: {os.path.exists(ligands_sdf_gz)}")
             
             if not os.path.exists(ligands_sdf_gz):
-                log.debug(f"Crystal ligand SDF not found: {ligands_sdf_gz}")
+                log.warning(f"CRYSTAL_LOADING: Crystal ligand SDF not found: {ligands_sdf_gz}")
                 return None
                 
+            molecules_searched = 0
+            molecules_matched = 0
+            
             with gzip.open(ligands_sdf_gz, 'rb') as fh:
                 for mol in Chem.ForwardSDMolSupplier(fh, removeHs=False, sanitize=False):
+                    molecules_searched += 1
                     if not mol or not mol.GetNumConformers():
                         continue
                     
                     # Check if this is our target
                     mol_name = safe_name(mol, "")
                     if mol_name and mol_name.lower().startswith(pdb_id.lower()):
-                        log.info(f"Found crystal ligand for {pdb_id}")
+                        molecules_matched += 1
+                        log.info(f"CRYSTAL_LOADING: Found crystal ligand for {pdb_id}")
+                        log.info(f"CRYSTAL_LOADING:   Molecule name: {mol_name}")
+                        log.info(f"CRYSTAL_LOADING:   Molecule atoms: {mol.GetNumAtoms()}")
+                        log.info(f"CRYSTAL_LOADING:   Molecule conformers: {mol.GetNumConformers()}")
+                        log.info(f"CRYSTAL_LOADING:   Searched {molecules_searched} molecules total")
                         return Chem.Mol(mol)
                         
-            log.debug(f"No crystal ligand found for {pdb_id}")
+            log.warning(f"CRYSTAL_LOADING: No crystal ligand found for {pdb_id}")
+            log.info(f"CRYSTAL_LOADING:   Searched {molecules_searched} molecules total")
+            log.info(f"CRYSTAL_LOADING:   Matched {molecules_matched} molecules")
             return None
             
         except Exception as e:
-            log.error(f"Failed to load crystal molecule: {e}")
+            log.error(f"CRYSTAL_LOADING: Failed to load crystal molecule for {pdb_id}: {e}")
+            import traceback
+            log.error(f"CRYSTAL_LOADING: Traceback: {traceback.format_exc()}")
             return None
     
     def load_templates(self) -> bool:
@@ -340,90 +423,101 @@ class TEMPLPipeline:
     
     def get_protein_embedding(self, pdb_id: str, pdb_file: str = None) -> Tuple[Optional[np.ndarray], Optional[List[str]]]:
         """Get protein embedding for PDB ID and the chains used.
-        
-        When PDB file is provided:
-        1. Extract PDB ID from file if not provided
-        2. Check if extracted PDB ID exists in embedding database
-        3. Use existing embedding if found, otherwise generate from file
+
+        When a PDB file is provided, this function will first extract the PDB ID, check for
+        an existing embedding in the database, and only generate a new one if not found.
         """
         try:
             if self.embedding_manager is None:
                 log.error("Embedding manager not initialized")
                 return None, None
-            
-            # If PDB file is provided, try to extract PDB ID for database lookup
-            if pdb_file and os.path.exists(pdb_file):
-                # Extract PDB ID from file if not provided or if provided ID is temporary
-                if not pdb_id or pdb_id.startswith("TEMP_"):
-                    extracted_pdb_id = self._extract_pdb_id_from_path(pdb_file)
-                    if extracted_pdb_id:
-                        pdb_id = extracted_pdb_id
-                        log.info(f"Extracted PDB ID '{pdb_id}' from uploaded file")
-                
-                # Check if extracted/provided PDB ID exists in embedding database
-                if pdb_id and self.embedding_manager.has_embedding(pdb_id):
-                    log.info(f"Using existing embedding for PDB ID '{pdb_id}' from database")
-                    embedding, chains_str = self.embedding_manager.get_embedding(pdb_id)
-                    if embedding is not None:
-                        chains = chains_str.split(',') if chains_str else []
-                        return embedding, chains
-                
-                # If no existing embedding found, generate from uploaded file
-                log.info(f"Generating embedding from uploaded file for PDB ID '{pdb_id}'")
-                embedding, chains_str = self.embedding_manager.get_embedding(pdb_id, pdb_file=pdb_file)
-            
-            # Handle PDB ID without file (database lookup)
-            elif pdb_id:
-                # Check existing embeddings first
-                if self.embedding_manager.has_embedding(pdb_id):
-                    log.info(f"Using existing embedding for PDB ID '{pdb_id}' from database")
-                    embedding, chains_str = self.embedding_manager.get_embedding(pdb_id)
+
+            # Input validation: detect if a file path was passed instead of PDB ID
+            if pdb_id and ('/' in pdb_id or '\\' in pdb_id or pdb_id.endswith('.pdb')):
+                log.warning(f"File path detected as PDB ID: '{pdb_id}'. Attempting to extract PDB ID from path.")
+                extracted_id = self._extract_pdb_id_from_path(pdb_id)
+                if extracted_id:
+                    original_input = pdb_id
+                    pdb_id = extracted_id
+                    log.info(f"Extracted PDB ID '{pdb_id}' from path '{original_input}'")
                 else:
-                    # Try to find PDB file in database
-                    pdb_file_path = pdb_path(pdb_id, getattr(self.config, 'data_dir', DEFAULT_DATA_DIR))
-                    if pdb_file_path and os.path.exists(pdb_file_path):
-                        log.info(f"Generating embedding for PDB ID '{pdb_id}' from database file")
-                        embedding, chains_str = self.embedding_manager.get_embedding(pdb_id, pdb_file=pdb_file_path)
-                    else:
-                        log.error(f"PDB ID '{pdb_id}' not found in embedding database or file system")
-                        return None, None
-            else:
-                log.error("No PDB ID or file provided")
-                return None, None
-            
-            if embedding is not None:
-                chains = chains_str.split(',') if chains_str else []
-                return embedding, chains
-            
+                    log.error(f"Could not extract valid PDB ID from path: '{pdb_id}'")
+                    return None, None
+
+            # Normalize the provided PDB ID for consistent lookup
+            if pdb_id:
+                pdb_id = pdb_id.upper().split(':')[-1]
+
+            # If a PDB file is provided, extract its PDB ID and prioritize it
+            if pdb_file and os.path.exists(pdb_file):
+                extracted_pdb_id = self._extract_pdb_id_from_path(pdb_file)
+                if extracted_pdb_id:
+                    pdb_id = extracted_pdb_id.upper()
+                    log.info(f"Using PDB ID '{pdb_id}' extracted from file for embedding lookup")
+
+            # Always check for an existing embedding first
+            if pdb_id and self.embedding_manager.has_embedding(pdb_id):
+                log.info(f"Found existing embedding for PDB ID '{pdb_id}'. Using it.")
+                embedding, chains_str = self.embedding_manager.get_embedding(pdb_id)
+                if embedding is not None:
+                    return embedding, (chains_str.split(',') if chains_str else [])
+
+            # If no embedding is found, generate a new one ONLY if a file is provided
+            if pdb_file and os.path.exists(pdb_file):
+                log.info(f"No existing embedding for '{pdb_id}'. Generating new embedding from {pdb_file}.")
+                embedding, chains_str = self.embedding_manager.get_embedding(pdb_id, pdb_file=pdb_file)
+                if embedding is not None:
+                    return embedding, (chains_str.split(',') if chains_str else [])
+
+            # If no file is provided and the PDB ID is not in the database, fail gracefully
+            if pdb_id and not pdb_file:
+                log.error(f"PDB ID '{pdb_id}' not found in embedding database and no PDB file was provided.")
+                log.error(f"Available options: 1) Provide PDB file path, 2) Check if PDB ID exists in database, 3) Verify PDB ID format (should be 4 characters)")
+
             return None, None
-            
+
         except Exception as e:
             log.error(f"Failed to get protein embedding for {pdb_id}: {e}", exc_info=True)
             return None, None
 
-    def find_similar_templates(self, query_embedding: np.ndarray, k: int = 100, exclude_pdb_ids: set = None) -> List[str]:
-        """Find similar templates using embedding similarity."""
+    def find_similar_templates(self, query_pdb_id: str, query_embedding: np.ndarray, k: int = 100, exclude_pdb_ids: set = None, allowed_pdb_ids: set = None) -> Tuple[List[str], Dict[str, float]]:
+        """Find similar templates using embedding similarity.
+        
+        Returns:
+            Tuple of (template_pdb_ids, embedding_similarities_dict)
+        """
         try:
             if self.embedding_manager is None:
                 log.error("Embedding manager not initialized")
-                return []
+                return [], {}
                 
-            # Find nearest neighbors
-            neighbors = self.embedding_manager.find_neighbors(
-                query_pdb_id="query",
+            # Find nearest neighbors with similarities
+            neighbors_with_similarities = self.embedding_manager.find_neighbors(
+                query_pdb_id=query_pdb_id,
                 query_embedding=query_embedding,
                 k=k,
                 exclude_pdb_ids=exclude_pdb_ids,
-                return_similarities=False
+                allowed_pdb_ids=allowed_pdb_ids,
+                return_similarities=True
             )
             
-            return neighbors
+            # Extract PDB IDs and similarities
+            template_pdb_ids = []
+            embedding_similarities = {}
+            
+            for pdb_id, similarity in neighbors_with_similarities:
+                template_pdb_ids.append(pdb_id)
+                embedding_similarities[pdb_id.upper()] = float(similarity)
+            
+            log.info(f"Found {len(template_pdb_ids)} templates with embedding similarities ranging from {min(embedding_similarities.values()):.3f} to {max(embedding_similarities.values()):.3f}")
+            
+            return template_pdb_ids, embedding_similarities
             
         except Exception as e:
             log.error(f"Failed to find similar templates: {e}")
-            return []
+            return [], {}
     
-    def process_templates(self, template_pdb_ids: List[str], ref_chains: List[str]) -> List[Chem.Mol]:
+    def process_templates(self, template_pdb_ids: List[str], ref_chains: List[str], embedding_similarities: Dict[str, float] = None) -> List[Chem.Mol]:
         """Process and transform template molecules."""
         processed_templates = []
         failed_templates = []
@@ -460,9 +554,14 @@ class TEMPLPipeline:
                     continue
 
                 # Get chain info for the mobile protein
-                _, mob_chains = self.get_protein_embedding(pdb_id)
+                _, mob_chains = self.get_protein_embedding(pdb_id, pdb_file=pdb_file)
                 
                 if self.reference_protein is not None:
+                    # Get actual embedding similarity for this template
+                    embedding_similarity = 1.0  # Default fallback
+                    if embedding_similarities and pdb_id.upper() in embedding_similarities:
+                        embedding_similarity = embedding_similarities[pdb_id.upper()]
+                    
                     transformed_mol = transform_ligand(
                         mob_pdb=pdb_file, 
                         lig=template_mol, 
@@ -470,7 +569,7 @@ class TEMPLPipeline:
                         ref_struct=self.reference_protein,
                         ref_chains=ref_chains,
                         mob_chains=mob_chains,
-                        similarity_score=1.0  # Default similarity score
+                        similarity_score=embedding_similarity
                     )
                     
                     if transformed_mol is not None:
@@ -529,9 +628,13 @@ class TEMPLPipeline:
                 return None
 
             n_workers = getattr(self.config, 'n_workers', DEFAULT_N_WORKERS)
-            enable_optimization = getattr(self, 'enable_optimization', True)
+            enable_optimization = getattr(self, 'enable_optimization', False)
+            unconstrained = getattr(self, 'unconstrained', False)
+            
+            log.info(f"Pipeline generate_conformers: enable_optimization={enable_optimization}, unconstrained={unconstrained}")
 
-            if mcs_smarts == "*":
+            # Force unconstrained embedding if ablation flag is set
+            if unconstrained or mcs_smarts == "*":
                 log.info("Using central atom embedding for conformer generation")
                 conformers = central_atom_embed(
                     self.target_mol,
@@ -566,12 +669,14 @@ class TEMPLPipeline:
                 
             n_workers = getattr(self.config, 'n_workers', DEFAULT_N_WORKERS)
             no_realign = getattr(self, 'no_realign', False)
+            align_metric = getattr(self, 'align_metric', 'combo')
             
             best_poses = select_best(
                 conformers, 
                 template_mol, 
                 no_realign=no_realign,
-                n_workers=n_workers
+                n_workers=n_workers,
+                align_metric=align_metric
             )
             
             return best_poses
@@ -626,8 +731,10 @@ class TEMPLPipeline:
                          ligand_smiles: str = None, ligand_file: str = None,
                          num_templates: int = 100, num_conformers: int = 50,
                          n_workers: int = 4, similarity_threshold: float = 0.9,
-                         exclude_pdb_ids: set = None, output_dir: str = None,
-                         no_realign: bool = False, enable_optimization: bool = True) -> dict:
+                         exclude_pdb_ids: set = None, allowed_pdb_ids: set = None,
+                         output_dir: str = None, no_realign: bool = False, 
+                         enable_optimization: bool = False, unconstrained: bool = False, 
+                         align_metric: str = "combo") -> dict:
         """Run the full pipeline with CLI interface."""
         # Use provided output_dir or fall back to instance output_dir
         effective_output_dir = output_dir or self.output_dir
@@ -637,17 +744,25 @@ class TEMPLPipeline:
             target_smiles=ligand_smiles or "",
             protein_pdb_id=protein_pdb_id,
             ligand_smiles=ligand_smiles,
+            ligand_file=ligand_file,
             output_dir=effective_output_dir,
             n_confs=num_conformers,
             n_workers=n_workers,
             sim_threshold=similarity_threshold,
-            num_templates=num_templates
+            num_templates=num_templates,
+            no_realign=no_realign,
+            enable_optimization=enable_optimization,
+            unconstrained=unconstrained,
+            align_metric=align_metric
         )
         
         self.config = config
         self.exclude_pdb_ids = exclude_pdb_ids or set()
+        self.allowed_pdb_ids = allowed_pdb_ids or None
         self.no_realign = no_realign
         self.enable_optimization = enable_optimization
+        self.unconstrained = unconstrained
+        self.align_metric = align_metric
         
         # Store poses during pipeline execution
         self.pipeline_poses = {}
@@ -680,48 +795,90 @@ class TEMPLPipeline:
             if not self.load_target_data():
                 return False
 
-            query_pdb_id = getattr(self.config, 'protein_pdb_id', None) or getattr(self.config, 'target_pdb', None)
+            query_pdb_id = getattr(self.config, 'protein_pdb_id', None)
+            target_pdb_file = getattr(self.config, 'target_pdb', None)
             
-            # If no PDB ID is found but we have a file path, try to extract it
-            if not query_pdb_id:
-                target_pdb_file = getattr(self.config, 'target_pdb', None)
-                if target_pdb_file:
-                    extracted_id = self._extract_pdb_id_from_path(target_pdb_file)
-                    if extracted_id:
-                        query_pdb_id = extracted_id
-                        log.info(f"Using extracted PDB ID '{query_pdb_id}' for pipeline execution")
-                    else:
-                        # Use the filename without extension as fallback
-                        query_pdb_id = os.path.splitext(os.path.basename(target_pdb_file))[0]
-                        log.info(f"Using filename '{query_pdb_id}' as fallback PDB ID")
+            # If no explicit PDB ID is provided, try to extract it from the file path
+            if not query_pdb_id and target_pdb_file:
+                extracted_id = self._extract_pdb_id_from_path(target_pdb_file)
+                if extracted_id:
+                    query_pdb_id = extracted_id
+                    log.info(f"Using extracted PDB ID '{query_pdb_id}' for pipeline execution")
                 else:
-                    log.error("No protein PDB ID or file provided")
-                    return False
+                    # Use the filename without extension as fallback
+                    query_pdb_id = os.path.splitext(os.path.basename(target_pdb_file))[0]
+                    log.info(f"Using filename '{query_pdb_id}' as fallback PDB ID")
+            elif not query_pdb_id and not target_pdb_file:
+                log.error("No protein PDB ID or file provided")
+                return False
 
             # Setup enhanced output folder structure
             self.output_manager.setup_output_folder(query_pdb_id)
 
             # Get target embedding and chains
-            target_pdb_file = getattr(self.config, 'target_pdb', None)
             query_embedding, ref_chains = self.get_protein_embedding(query_pdb_id, pdb_file=target_pdb_file)
+
             if query_embedding is None:
                 log.error(f"Failed to get/generate protein embedding for {query_pdb_id}")
                 return False
 
+            # If chains were not found during embedding, try to get them now
+            if not ref_chains:
+                log.warning(f"No chains returned with embedding for {query_pdb_id}. Attempting to extract from file.")
+                if target_pdb_file and os.path.exists(target_pdb_file):
+                    _, ref_chains = get_protein_sequence(target_pdb_file)
+                    if ref_chains:
+                        log.info(f"Successfully extracted chains: {ref_chains}")
+                    else:
+                        log.error(f"Could not extract chains from {target_pdb_file}")
+                        return False
+                else:
+                    # Attempt to get chain data from the embedding manager as a last resort
+                    chains_str = self.embedding_manager.get_chain_data(query_pdb_id)
+                    if chains_str:
+                        ref_chains = chains_str.split(',')
+                        log.info(f"Successfully retrieved chains from embedding metadata: {ref_chains}")
+                    else:
+                        log.error(f"No PDB file available and no chain data in embedding for {query_pdb_id}")
+                        return False
+
             num_templates = getattr(self.config, 'num_templates', 100)
             exclude_pdb_ids = getattr(self, 'exclude_pdb_ids', set())
-            similar_template_ids = self.find_similar_templates(query_embedding, k=num_templates, exclude_pdb_ids=exclude_pdb_ids)
+            allowed_pdb_ids = getattr(self, 'allowed_pdb_ids', None)
+            similar_template_ids, embedding_similarities = self.find_similar_templates(query_pdb_id, query_embedding, k=num_templates, exclude_pdb_ids=exclude_pdb_ids, allowed_pdb_ids=allowed_pdb_ids)
+            log.info(f"Found {len(similar_template_ids)} similar templates for {query_pdb_id}")
+            
+            # Validate timesplit constraints are respected
+            if allowed_pdb_ids is not None:
+                # Check that target is not in template list (should be excluded by constraints)
+                if query_pdb_id.upper() in [pid.upper() for pid in similar_template_ids]:
+                    log.warning(f"Timesplit constraint validation: target {query_pdb_id} found in template list - this may indicate constraint bypass")
+                else:
+                    log.info(f"Timesplit constraint validation: target {query_pdb_id} properly excluded from template list")
+                
+                # Validate all templates are within allowed set
+                invalid_templates = [pid for pid in similar_template_ids if pid.upper() not in allowed_pdb_ids]
+                if invalid_templates:
+                    log.error(f"Constraint violation: templates {invalid_templates} not in allowed set")
+                else:
+                    log.info(f"Constraint validation passed: all {len(similar_template_ids)} templates within allowed set")
+            
             if not similar_template_ids:
                 log.error("No similar templates found.")
                 return False
             
-            # Always include target PDB ID if it exists in the database but not in similar templates
-            if query_pdb_id.upper() not in [pid.upper() for pid in similar_template_ids]:
+            # Only include target PDB ID as template when no constraints are applied (not in timesplit scenarios)
+            if allowed_pdb_ids is None and query_pdb_id.upper() not in [pid.upper() for pid in similar_template_ids]:
                 # Check if target exists in embedding database
                 target_embedding, _ = self.get_protein_embedding(query_pdb_id)
                 if target_embedding is not None:
                     similar_template_ids.insert(0, query_pdb_id)
+                    # Add perfect similarity score for the target itself
+                    embedding_similarities[query_pdb_id.upper()] = 1.0
                     log.info(f"Added target {query_pdb_id} to template list as it exists in database")
+            elif allowed_pdb_ids is not None:
+                # In constrained scenarios (like timesplit), respect the constraints strictly
+                log.info(f"Template constraints active: target {query_pdb_id} excluded to maintain benchmark integrity")
             
             log.info(f"Found {len(similar_template_ids)} similar templates.")
 
@@ -731,11 +888,15 @@ class TEMPLPipeline:
             # Prepare list for all transformed ligands, including native if applicable
             all_transformed_ligands = []
             
-            # Handle self-superimposition
+            # Handle native ligand use when target is legitimately found as a template
+            # Note: In timesplit scenarios, target won't be in similar_template_ids due to constraints
             target_is_template = False
             if query_pdb_id.upper() in [pid.upper() for pid in similar_template_ids]:
                 target_is_template = True
-                log.info(f"Target {query_pdb_id} is in templates, using its native pose.")
+                if allowed_pdb_ids is not None:
+                    log.info(f"Target {query_pdb_id} found as legitimate template within constraints, using native pose.")
+                else:
+                    log.info(f"Target {query_pdb_id} is in templates, using its native pose.")
                 native_ligand_path = ligand_path(query_pdb_id, "data")
                 if native_ligand_path and os.path.exists(native_ligand_path):
                     try:
@@ -756,7 +917,7 @@ class TEMPLPipeline:
 
             # Process remaining templates
             if similar_template_ids:
-                transformed_ligands_from_templates = self.process_templates(similar_template_ids, ref_chains)
+                transformed_ligands_from_templates = self.process_templates(similar_template_ids, ref_chains, embedding_similarities)
                 
                 # Apply RMSD filtering with progressive fallback
                 filtered_templates = self.filter_templates_by_rmsd(transformed_ligands_from_templates)
@@ -785,13 +946,15 @@ class TEMPLPipeline:
             # Score conformers efficiently (single scoring call)
             n_workers = getattr(self.config, 'n_workers', DEFAULT_N_WORKERS)
             no_realign = getattr(self, 'no_realign', False)
+            align_metric = getattr(self, 'align_metric', 'combo')
             
             # Get all ranked poses first (comprehensive results)
             all_ranked_poses = select_best(
                 target_with_conformers, best_template, 
                 no_realign=no_realign,
                 n_workers=n_workers,
-                return_all_ranked=True
+                return_all_ranked=True,
+                align_metric=align_metric
             )
             
             if not all_ranked_poses:
@@ -828,12 +991,25 @@ class TEMPLPipeline:
             
             # Store template information for CLI interface  
             if hasattr(self, 'pipeline_template_info'):
+                # Use MCS similarity score instead of template similarity score for accurate benchmarking
+                # The template similarity_score can be "1.0" for native poses, but MCS similarity is the real metric
+                similarity_score = mcs_details.get('similarity_score', 0.0) if mcs_details else 0.0
+                template_similarity = best_template.GetProp('similarity_score') if best_template.HasProp('similarity_score') else 'unknown'
+                
+                # For benchmarking accuracy, prefer MCS similarity over template similarity
+                if template_similarity == "1.0" and similarity_score != 1.0:
+                    # Native template detected - use MCS similarity for benchmarking accuracy
+                    final_similarity = f"{similarity_score:.3f}"
+                else:
+                    # Use template similarity (for non-native cases)
+                    final_similarity = template_similarity
+                
                 self.pipeline_template_info = {
                     "best_template_pdb": best_template.GetProp('template_pid') if best_template.HasProp('template_pid') else 'unknown',
                     "mcs_smarts": mcs_smarts,
                     "num_conformers_generated": target_with_conformers.GetNumConformers(),
                     "ca_rmsd": best_template.GetProp('ca_rmsd') if best_template.HasProp('ca_rmsd') else 'unknown',
-                    "similarity_score": best_template.GetProp('similarity_score') if best_template.HasProp('similarity_score') else 'unknown'
+                    "similarity_score": final_similarity
                 }
 
             # Get crystal structure for RMSD calculation if available

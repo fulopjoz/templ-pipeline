@@ -37,9 +37,7 @@ coverage.xml
 *.cover
 *.py,cover
 .hypothesis/
-htmlcov/
-test-cache/
-test-profiles/
+tests/artifacts/
 coverage-analysis/
 
 # Virtual environments
@@ -83,7 +81,8 @@ output/
 workspace/
 web_app_results/
 template_test_*/
-benchmark_workspace_*/
+benchmarks/workspaces/
+benchmarks/results/
 templ_benchmark_results_*/
 qa-dashboard/
 error_tracking/
@@ -172,6 +171,25 @@ temp_*.sdf
 # DEPLOYMENT & CONFIGURATION
 # ==============================================
 
+# Security-sensitive files
+secrets.yaml
+**/secrets.yaml
+**/*secret*
+**/*password*
+**/*credential*
+**/*auth*
+# Allow template files for documentation
+!**/secrets.template.yaml
+!deploy/SECURITY_SETUP.md
+.env.local
+.env.production
+.env.staging
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+
 # Docker and deployment
 Dockerfile.optimized
 templ-app-optimized.yaml
@@ -192,21 +210,31 @@ tmp*/
 temp/
 .temp/
 
+# ==============================================
+# NEW ADDITIONS FOR REORGANIZATION
+# ==============================================
 
-# CLAUDE
-CLAUDE.md
-.mypy_cache/benchmark_workspace_time-split_*/
+# Claude AI settings and cache
+.claude/
+.claude/settings.local.json
+
+# Streamlit configuration
+.streamlit/
+.streamlit/config.toml.backup
+.streamlit/config_production.tomlclear
+
+# Jupyter notebooks (if any)
+*.ipynb
+.ipynb_checkpoints/
+
+# Additional ignores
 .mypy_cache/
-
 data/embeddings/
 data/ligands/
+~/
 
+benchmarks/
+benchmark_*/
 
-# GEMINI
-GEMINI.md
-shift_molvis_fix.md
-docs/templ.md
-
-
-# templ
-true_mcs.py
+valid_cod/
+docs/

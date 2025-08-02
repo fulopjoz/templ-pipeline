@@ -315,7 +315,7 @@ class TEMPLUXConfig:
         # Hardware-aware defaults
         if self.preferences.auto_detect_hardware:
             try:
-                from templ_pipeline.core.hardware_utils import (
+                from templ_pipeline.core.hardware import (
                     get_suggested_worker_config,
                 )
 
@@ -468,6 +468,18 @@ def configure_logging_for_verbosity(
     """Configure logging based on verbosity level with optional log file support."""
     root_logger = logging.getLogger()
     cli_logger = logging.getLogger(logger_name)
+    
+    # Configure benchmark logging to be less verbose
+    benchmark_loggers = [
+        "templ_pipeline.core.hardware",
+        "templ_pipeline.core.embedding", 
+        "templ_pipeline.benchmark.runner",
+        "templ_pipeline.core.utils"
+    ]
+    
+    for logger_name_config in benchmark_loggers:
+        logger = logging.getLogger(logger_name_config)
+        logger.setLevel(logging.WARNING)  # Suppress DEBUG/INFO during benchmarks
 
     # Configure formatters
     minimal_formatter = logging.Formatter("%(message)s")

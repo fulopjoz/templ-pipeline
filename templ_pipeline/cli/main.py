@@ -83,7 +83,9 @@ def _lazy_import_rdkit():
         from rdkit import Chem, RDLogger
         from rdkit.Chem import AllChem
 
+        # Suppress all RDKit warnings including SCD/SED warnings
         RDLogger.DisableLog("rdApp.*")
+        RDLogger.DisableLog("rdkit.*")
         return Chem, AllChem
     except ImportError as e:
         logger.error(f"RDKit not available: {e}")
@@ -305,6 +307,22 @@ def setup_parser():
         action="store_true",
         help="Use raw conformers (no shape alignment)",
     )
+    generate_poses_parser.add_argument(
+        "--unconstrained",
+        action="store_true",
+        help="Skip MCS and constrained embedding for unconstrained conformer generation",
+    )
+    generate_poses_parser.add_argument(
+        "--align-metric",
+        choices=["shape", "color", "combo"],
+        default="combo",
+        help="Metric for ranking conformers. Selected conformer is evaluated with all metrics (default: combo)",
+    )
+    generate_poses_parser.add_argument(
+        "--enable-optimization",
+        action="store_true",
+        help="Enable force field optimization (optimization disabled by default)",
+    )
 
     # Full pipeline command
     run_parser = subparsers.add_parser("run", help="Run full TEMPL pipeline")
@@ -375,6 +393,35 @@ def setup_parser():
         "--enable-optimization",
         action="store_true",
         help="Enable force field optimization (optimization disabled by default)",
+    )
+    run_parser.add_argument(
+        "--unconstrained",
+        action="store_true",
+        help="Skip MCS and constrained embedding for unconstrained conformer generation",
+    )
+    run_parser.add_argument(
+        "--align-metric",
+        choices=["shape", "color", "combo"],
+        default="combo",
+        help="Metric for ranking conformers. Selected conformer is evaluated with all metrics (default: combo)",
+    )
+    run_parser.add_argument(
+        "--allowed-pdb-ids",
+        type=str,
+        default=None,
+        help="Comma-separated list of PDB IDs to allow as templates (for dataset filtering)",
+    )
+    run_parser.add_argument(
+        "--exclude-pdb-ids", 
+        type=str,
+        default=None,
+        help="Comma-separated list of PDB IDs to exclude as templates (for leave-one-out)",
+    )
+    run_parser.add_argument(
+        "--shared-embedding-cache",
+        type=str,
+        default=None,
+        help="Shared embedding cache name for multiprocessing (internal use)",
     )
 
     # Benchmark command ---------------------------------------------------
@@ -450,7 +497,7 @@ def setup_parser():
     benchmark_parser.add_argument(
         "--pipeline-timeout",
         type=int,
-        default=1800,
+        default=300,
         help="Timeout in seconds for each individual PDB processing (time-split only)",
     )
     benchmark_parser.add_argument(
@@ -461,11 +508,10 @@ def setup_parser():
         help="Maximum RAM (GiB) before throttling worker submission (time-split only)",
     )
     benchmark_parser.add_argument(
-        "--per-worker-ram",
-        dest="per_worker_ram_gb",
+        "--per-worker-ram-gb",
         type=float,
         default=4.0,
-        help="Hard memory cap per worker in GiB (time-split only)",
+        help="Maximum RAM (GiB) per worker process (prevents memory explosion, default: 4.0)",
     )
     # Advanced hardware optimization arguments
     benchmark_parser.add_argument(
@@ -507,6 +553,28 @@ def setup_parser():
         type=int,
         default=8,
         help="Maximum number of amino acid residues before considering a molecule a large peptide to skip (default: 8)",
+    )
+    # Ablation study flags
+    benchmark_parser.add_argument(
+        "--unconstrained",
+        action="store_true",
+        help="Skip MCS and constrained embedding for unconstrained conformer generation",
+    )
+    benchmark_parser.add_argument(
+        "--align-metric",
+        choices=["shape", "color", "combo"],
+        default="combo",
+        help="Metric for ranking conformers. Selected conformer is evaluated with all metrics (default: combo)",
+    )
+    benchmark_parser.add_argument(
+        "--enable-optimization",
+        action="store_true",
+        help="Enable force field optimization (optimization disabled by default)",
+    )
+    benchmark_parser.add_argument(
+        "--no-realign",
+        action="store_true",
+        help="Disable pose realignment for scoring-only mode",
     )
     benchmark_parser.set_defaults(func=benchmark_command)
 
@@ -824,7 +892,17 @@ def run_command(args):
             embedding_path=getattr(args, "embedding_file", None),
             output_dir=args.output_dir,
             run_id=getattr(args, "run_id", None),
+            shared_embedding_cache=getattr(args, "shared_embedding_cache", None),
         )
+
+        # Parse PDB ID lists
+        allowed_pdb_ids = None
+        if hasattr(args, 'allowed_pdb_ids') and args.allowed_pdb_ids:
+            allowed_pdb_ids = set(pdb_id.strip().upper() for pdb_id in args.allowed_pdb_ids.split(',') if pdb_id.strip())
+            
+        exclude_pdb_ids = None
+        if hasattr(args, 'exclude_pdb_ids') and args.exclude_pdb_ids:
+            exclude_pdb_ids = set(pdb_id.strip().upper() for pdb_id in args.exclude_pdb_ids.split(',') if pdb_id.strip())
 
         # Run pipeline with progress indication
         def run_pipeline():
@@ -839,11 +917,94 @@ def run_command(args):
                 similarity_threshold=getattr(args, "similarity_threshold", None),
                 no_realign=getattr(args, "no_realign", False),
                 enable_optimization=getattr(args, "enable_optimization", False),
+                unconstrained=getattr(args, "unconstrained", False),
+                align_metric=getattr(args, "align_metric", "combo"),
+                allowed_pdb_ids=allowed_pdb_ids,
+                exclude_pdb_ids=exclude_pdb_ids,
             )
 
         results = simple_progress_wrapper("Running TEMPL pipeline", run_pipeline)
 
-        # Report results
+        # Calculate RMSD values for each best pose if pipeline succeeded
+        rmsd_values = {}
+        if results.get("success") and results.get("poses"):
+            logger.info(f"CLI_RMSD: Starting RMSD calculation for successful pipeline")
+            logger.info(f"CLI_RMSD:   Pipeline success: {results.get('success')}")
+            logger.info(f"CLI_RMSD:   Poses available: {list(results.get('poses', {}).keys())}")
+            
+            try:
+                # Try to get crystal structure for RMSD calculation
+                crystal_mol = getattr(pipeline, 'crystal_mol', None)
+                has_crystal = crystal_mol is not None
+                
+                logger.info(f"CLI_RMSD: Crystal structure availability check:")
+                logger.info(f"CLI_RMSD:   Pipeline has crystal_mol attribute: {hasattr(pipeline, 'crystal_mol')}")
+                logger.info(f"CLI_RMSD:   Crystal molecule is not None: {has_crystal}")
+                
+                if has_crystal:
+                    logger.info(f"CLI_RMSD:   Crystal molecule atoms: {crystal_mol.GetNumAtoms()}")
+                    logger.info(f"CLI_RMSD:   Crystal molecule conformers: {crystal_mol.GetNumConformers()}")
+                
+                if crystal_mol is not None:
+                    from templ_pipeline.core.scoring import rmsd_raw
+                    from rdkit import Chem
+                    import numpy as np
+                    
+                    crystal_noH = Chem.RemoveHs(crystal_mol)
+                    logger.info(f"CLI_RMSD: Processing crystal structure for comparison")
+                    logger.info(f"CLI_RMSD:   Crystal atoms after H removal: {crystal_noH.GetNumAtoms()}")
+                    
+                    # Calculate RMSD for each metric's best pose
+                    for metric, (pose, scores) in results["poses"].items():
+                        if pose is not None:
+                            try:
+                                pose_noH = Chem.RemoveHs(pose)
+                                rmsd = rmsd_raw(pose_noH, crystal_noH)
+                                rmsd_values[metric] = {
+                                    "rmsd": float(rmsd) if not np.isnan(rmsd) else None,
+                                    "score": float(scores.get(metric, 0.0))
+                                }
+                                if not np.isnan(rmsd):
+                                    logger.info(f"CLI_RMSD: Calculated RMSD for {metric}: {rmsd:.3f}Å")
+                                else:
+                                    logger.debug(f"CLI_RMSD: RMSD calculation returned NaN for {metric} - likely molecular structure incompatibility")
+                            except Exception as e:
+                                logger.warning(f"CLI_RMSD: RMSD calculation failed for {metric}: {e}")
+                                rmsd_values[metric] = {
+                                    "rmsd": None,
+                                    "score": float(scores.get(metric, 0.0))
+                                }
+                else:
+                    # No crystal structure available - just include scores
+                    logger.warning(f"CLI_RMSD: No crystal structure available - using score-only fallback")
+                    for metric, (pose, scores) in results["poses"].items():
+                        if pose is not None:
+                            rmsd_values[metric] = {
+                                "rmsd": None,
+                                "score": float(scores.get(metric, 0.0))
+                            }
+                            logger.info(f"CLI_RMSD: Score-only entry for {metric}: {scores.get(metric, 0.0):.3f}")
+            except Exception as e:
+                logger.error(f"CLI_RMSD: RMSD calculation setup failed: {e}")
+                logger.error(f"CLI_RMSD: Traceback: {traceback.format_exc()}")
+
+        # Output structured JSON for subprocess parsing
+        json_output = {
+            "success": results.get("success", False),  
+            "templates_count": len(results.get('templates', [])),
+            "poses_count": len(results.get('poses', {})),
+            "output_file": results.get('output_file', 'unknown'),
+            "rmsd_values": rmsd_values
+        }
+        
+        # Import json and numpy for output
+        import json
+        import numpy as np
+        
+        # Output JSON on a single line for easy parsing
+        print("TEMPL_JSON_RESULT:" + json.dumps(json_output, default=lambda x: float(x) if isinstance(x, np.floating) else x))
+        
+        # Also output human-readable summary for backwards compatibility
         print(f"Pipeline completed successfully!")
         print(f"Found {len(results.get('templates', []))} templates")
         print(f"Generated {len(results.get('poses', {}))} poses")
@@ -870,12 +1031,36 @@ def load_template_molecules_from_sdf(template_pdbs):
         raise
 
 
+def _resolve_workspace_dir(workspace_dir):
+    """Resolve workspace directory with backward compatibility for old locations."""
+    from pathlib import Path
+    
+    workspace_path = Path(workspace_dir)
+    
+    # If the new path exists, use it
+    if workspace_path.exists():
+        return workspace_path
+    
+    # Check if this might be an old workspace name in root directory
+    workspace_name = workspace_path.name
+    old_location = Path(workspace_name)
+    if old_location.exists():
+        logger.info(f"Found workspace in old location: {old_location}")
+        return old_location
+    
+    # If neither exists, return the original path (might be created later)
+    return workspace_path
+
+
 def _generate_unified_summary(workspace_dir, benchmark_type):
     """Generate unified summary files for benchmark results."""
     try:
         from templ_pipeline.benchmark.summary_generator import BenchmarkSummaryGenerator
         import json
         from pathlib import Path
+        
+        # Resolve workspace directory with backward compatibility
+        workspace_dir = _resolve_workspace_dir(workspace_dir)
         
         generator = BenchmarkSummaryGenerator()
         raw_results_dir = workspace_dir / "raw_results"
@@ -886,7 +1071,7 @@ def _generate_unified_summary(workspace_dir, benchmark_type):
         if benchmark_type == "polaris":
             # Look for Polaris JSON results in workspace directory first, then fallback to old location
             polaris_workspace_dir = raw_results_dir / "polaris"
-            polaris_fallback_dir = Path("templ_benchmark_results_polaris")
+            polaris_fallback_dir = Path("benchmarks") / "results" / "polaris"
             
             logger.info(f"Searching for Polaris results in: {polaris_workspace_dir}")
             if polaris_workspace_dir.exists():
@@ -900,6 +1085,13 @@ def _generate_unified_summary(workspace_dir, benchmark_type):
                 fallback_files = list(polaris_fallback_dir.glob("*.json"))
                 result_files.extend(fallback_files)
                 logger.info(f"Found {len(fallback_files)} JSON files in fallback directory: {polaris_fallback_dir}")
+            
+            # Check old location for backward compatibility
+            old_polaris_dir = Path("templ_benchmark_results_polaris")
+            if not result_files and old_polaris_dir.exists():
+                old_files = list(old_polaris_dir.glob("*.json"))
+                result_files.extend(old_files)
+                logger.info(f"Found {len(old_files)} JSON files in old polaris directory: {old_polaris_dir}")
             
             # Additional search in raw_results_dir root
             if not result_files and raw_results_dir.exists():
@@ -994,130 +1186,53 @@ def _generate_unified_summary(workspace_dir, benchmark_type):
 
 
 def _optimize_hardware_config(args):
-    """Optimize hardware configuration based on CLI arguments and system capabilities."""
-    base_config = _get_hardware_config()
-    
-    # Start with base configuration
-    config = {
-        "n_workers": base_config["n_workers"],
-        "profile": getattr(args, "hardware_profile", "auto"),
-        "strategy": getattr(args, "worker_strategy", "auto"),
-        "memory_optimized": False,
-        "total_memory_gb": 0,
-    }
-    
+    """Simplified hardware config: decide n_workers and memory based on args and system."""
     try:
-        # Get system information for optimization with timeout protection
         import psutil
-        import time
-        
-        # Single psutil call with error handling
-        try:
-            virtual_memory = psutil.virtual_memory()
-            system_memory_gb = virtual_memory.total / (1024**3)
-        except Exception as e:
-            logger.warning(f"Failed to get memory info: {e}")
-            system_memory_gb = 8.0  # Fallback
-        
-        try:
-            cpu_count = psutil.cpu_count(logical=False)  # Physical cores
-            logical_cpus = psutil.cpu_count(logical=True)  # Logical cores (with hyperthreading)
-        except Exception as e:
-            logger.warning(f"Failed to get CPU info: {e}")
-            cpu_count = 4  # Fallback
-            logical_cpus = 4
-        
-        config["total_memory_gb"] = system_memory_gb
-        
-        # Apply CPU limit if specified
-        if hasattr(args, "cpu_limit") and args.cpu_limit:
-            cpu_count = min(cpu_count, args.cpu_limit)
-            logical_cpus = min(logical_cpus, args.cpu_limit)
-        
-        # Apply memory limit if specified
-        if hasattr(args, "memory_limit") and args.memory_limit:
-            system_memory_gb = min(system_memory_gb, args.memory_limit)
-            config["memory_optimized"] = True
-        
-        # Determine hyperthreading usage
-        use_hyperthreading = getattr(args, "enable_hyperthreading", False)
-        effective_cpus = logical_cpus if use_hyperthreading else cpu_count
-        
-        # Apply hardware profile
-        if config["profile"] == "conservative":
-            # Use 50% of available resources
-            config["n_workers"] = max(1, effective_cpus // 2)
-            if not hasattr(args, "max_ram_gb") or args.max_ram_gb is None:
-                args.max_ram_gb = system_memory_gb * 0.5
-        elif config["profile"] == "balanced":
-            # Use 75% of available resources (default)
-            config["n_workers"] = max(1, int(effective_cpus * 0.75))
-            if not hasattr(args, "max_ram_gb") or args.max_ram_gb is None:
-                args.max_ram_gb = system_memory_gb * 0.75
-        elif config["profile"] == "aggressive":
-            # Use 90% of available resources
-            config["n_workers"] = max(1, int(effective_cpus * 0.9))
-            if not hasattr(args, "max_ram_gb") or args.max_ram_gb is None:
-                args.max_ram_gb = system_memory_gb * 0.9
-        else:  # auto
-            # Use heuristics based on workload type - BENCHMARK OPTIMIZED
-            if args.suite == "polaris":
-                # Polaris is compute-intensive - use all cores
-                config["n_workers"] = max(1, effective_cpus)
-                config["strategy"] = "cpu-bound"
-            elif args.suite == "time-split":
-                # CRITICAL FIX: Use conservative worker count for time-split to prevent resource exhaustion
-                # Full parallelization causes "cannot allocate memory for thread-local data" errors
-                config["n_workers"] = min(20, max(1, effective_cpus // 2))  # Allow up to 20 workers for 24-core systems
-                config["strategy"] = "cpu-bound"
-            
-            if not hasattr(args, "max_ram_gb") or args.max_ram_gb is None:
-                args.max_ram_gb = system_memory_gb * 0.8
-        
-        # Apply worker strategy optimizations
-        if config["strategy"] == "io-bound":
-            # I/O bound can benefit from more workers
-            config["n_workers"] = min(config["n_workers"] * 2, effective_cpus)
-        elif config["strategy"] == "cpu-bound":
-            # CPU-bound benchmarks should use all available cores
-            config["n_workers"] = effective_cpus
-        elif config["strategy"] == "memory-bound":
-            # Memory bound should be more conservative
-            memory_per_worker = getattr(args, "per_worker_ram_gb", 4.0)
-            max_workers_by_memory = max(1, int(system_memory_gb * 0.8 / memory_per_worker))
-            config["n_workers"] = min(config["n_workers"], max_workers_by_memory)
-        
-        # Override with explicit n_workers if provided
-        if hasattr(args, "n_workers") and args.n_workers:
-            config["n_workers"] = args.n_workers
-        
-        # Ensure minimum of 1 worker
-        config["n_workers"] = max(1, config["n_workers"])
-        
-        # Apply memory optimizations for timesplit
-        if args.suite == "time-split":
-            # Ensure memory per worker is reasonable
-            if not hasattr(args, "per_worker_ram_gb") or not args.per_worker_ram_gb:
-                args.per_worker_ram_gb = min(4.0, system_memory_gb / config["n_workers"] * 0.8)
-            
-            # Set up memory throttling
-            if not hasattr(args, "max_ram_gb") or not args.max_ram_gb:
-                args.max_ram_gb = system_memory_gb * 0.8
-        
+        total_mem_gb = psutil.virtual_memory().total / (1024 ** 3)
+        physical_cpus = psutil.cpu_count(logical=False) or 4
+        logical_cpus = psutil.cpu_count(logical=True) or physical_cpus
     except ImportError:
-        # Fallback if psutil not available
-        logger.warning("Advanced hardware optimization unavailable (psutil not installed)")
-        config["n_workers"] = base_config["n_workers"]
-        if hasattr(args, "n_workers") and args.n_workers:
-            config["n_workers"] = args.n_workers
-    except Exception as e:
-        # Catch any other errors and use fallback
-        logger.warning(f"Hardware optimization failed: {e}")
-        config["n_workers"] = base_config["n_workers"]
-        if hasattr(args, "n_workers") and args.n_workers:
-            config["n_workers"] = args.n_workers
-    
-    return config
+        total_mem_gb = 8.0
+        physical_cpus = logical_cpus = 4
+
+    # Defaults
+    profile = getattr(args, "hardware_profile", "auto")
+    suite = getattr(args, "suite", "polaris")
+    use_hyper = getattr(args, "enable_hyperthreading", False)
+    cpu_limit = getattr(args, "cpu_limit", None)
+    mem_limit = getattr(args, "memory_limit", None)
+    per_worker_ram = getattr(args, "per_worker_ram_gb", 4.0)
+
+    cpus = logical_cpus if use_hyper else physical_cpus
+    if cpu_limit:
+        cpus = min(cpus, cpu_limit)
+    mem = min(total_mem_gb, mem_limit) if mem_limit else total_mem_gb
+
+    # Use all CPUs, but cap by RAM
+    n_workers = cpus
+    n_workers = min(n_workers, int(mem // per_worker_ram))
+    n_workers = max(1, n_workers)
+
+    # Special case for time-split
+    if suite == "time-split":
+        n_workers = min(n_workers, 22)  # Cap at 22 for safety
+        max_ram_gb = mem * 0.8
+    else:
+        max_ram_gb = mem * 0.9
+
+    # User override
+    if getattr(args, "n_workers", None):
+        n_workers = args.n_workers
+
+    return {
+        "n_workers": n_workers,
+        "max_ram_gb": max_ram_gb,
+        "total_memory_gb": total_mem_gb,
+        "profile": profile,
+        "strategy": "auto",
+        "per_worker_ram_gb": per_worker_ram,
+    }
 
 
 def benchmark_command(args):
@@ -1125,6 +1240,7 @@ def benchmark_command(args):
     # Apply hardware optimization based on CLI arguments
     hardware_config = _optimize_hardware_config(args)
     args.n_workers = hardware_config["n_workers"]
+    args.per_worker_ram_gb = hardware_config["per_worker_ram_gb"]
     
     # Log hardware optimization decisions
     logger.info(f"Hardware optimization: {hardware_config['profile']} profile")
@@ -1136,7 +1252,7 @@ def benchmark_command(args):
     from datetime import datetime
     from pathlib import Path
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    workspace_dir = Path(f"benchmark_workspace_{args.suite}_{timestamp}")
+    workspace_dir = Path("benchmarks") / "workspaces" / f"benchmark_workspace_{args.suite}_{timestamp}"
     workspace_dir.mkdir(parents=True, exist_ok=True)
     
     # Create subdirectories for organization
@@ -1215,6 +1331,16 @@ def benchmark_command(args):
                         default_poses_dir = workspace_dir / "predicted_poses"
                         default_poses_dir.mkdir(exist_ok=True)
                         benchmark_args.extend(["--poses-dir", str(default_poses_dir)])
+                
+                # Add ablation study flags
+                if hasattr(args, "unconstrained") and args.unconstrained:
+                    benchmark_args.append("--unconstrained")
+                if hasattr(args, "align_metric") and args.align_metric:
+                    benchmark_args.extend(["--align-metric", args.align_metric])
+                if hasattr(args, "enable_optimization") and args.enable_optimization:
+                    benchmark_args.append("--enable-optimization")
+                if hasattr(args, "no_realign") and args.no_realign:
+                    benchmark_args.append("--no-realign")
 
                 result = benchmark_main(benchmark_args)
 
@@ -1229,7 +1355,7 @@ def benchmark_command(args):
 
     elif args.suite == "time-split":
         try:
-            from templ_pipeline.benchmark.timesplit_stream import run_timesplit_streaming
+            from templ_pipeline.benchmark.timesplit import run_timesplit_benchmark
 
             # Determine which splits to run
             splits_to_run = []
@@ -1250,10 +1376,6 @@ def benchmark_command(args):
                 log_level = "DEBUG"
             else:
                 log_level = "INFO"
-            
-            # Suppress warnings before starting benchmark
-            from templ_pipeline.core.benchmark_logging import suppress_benchmark_warnings
-            suppress_benchmark_warnings()
 
             # Use benchmark logging context for clean terminal output
             with benchmark_logging_context(
@@ -1267,14 +1389,14 @@ def benchmark_command(args):
                 logger.info(f"Workspace directory: {workspace_dir}/")
                 logger.info(f"Logs will be written to: {logs_dir}")
 
-                # Setup quiet mode for terminal output only  
-                # For clean progress bars, we want quiet=False so progress bars show up
-                # but all logging goes to files due to the logging context
-                quiet_mode = False
-
                 # Use workspace subdirectory for timesplit results
                 timesplit_results_dir = workspace_dir / "raw_results" / "timesplit"
                 timesplit_results_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Setup poses directory
+                poses_dir = None
+                if hasattr(args, "save_poses") and args.save_poses:
+                    poses_dir = str(workspace_dir / "raw_results" / "timesplit" / "poses")
                 
                 # Discover data directory dynamically
                 import os
@@ -1308,55 +1430,24 @@ def benchmark_command(args):
                 
                 logger.info(f"Using data directory: {data_dir}")
                 
-                # Load the target PDBs for the selected splits
-                from templ_pipeline.benchmark.timesplit_stream import load_timesplit_pdb_list
-                
-                target_pdbs = []
-                for split in splits_to_run:
-                    try:
-                        target_pdbs.extend(load_timesplit_pdb_list(split))
-                    except Exception as exc:
-                        logger.error(f"Failed to load '{split}' split: {exc}")
-                        return 1
-                
-                # Apply max_pdbs limit if specified
-                if hasattr(args, "max_pdbs") and args.max_pdbs:
-                    target_pdbs = target_pdbs[:args.max_pdbs]
-                    
-                if not target_pdbs:
-                    logger.error("No target PDBs found for selected splits")
-                    return 1
-
-                logger.info(f"Processing {len(target_pdbs)} targets from splits: {', '.join(splits_to_run)}")
-
-                # Prepare kwargs for run_timesplit_streaming
-                streaming_kwargs = {
-                    "target_pdbs": target_pdbs,
-                    "data_dir": data_dir,
-                    "results_dir": str(timesplit_results_dir),
-                    "quiet": quiet_mode,
-                }
-
-                if hasattr(args, "n_workers") and args.n_workers:
-                    streaming_kwargs["max_workers"] = args.n_workers
-                if hasattr(args, "n_conformers") and args.n_conformers:
-                    streaming_kwargs["n_conformers"] = args.n_conformers
-                if hasattr(args, "template_knn") and args.template_knn:
-                    streaming_kwargs["template_knn"] = args.template_knn
-                if hasattr(args, "max_ram_gb") and args.max_ram_gb:
-                    streaming_kwargs["max_ram_gb"] = args.max_ram_gb
-                if hasattr(args, "per_worker_ram_gb") and args.per_worker_ram_gb:
-                    streaming_kwargs["per_worker_ram_gb"] = args.per_worker_ram_gb
-                if hasattr(args, "peptide_threshold") and args.peptide_threshold:
-                    streaming_kwargs["peptide_threshold"] = args.peptide_threshold
-                if hasattr(args, "pipeline_timeout") and args.pipeline_timeout:
-                    streaming_kwargs["timeout"] = args.pipeline_timeout
-
-                # Call the streaming function directly
-                run_timesplit_streaming(**streaming_kwargs)
-                
-                # Streaming function doesn't return a result dict, so create one
-                result = {"success": True, "results_dir": str(timesplit_results_dir)}
+                # Run the new timesplit benchmark
+                result = run_timesplit_benchmark(
+                    splits_to_run=splits_to_run,
+                    n_workers=args.n_workers,
+                    n_conformers=args.n_conformers,
+                    template_knn=getattr(args, "template_knn", 100),
+                    max_pdbs=getattr(args, "max_pdbs", None),
+                    data_dir=data_dir,
+                    results_dir=str(timesplit_results_dir),
+                    poses_output_dir=poses_dir,
+                    timeout=getattr(args, "pipeline_timeout", 300),
+                    quiet=False,  # Let progress bars show
+                    unconstrained=getattr(args, "unconstrained", False),
+                    align_metric=getattr(args, "align_metric", "combo"),
+                    enable_optimization=getattr(args, "enable_optimization", False),
+                    no_realign=getattr(args, "no_realign", False),
+                    per_worker_ram_gb=getattr(args, "per_worker_ram_gb", 4.0),
+                )
 
                 # Generate unified summary for Timesplit results
                 if result.get("success", False):

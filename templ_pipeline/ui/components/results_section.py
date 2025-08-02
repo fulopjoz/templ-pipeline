@@ -165,31 +165,19 @@ class ResultsSection:
         if combo_score >= SCORE_EXCELLENT:
             quality = "Excellent - High confidence pose"
             color = "green"
-            explanation = (
-                "Top 10-15% performance tier. Expected RMSD ≤ 1.0 Å from native structure. "
-                "Suitable for lead optimization and structure-activity relationship studies."
-            )
+            explanation = "High confidence pose - proceed with confidence"
         elif combo_score >= SCORE_GOOD:
             quality = "Good - Reliable pose prediction"
             color = "blue"
-            explanation = (
-                "Meets established success criterion (RMSD ≤ 2.0 Å). Reliable for drug design applications. "
-                "Comparable to high-performing docking tools like CB-Dock2 and Uni-Mol Docking V2."
-            )
+            explanation = "Reliable pose prediction - suitable for drug design"
         elif combo_score >= SCORE_FAIR:
             quality = "Fair - Moderate confidence"
             color = "orange"
-            explanation = (
-                "Moderate quality pose (expected RMSD 2.0-3.0 Å). Consider validation with additional methods "
-                "or use for initial screening with caution."
-            )
+            explanation = "Moderate confidence - consider additional validation"
         else:
             quality = "Poor - Low confidence, consider alternatives"
             color = "red"
-            explanation = (
-                "Below acceptable threshold for pose prediction (expected RMSD > 3.0 Å). "
-                "Consider alternative templates or docking approaches."
-            )
+            explanation = "Low confidence - try alternative approaches"
 
         # Display quality assessment with enhanced help
         st.markdown(f"**Quality Assessment:** :{color}[{quality}]")
@@ -383,17 +371,17 @@ class ResultsSection:
         st.markdown("### TEMPL Quality Thresholds")
         
         # Visual indicators for each threshold
-        st.success("**Excellent (≥ 0.80)**: Expected RMSD ≤ 1.0 Å")
-        st.markdown("Top 10-15% performance tier. Suitable for lead optimization.")
+        st.success("**Excellent (≥ 0.80)**: High confidence pose")
+        st.markdown("Proceed with confidence")
         
-        st.info("**Good (≥ 0.65)**: Expected RMSD ≤ 2.0 Å") 
-        st.markdown("Meets established success criterion. Reliable for drug design.")
+        st.info("**Good (≥ 0.65)**: Reliable pose prediction") 
+        st.markdown("Suitable for drug design")
         
-        st.warning("**Fair (≥ 0.45)**: Expected RMSD 2.0-3.0 Å")
-        st.markdown("Moderate confidence. Consider additional validation.")
+        st.warning("**Fair (≥ 0.45)**: Moderate confidence")
+        st.markdown("Consider additional validation")
         
-        st.error("**Poor (< 0.45)**: Expected RMSD > 3.0 Å")
-        st.markdown("Below acceptable threshold. Try alternative approaches.")
+        st.error("**Poor (< 0.45)**: Low confidence")
+        st.markdown("Try alternative approaches")
         
         st.markdown("### Current Assessment")
         current_quality = self._get_quality_label(combo_score)
@@ -440,204 +428,210 @@ class ResultsSection:
 
     def _render_template_comparison(self):
         """Render template molecule comparison in details section"""
-        template_mol = self.session.get(SESSION_KEYS["TEMPLATE_USED"])
-        query_mol = self.session.get(SESSION_KEYS["QUERY_MOL"])
-        mcs_info = self.session.get(SESSION_KEYS["MCS_INFO"])
+        try:
+            template_mol = self.session.get(SESSION_KEYS["TEMPLATE_USED"])
+            query_mol = self.session.get(SESSION_KEYS["QUERY_MOL"])
+            mcs_info = self.session.get(SESSION_KEYS["MCS_INFO"])
 
-        # Debug: Check what type of objects we have
-        logger.info(f"template_mol type: {type(template_mol)}")
-        logger.info(f"query_mol type: {type(query_mol)}")
-        logger.info(f"mcs_info type: {type(mcs_info)}")
+            # Debug: Check what type of objects we have
+            logger.info(f"template_mol type: {type(template_mol)}")
+            logger.info(f"query_mol type: {type(query_mol)}")
+            logger.info(f"mcs_info type: {type(mcs_info)}")
 
-        if template_mol or query_mol:
-            col1, col2, col3 = st.columns(3)
+            if template_mol or query_mol:
+                col1, col2, col3 = st.columns(3)
 
-            with col1:
-                st.markdown("**Query Molecule**")
-                # Use utility function with fallback SMILES
-                input_smiles = self.session.get(SESSION_KEYS["INPUT_SMILES"])
-                query_molecule = get_molecule_from_session(
-                    self.session, SESSION_KEYS["QUERY_MOL"], fallback_smiles=input_smiles
-                )
-                
-                if query_molecule:
-                    display_molecule(query_molecule, width=220, height=180)
-                else:
-                    # Show fallback information
-                    if input_smiles:
-                        st.warning("Error displaying query molecule")
-                        st.info(f"Query SMILES: `{input_smiles}`")
-                        
-                        # Try to create and display from SMILES directly
-                        try:
-                            from rdkit import Chem
-                            fallback_mol = Chem.MolFromSmiles(input_smiles)
-                            if fallback_mol:
-                                display_molecule(fallback_mol, width=220, height=180)
-                                st.success("Displayed from SMILES fallback")
-                        except Exception as e:
-                            logger.error(f"SMILES fallback visualization failed: {e}")
+                with col1:
+                    st.markdown("**Query Molecule**")
+                    # Use utility function with fallback SMILES
+                    input_smiles = self.session.get(SESSION_KEYS["INPUT_SMILES"])
+                    query_molecule = get_molecule_from_session(
+                        self.session, SESSION_KEYS["QUERY_MOL"], fallback_smiles=input_smiles
+                    )
+                    
+                    if query_molecule:
+                        display_molecule(query_molecule, width=400, height=400)
                     else:
-                        st.error("Query molecule data not available")
-
-            with col2:
-                st.markdown("**Template**")
-                # Use utility function for template molecule
-                template_molecule = get_molecule_from_session(
-                    self.session, SESSION_KEYS["TEMPLATE_USED"]
-                )
-                
-                if template_molecule:
-                    display_molecule(template_molecule, width=220, height=180)
-                else:
-                    # Enhanced fallback with template info
-                    template_info = self.session.get(SESSION_KEYS["TEMPLATE_INFO"])
-                    if template_info and isinstance(template_info, dict):
-                        template_name = template_info.get("name", "Unknown")
-                        template_smiles = template_info.get("template_smiles")
-                        
-                        if template_smiles:
-                            # Try to create and display template molecule from SMILES
+                        # Show fallback information
+                        if input_smiles:
+                            st.warning("Error displaying query molecule")
+                            st.info(f"Query SMILES: `{input_smiles}`")
+                            
+                            # Try to create and display from SMILES directly
                             try:
                                 from rdkit import Chem
-                                fallback_template_mol = Chem.MolFromSmiles(template_smiles)
-                                if fallback_template_mol:
-                                    display_molecule(fallback_template_mol, width=220, height=180)
-                                    st.success(f"Template: {template_name}")
-                                else:
+                                fallback_mol = Chem.MolFromSmiles(input_smiles)
+                                if fallback_mol:
+                                    display_molecule(fallback_mol, width=400, height=400)
+                                    st.success("Displayed from SMILES fallback")
+                            except Exception as e:
+                                logger.error(f"SMILES fallback visualization failed: {e}")
+                        else:
+                            st.error("Query molecule data not available")
+
+                with col2:
+                    st.markdown("**Template**")
+                    # Use utility function for template molecule
+                    template_molecule = get_molecule_from_session(
+                        self.session, SESSION_KEYS["TEMPLATE_USED"]
+                    )
+                    
+                    if template_molecule:
+                        display_molecule(template_molecule, width=400, height=400)
+                    else:
+                        # Enhanced fallback with template info
+                        template_info = self.session.get(SESSION_KEYS["TEMPLATE_INFO"])
+                        if template_info and isinstance(template_info, dict):
+                            template_name = template_info.get("name", "Unknown")
+                            template_smiles = template_info.get("template_smiles")
+                            
+                            if template_smiles:
+                                # Try to create and display template molecule from SMILES
+                                try:
+                                    from rdkit import Chem
+                                    fallback_template_mol = Chem.MolFromSmiles(template_smiles)
+                                    if fallback_template_mol:
+                                        display_molecule(fallback_template_mol, width=400, height=400)
+                                        st.success(f"Template: {template_name}")
+                                    else:
+                                        st.warning(f"Template: {template_name}")
+                                        st.code(f"SMILES: {template_smiles}")
+                                except Exception as e:
+                                    logger.error(f"Template SMILES fallback visualization failed: {e}")
                                     st.warning(f"Template: {template_name}")
                                     st.code(f"SMILES: {template_smiles}")
-                            except Exception as e:
-                                logger.error(f"Template SMILES fallback visualization failed: {e}")
+                            else:
                                 st.warning(f"Template: {template_name}")
-                                st.code(f"SMILES: {template_smiles}")
+                                st.info("No molecular structure available")
                         else:
-                            st.warning(f"Template: {template_name}")
-                            st.info("No molecular structure available")
-                    else:
-                        st.error("Template information not available")
+                            st.error("Template information not available")
 
-            with col3:
-                st.markdown("**Common Substructure**")
-                
-                # Use utility function for MCS
-                mcs_molecule = create_mcs_molecule_from_info(mcs_info)
-                
-                if mcs_molecule:
-                    display_molecule(mcs_molecule, width=220, height=180)
-                    # Show atom count if available
-                    try:
-                        atom_count = mcs_molecule.GetNumAtoms()
-                        st.success(f"MCS found ({atom_count} atoms)")
-                    except:
-                        st.success("MCS structure displayed")
-                else:
-                    # Try to get MCS from template_info as fallback
-                    template_info = self.session.get(SESSION_KEYS["TEMPLATE_INFO"])
-                    mcs_found = False
+                with col3:
+                    st.markdown("**Common Substructure**")
                     
-                    if template_info and isinstance(template_info, dict):
+                    # Use utility function for MCS
+                    mcs_molecule = create_mcs_molecule_from_info(mcs_info)
+                    
+                    if mcs_molecule:
+                        display_molecule(mcs_molecule, width=400, height=400)
+                        # Show atom count if available
+                        try:
+                            atom_count = mcs_molecule.GetNumAtoms()
+                            st.success(f"MCS found ({atom_count} atoms)")
+                        except:
+                            st.success("MCS structure displayed")
+                    else:
+                        # Try to get MCS from template_info as fallback
+                        template_info = self.session.get(SESSION_KEYS["TEMPLATE_INFO"])
+                        mcs_found = False
+                        
+                        if template_info and isinstance(template_info, dict):
+                            mcs_smarts = template_info.get("mcs_smarts")
+                            if mcs_smarts and len(mcs_smarts.strip()) > 0:
+                                mcs_mol_fallback = create_mcs_molecule_from_info(mcs_smarts)
+                                if mcs_mol_fallback:
+                                    display_molecule(mcs_mol_fallback, width=400, height=400)
+                                    try:
+                                        atom_count = mcs_mol_fallback.GetNumAtoms()
+                                        st.success(f"MCS found ({atom_count} atoms)")
+                                    except:
+                                        st.success("MCS structure displayed")
+                                    mcs_found = True
+                        
+                        if not mcs_found:
+                            # Show informative message about MCS status
+                            if mcs_info is None:
+                                st.info("No MCS analysis performed")
+                            elif isinstance(mcs_info, dict) and not any(mcs_info.get(key) for key in ["smarts", "mcs_smarts"]):
+                                st.info("No significant common substructure found")
+                            else:
+                                st.warning("Could not display MCS structure")
+
+                # Additional template information
+                template_info = self.session.get(SESSION_KEYS["TEMPLATE_INFO"])
+                if template_info:
+                    st.markdown("---")
+                    
+                    # Display MCS SMARTS if available
+                    if isinstance(template_info, dict):
                         mcs_smarts = template_info.get("mcs_smarts")
                         if mcs_smarts and len(mcs_smarts.strip()) > 0:
-                            mcs_mol_fallback = create_mcs_molecule_from_info(mcs_smarts)
-                            if mcs_mol_fallback:
-                                display_molecule(mcs_mol_fallback, width=220, height=180)
+                            st.markdown(f"**MCS SMARTS:** `{mcs_smarts}`")
+                        
+                        # Display additional template info in columns
+                        info_col1, info_col2 = st.columns(2)
+                        
+                        with info_col1:
+                            if template_info.get("name"):
+                                st.markdown(f"**Template:** {template_info['name']}")
+                            if template_info.get("atoms_matched"):
+                                st.markdown(f"**Atoms Matched:** {template_info['atoms_matched']}")
+                        
+                        with info_col2:
+                            if template_info.get("index") is not None:
+                                total = template_info.get("total_templates", 1)
+                                rank = template_info.get("index", 0) + 1
+                                st.markdown(f"**Template Rank:** {rank}/{total}")
+                            if template_info.get("ca_rmsd"):
                                 try:
-                                    atom_count = mcs_mol_fallback.GetNumAtoms()
-                                    st.success(f"MCS found ({atom_count} atoms)")
+                                    ca_rmsd_value = float(template_info['ca_rmsd'])
+                                    st.markdown(f"**CA RMSD:** {ca_rmsd_value:.2f} Å")
+                                except (ValueError, TypeError):
+                                    st.markdown(f"**CA RMSD:** {template_info['ca_rmsd']} Å")
+                            
+                # Debug info display for troubleshooting (only in debug mode)
+                if st.session_state.get("debug_mode", False):
+                    with st.expander("🔍 Debug Info - Molecule Data"):
+                        st.markdown("**Session Data Types:**")
+                        st.write(f"- Template: {type(template_mol)}")
+                        st.write(f"- Query: {type(query_mol)}")
+                        st.write(f"- MCS Info: {type(mcs_info)}")
+                        st.write(f"- Template Info: {type(template_info)}")
+                        
+                        if template_info and isinstance(template_info, dict):
+                            st.markdown("**Template Info Contents:**")
+                            for key, value in template_info.items():
+                                st.write(f"  - {key}: {value}")
+                        
+                        if mcs_info:
+                            st.markdown("**MCS Info Contents:**")
+                            if isinstance(mcs_info, dict):
+                                for key, value in mcs_info.items():
+                                    if key == "smarts" or key == "mcs_smarts":
+                                        st.write(f"  - {key}: `{value}`")
+                                    else:
+                                        st.write(f"  - {key}: {value} ({type(value)})")
+                            else:
+                                st.write(f"  - Type: {type(mcs_info)}")
+                                st.write(f"  - Value: {str(mcs_info)[:200]}...")
+                        
+                        # Test molecule retrieval functions
+                        st.markdown("**Retrieval Function Tests:**")
+                        try:
+                            # Test template retrieval (functions already imported at top)
+                            test_template = get_molecule_from_session(self.session, SESSION_KEYS["TEMPLATE_USED"])
+                            st.write(f"  - Template retrieval test: {type(test_template)} ({'success' if test_template else 'failed'})")
+                            
+                            # Test MCS creation
+                            test_mcs = create_mcs_molecule_from_info(mcs_info)
+                            st.write(f"  - MCS creation test: {type(test_mcs)} ({'success' if test_mcs else 'failed'})")
+                            
+                            if test_mcs:
+                                try:
+                                    st.write(f"  - MCS atoms: {test_mcs.GetNumAtoms()}")
                                 except:
-                                    st.success("MCS structure displayed")
-                                mcs_found = True
-                    
-                    if not mcs_found:
-                        # Show informative message about MCS status
-                        if mcs_info is None:
-                            st.info("No MCS analysis performed")
-                        elif isinstance(mcs_info, dict) and not any(mcs_info.get(key) for key in ["smarts", "mcs_smarts"]):
-                            st.info("No significant common substructure found")
-                        else:
-                            st.warning("Could not display MCS structure")
-
-            # Additional template information
-            template_info = self.session.get(SESSION_KEYS["TEMPLATE_INFO"])
-            if template_info:
-                st.markdown("---")
-                
-                # Display MCS SMARTS if available
-                if isinstance(template_info, dict):
-                    mcs_smarts = template_info.get("mcs_smarts")
-                    if mcs_smarts and len(mcs_smarts.strip()) > 0:
-                        st.markdown(f"**MCS SMARTS:** `{mcs_smarts}`")
-                    
-                    # Display additional template info in columns
-                    info_col1, info_col2 = st.columns(2)
-                    
-                    with info_col1:
-                        if template_info.get("name"):
-                            st.markdown(f"**Template:** {template_info['name']}")
-                        if template_info.get("atoms_matched"):
-                            st.markdown(f"**Atoms Matched:** {template_info['atoms_matched']}")
-                    
-                    with info_col2:
-                        if template_info.get("index") is not None:
-                            total = template_info.get("total_templates", 1)
-                            rank = template_info.get("index", 0) + 1
-                            st.markdown(f"**Template Rank:** {rank}/{total_templates}")
-                        if template_info.get("ca_rmsd"):
-                            try:
-                                ca_rmsd_value = float(template_info['ca_rmsd'])
-                                st.markdown(f"**CA RMSD:** {ca_rmsd_value:.2f} Å")
-                            except (ValueError, TypeError):
-                                st.markdown(f"**CA RMSD:** {template_info['ca_rmsd']} Å")
-                        
-            # Debug info display for troubleshooting (only in debug mode)
+                                    st.write("  - Could not get MCS atom count")
+                                    
+                        except Exception as debug_error:
+                            st.write(f"  - Debug test error: {debug_error}")
+            else:
+                st.info("Template comparison not available")
+                logger.debug("No template or query molecule data available for comparison")
+        except Exception as e:
+            logger.error(f"Error rendering template comparison: {e}")
+            st.error("Error displaying template comparison")
             if st.session_state.get("debug_mode", False):
-                with st.expander("🔍 Debug Info - Molecule Data"):
-                    st.markdown("**Session Data Types:**")
-                    st.write(f"- Template: {type(template_mol)}")
-                    st.write(f"- Query: {type(query_mol)}")
-                    st.write(f"- MCS Info: {type(mcs_info)}")
-                    st.write(f"- Template Info: {type(template_info)}")
-                    
-                    if template_info and isinstance(template_info, dict):
-                        st.markdown("**Template Info Contents:**")
-                        for key, value in template_info.items():
-                            st.write(f"  - {key}: {value}")
-                    
-                    if mcs_info:
-                        st.markdown("**MCS Info Contents:**")
-                        if isinstance(mcs_info, dict):
-                            for key, value in mcs_info.items():
-                                if key == "smarts" or key == "mcs_smarts":
-                                    st.write(f"  - {key}: `{value}`")
-                                else:
-                                    st.write(f"  - {key}: {value} ({type(value)})")
-                        else:
-                            st.write(f"  - Type: {type(mcs_info)}")
-                            st.write(f"  - Value: {str(mcs_info)[:200]}...")
-                    
-                    # Test molecule retrieval functions
-                    st.markdown("**Retrieval Function Tests:**")
-                    try:
-                        # Test template retrieval (functions already imported at top)
-                        test_template = get_molecule_from_session(self.session, SESSION_KEYS["TEMPLATE_USED"])
-                        st.write(f"  - Template retrieval test: {type(test_template)} ({'success' if test_template else 'failed'})")
-                        
-                        # Test MCS creation
-                        test_mcs = create_mcs_molecule_from_info(mcs_info)
-                        st.write(f"  - MCS creation test: {type(test_mcs)} ({'success' if test_mcs else 'failed'})")
-                        
-                        if test_mcs:
-                            try:
-                                st.write(f"  - MCS atoms: {test_mcs.GetNumAtoms()}")
-                            except:
-                                st.write("  - Could not get MCS atom count")
-                                
-                    except Exception as debug_error:
-                        st.write(f"  - Debug test error: {debug_error}")
-        else:
-            st.info("Template comparison not available")
-            logger.debug("No template or query molecule data available for comparison")
+                st.exception(e)
 
     def _render_download_section(self):
         """Render download options with actual functionality"""

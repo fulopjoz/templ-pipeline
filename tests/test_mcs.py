@@ -23,8 +23,7 @@ try:
     from templ_pipeline.core.mcs import (
         find_mcs,
         constrained_embed,
-        mmff_minimise_fixed_parallel,
-        mmff_minimise_fixed_sequential,
+        simple_minimize_molecule,
         safe_name,
         # transform_ligand,
     )
@@ -37,8 +36,7 @@ except ImportError:
     from core.mcs import (
         find_mcs,
         constrained_embed,
-        mmff_minimise_fixed_parallel,
-        mmff_minimise_fixed_sequential,
+        simple_minimize_molecule,
         safe_name,
         # transform_ligand,
     )
@@ -170,49 +168,42 @@ class TestMCS(unittest.TestCase):
                 "Match in reference molecule should be minimal (1-2 atoms)",
             )
 
-    def test_mmff_minimise_fixed_sequential(self):
-        """Test sequential MMFF minimization with fixed atoms."""
+    def test_simple_minimize_molecule_mmff(self):
+        """Test simple MMFF minimization on a standard molecule."""
         # Create a simple molecule with a conformer
         mol = Chem.MolFromSmiles("CCO")
         if mol is None:
             self.fail("Failed to create test molecule for MMFF minimization")
 
-        AllChem.EmbedMultipleConfs(mol, 2)
+        mol = Chem.AddHs(mol)
+        AllChem.EmbedMolecule(mol)
 
-        # Get initial coordinates
-        init_pos = [mol.GetConformer(0).GetAtomPosition(0)]
-        init_pos_x = init_pos[0].x
+        # Get initial energy (if available)
+        result = simple_minimize_molecule(mol)
+        
+        # Check that minimization reported success
+        self.assertTrue(result, "Simple minimization should succeed for standard molecule")
 
-        # Fix the first atom and minimize
-        mmff_minimise_fixed_sequential(mol, [0], [0])
+    def test_simple_minimize_molecule_no_conformer(self):
+        """Test simple minimization behavior with no conformers."""
+        # Create a molecule without conformers
+        mol = Chem.MolFromSmiles("CCO")
+        mol = Chem.AddHs(mol)
+        
+        # Should return False for molecules without conformers
+        result = simple_minimize_molecule(mol)
+        self.assertFalse(result, "Simple minimization should fail for molecule without conformers")
 
-        # Check that the fixed atom didn't move
-        final_pos = mol.GetConformer(0).GetAtomPosition(0)
-        self.assertAlmostEqual(
-            final_pos.x,
-            init_pos_x,
-            places=4,
-            msg="Fixed atom position should not change during minimization",
-        )
-
-    @patch("templ_pipeline.core.mcs._mmff_minimize_single_conformer_task")
-    def test_mmff_minimise_fixed_parallel(self, mock_task):
-        """Test parallel MMFF minimization with fixed atoms."""
-        # Setup mock task to return a dummy result
-        mock_task.return_value = (0, [[-1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
-
-        # Create a test molecule with conformers
-        mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
-        if mol is None:
-            self.fail("Failed to create test molecule for parallel MMFF minimization")
-
-        conf_ids = AllChem.EmbedMultipleConfs(mol, 2)
-
-        # Run the function with mocked parallel execution
-        mmff_minimise_fixed_parallel(mol, conf_ids, fixed_idx=[0], n_workers=2)
-
-        # Check that the task was called
-        self.assertTrue(mock_task.called, "_mmff_minimize_single_conformer_task should be called")
+    def test_simple_minimize_molecule_multiple_conformers(self):
+        """Test simple minimization with multiple conformers."""
+        # Create a molecule with multiple conformers
+        mol = Chem.MolFromSmiles("CCO")
+        mol = Chem.AddHs(mol)
+        AllChem.EmbedMultipleConfs(mol, 3)
+        
+        # Should handle multiple conformers
+        result = simple_minimize_molecule(mol)
+        self.assertTrue(result, "Simple minimization should succeed for molecule with multiple conformers")
 
     def test_constrained_embed_valid_mcs(self):
         """Test constrained embedding with a valid MCS."""

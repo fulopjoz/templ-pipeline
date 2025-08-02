@@ -3,16 +3,17 @@ Chemical processing utilities for TEMPL pipeline.
 
 This module provides comprehensive chemical processing functionality including:
 - Molecule validation and filtering
-- Organometallic detection and handling
+- Organometallic detection and handling  
 - Molecule standardization
 - Force field compatibility checking
-- Peptide detection and validation
+- Large biomolecule detection (peptides and polysaccharides)
+- Problematic compound filtering
 """
 
 import logging
 from typing import Tuple, List, Optional, Set
 from rdkit import Chem, RDLogger
-from rdkit.Chem import AllChem
+from rdkit.Chem import AllChem, Descriptors
 
 # Disable RDKit logging noise
 RDLogger.DisableLog("rdApp.*")
@@ -204,7 +205,7 @@ def has_rhenium_complex(mol: Chem.Mol, pdb_id: str = "") -> Tuple[bool, str]:
         return False, ""
 
     # Special case for 3rj7 - allow processing with substitution
-    if pdb_id.lower() == "3rj7":
+    if pdb_id and pdb_id.lower() == "3rj7":
         for atom in mol.GetAtoms():
             if atom.GetAtomicNum() == 75:  # Rhenium
                 logger.info(
@@ -224,36 +225,38 @@ def has_rhenium_complex(mol: Chem.Mol, pdb_id: str = "") -> Tuple[bool, str]:
     return False, ""
 
 
-def is_large_peptide(mol: Chem.Mol, residue_threshold: int = 8) -> Tuple[bool, str]:
+def is_large_peptide_or_polysaccharide(
+    mol: Chem.Mol, 
+    residue_threshold: int = 8, 
+    sugar_ring_threshold: int = 3
+) -> Tuple[bool, str]:
     """
-    Check if molecule is a large peptide (>8 amino acid residues).
+    Unified filter: catches large peptides OR large polysaccharides.
     
-    This function follows the exact implementation from true_mcs.py to ensure
-    consistent peptide detection across the pipeline.
+    This function detects both large peptides and complex polysaccharides that
+    cannot be processed by the pipeline due to their size and complexity.
+    Includes fallback mechanisms for robust detection.
     
     Args:
         mol: RDKit molecule object
         residue_threshold: Number of amino acid residues above which to consider "large"
+        sugar_ring_threshold: Number of sugar rings above which to consider "large"
         
     Returns:
-        Tuple[bool, str]: (True if large peptide, warning message)
+        Tuple[bool, str]: (True if large peptide/polysaccharide, warning message)
     """
     if mol is None:
         return False, ""
-    
-    # SMARTS pattern for amino acid backbone (amide bond pattern)
-    # [NX3][CX3](=O)[CX4] matches N-C(=O)-C typical of peptide bonds
+
+    # Try peptide detection first
     peptide_backbone_pattern = "[NX3][CX3](=O)[CX4]"
-    
     try:
         pattern = Chem.MolFromSmarts(peptide_backbone_pattern)
         if pattern is not None:
             matches = mol.GetSubstructMatches(pattern)
-            residue_count = len(matches)
-            
-            if residue_count > residue_threshold:
+            if len(matches) > residue_threshold:
                 warning_msg = (
-                    f" Target is a large peptide ({residue_count} residues > {residue_threshold} threshold) - cannot be processed. "
+                    f" Target is a large peptide ({len(matches)} residues > {residue_threshold} threshold) - cannot be processed. "
                     "This pipeline is designed for drug-like small molecules only. "
                     "Large peptides require specialized conformational sampling methods."
                 )
@@ -263,8 +266,8 @@ def is_large_peptide(mol: Chem.Mol, residue_threshold: int = 8) -> Tuple[bool, s
             raise Exception("SMARTS pattern compilation failed")
             
     except Exception as e:
-        # Fallback to atom counting if SMARTS fails
-        logger.debug(f"SMARTS pattern matching failed, falling back to atom count estimation: {e}")
+        # Fallback to atom counting if SMARTS fails for peptides
+        logger.debug(f"Peptide pattern matching failed, falling back to atom count estimation: {e}")
         non_h_atoms = sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() != 1)
         # Conservative conversion: ~6-8 atoms per residue average
         estimated_residues = non_h_atoms // 6
@@ -275,8 +278,43 @@ def is_large_peptide(mol: Chem.Mol, residue_threshold: int = 8) -> Tuple[bool, s
                 "Large peptides require specialized conformational sampling methods."
             )
             return True, warning_msg
-    
+
+    # Check for polysaccharide detection
+    # SMARTS pattern for 6-membered sugar rings: [C;R1]1[C;R1][C;R1][C;R1][C;R1][O;R1]1
+    sugar_ring_pattern = "[C;R1]1[C;R1][C;R1][C;R1][C;R1][O;R1]1"
+    try:
+        sugar_pattern = Chem.MolFromSmarts(sugar_ring_pattern)
+        if sugar_pattern is not None:
+            sugar_matches = mol.GetSubstructMatches(sugar_pattern)
+            if len(sugar_matches) > sugar_ring_threshold:
+                warning_msg = (
+                    f" Target is a complex polysaccharide ({len(sugar_matches)} sugar-like rings > {sugar_ring_threshold} threshold) - cannot be processed. "
+                    "This pipeline is designed for drug-like small molecules only. "
+                    "Complex polysaccharides require specialized conformational sampling methods."
+                )
+                return True, warning_msg
+    except Exception as e:
+        logger.debug(f"Sugar ring pattern matching failed: {e}")
+
     return False, ""
+
+
+def is_large_peptide(mol: Chem.Mol, residue_threshold: int = 12) -> Tuple[bool, str]:
+    """
+    Backward compatibility wrapper for is_large_peptide_or_polysaccharide.
+    
+    This function is deprecated. Use is_large_peptide_or_polysaccharide instead.
+    
+    Args:
+        mol: RDKit molecule object
+        residue_threshold: Number of amino acid residues above which to consider "large"
+        
+    Returns:
+        Tuple[bool, str]: (True if large peptide, warning message)
+    """
+    # Only check for peptides, not polysaccharides, to maintain exact backward compatibility
+    result, msg = is_large_peptide_or_polysaccharide(mol, residue_threshold, float('inf'))
+    return result, msg
 
 
 def validate_target_molecule(
@@ -284,6 +322,7 @@ def validate_target_molecule(
     mol_name: str = "unknown",
     pdb_id: str = "",
     peptide_threshold: int = 8,
+    sugar_ring_threshold: int = 3,
 ) -> Tuple[bool, str]:
     """
     Validate if a target molecule can be processed by the pipeline.
@@ -293,6 +332,7 @@ def validate_target_molecule(
         mol_name: Name/identifier for the molecule (for logging)
         pdb_id: PDB ID for special case handling
         peptide_threshold: Maximum number of peptide residues allowed
+        sugar_ring_threshold: Maximum number of sugar rings allowed
 
     Returns:
         Tuple[bool, str]: (True if valid, warning message if invalid)
@@ -305,10 +345,12 @@ def validate_target_molecule(
     if has_re:
         return False, f"{mol_name}: {re_msg}"
 
-    # Check for large peptides
-    is_peptide, peptide_msg = is_large_peptide(mol, peptide_threshold)
-    if is_peptide:
-        return False, f"{mol_name}: {peptide_msg}"
+    # Check for large peptides or polysaccharides
+    is_large_bio, bio_msg = is_large_peptide_or_polysaccharide(
+        mol, peptide_threshold, sugar_ring_threshold
+    )
+    if is_large_bio:
+        return False, f"{mol_name}: {bio_msg}"
 
     return True, ""
 
@@ -413,7 +455,9 @@ def remove_problematic_molecules(
         strict: If True, remove molecules with any organometallic atoms
         
     Returns:
-        Tuple[List[Chem.Mol], List[str]]: (filtered_molecules, removal_reasons)
+        Tuple containing:
+            - List of filtered molecules that can be processed
+            - List of removal reasons for rejected molecules
     """
     filtered = []
     removal_reasons = []
@@ -449,7 +493,10 @@ def sanitize_molecule_safe(mol: Chem.Mol) -> Tuple[Chem.Mol, bool, str]:
         mol: RDKit molecule object
         
     Returns:
-        Tuple[Chem.Mol, bool, str]: (sanitized_mol, success, message)
+        Tuple containing:
+            - Sanitized molecule (or original if sanitization failed)
+            - Success flag
+            - Status message
     """
     if mol is None:
         return None, False, "Input molecule is None"
@@ -475,13 +522,23 @@ def sanitize_molecule_safe(mol: Chem.Mol) -> Tuple[Chem.Mol, bool, str]:
 
 def get_molecule_properties(mol: Chem.Mol) -> dict:
     """
-    Get basic properties of a molecule for validation and debugging.
+    Get comprehensive properties of a molecule for validation and debugging.
     
     Args:
         mol: RDKit molecule object
         
     Returns:
-        Dictionary of molecule properties
+        Dictionary containing molecule properties and validation flags:
+            - valid: Whether the molecule is valid
+            - num_atoms: Total number of atoms
+            - num_heavy_atoms: Number of non-hydrogen atoms  
+            - num_conformers: Number of conformers
+            - molecular_weight: Molecular weight
+            - smiles: SMILES representation
+            - has_rhenium: Contains rhenium atoms
+            - is_large_biomolecule: Is a large peptide or polysaccharide
+            - has_organometallics: Contains organometallic atoms
+            - needs_uff_fallback: Requires UFF instead of MMFF
     """
     if mol is None:
         return {"valid": False, "error": "None molecule"}
@@ -492,19 +549,19 @@ def get_molecule_properties(mol: Chem.Mol) -> dict:
             "num_atoms": mol.GetNumAtoms(),
             "num_heavy_atoms": mol.GetNumHeavyAtoms(),
             "num_conformers": mol.GetNumConformers(),
-            "molecular_weight": Chem.Descriptors.MolWt(mol),
+            "molecular_weight": Descriptors.MolWt(mol),
             "smiles": Chem.MolToSmiles(mol),
         }
         
         # Check for special cases
         has_re, _ = has_rhenium_complex(mol)
-        is_peptide, _ = is_large_peptide(mol)
+        is_large_bio, _ = is_large_peptide_or_polysaccharide(mol)
         has_metals, _ = has_problematic_organometallics(mol)
         needs_uff = needs_uff_fallback(mol)
         
         props.update({
             "has_rhenium": has_re,
-            "is_large_peptide": is_peptide,
+            "is_large_biomolecule": is_large_bio,
             "has_organometallics": has_metals,
             "needs_uff_fallback": needs_uff,
         })

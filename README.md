@@ -1,4 +1,5 @@
 # TEMPL Pipeline
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Template-based protein–ligand pose prediction with command-line interface and web application.
 
@@ -69,6 +70,34 @@ After downloading, extract both folders into `data/PDBBind/` using the standard 
 
 ---
 
+## Project Structure
+
+```
+templ_pipeline/
+├── benchmarks/          # Benchmark workspaces and results
+│   ├── workspaces/      # Generated benchmark workspaces
+│   └── results/         # Benchmark result files
+├── data/                # Data files and embeddings
+├── deploy/              # Deployment configurations
+│   ├── docker/          # Docker files
+│   ├── kubernetes/      # Kubernetes manifests
+│   └── scripts/         # Deployment scripts
+├── docs/                # Documentation
+│   ├── api/             # API documentation
+│   ├── deployment/      # Deployment guides
+│   └── guides/          # User guides and references
+├── examples/            # Example usage scripts
+├── output/              # Pipeline output results
+├── scripts/             # Entry point scripts
+├── templ_pipeline/      # Main Python package
+├── tests/               # Test suite
+│   ├── artifacts/       # Test coverage and artifacts
+│   └── temp/            # Temporary test files
+└── tools/               # Development tools and configs
+```
+
+---
+
 ## Usage
 
 ### Command Line Interface
@@ -88,7 +117,7 @@ templ --help
 
 ### Web Interface
 ```bash
-python run_streamlit_app.py
+python scripts/run_streamlit_app.py
 ```
 
 ### Benchmarking
@@ -114,19 +143,6 @@ templ benchmark time-split --test-only
 
 ---
 
-## System Requirements
-
-**Minimum:**
-- Python 3.9+
-- 4GB RAM
-- 1GB disk space
-
-**Recommended:**
-- 8+ CPU cores
-- 16GB+ RAM
-- GPU with 4GB+ VRAM (optional)
-
----
 
 ## Citation
 
@@ -135,15 +151,20 @@ If you use TEMPL in your research, please cite:
 ```bibtex
 @article{templ2025,
   title={TEMPL: Template-based Protein-Ligand Pose Prediction},
-  author={},
+  author={J. Fülöp and M. Šícho and W. Dehaen},
   journal={},
-  year={2024}
+  year={2025}
 }
 ```
+
+---
+
+## Acknowledgments
+
+J.F., M.S. and W.D. were supported by the Ministry of Education, Youth and Sports of the Czech Republic – National Infrastructure for Chemical Biology (CZ-OPENSCREEN, LM2023052). W.D. was supported by the Ministry of Education, Youth and Sports of the Czech Republic by the project "New Technologies for Translational Research in Pharmaceutical Sciences/NETPHARM", project ID CZ.02.01.01/00/22_008/0004607, cofunded by the European Union.
 
 ---
 
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
-

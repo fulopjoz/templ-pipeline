@@ -21,6 +21,15 @@ from typing import Any
 # Version information
 __version__ = "1.0.0"
 
+# Suppress RDKit warnings globally (including SCD/SED warnings)
+try:
+    from rdkit import RDLogger
+    RDLogger.DisableLog("rdApp.*")
+    RDLogger.DisableLog("rdkit.*")
+except ImportError:
+    # RDKit not available - warnings will be handled when RDKit is imported
+    pass
+
 __all__ = [
     # Package info
     "__version__",

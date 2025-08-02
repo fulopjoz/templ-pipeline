@@ -693,11 +693,11 @@ class EmbeddingManager:
         cache_dir: Optional[str] = None,
         enable_batching: bool = True,
         max_batch_size: int = 8,
-        shared_embedding_cache: Optional[str] = None,
     ):
         """Initialize the embedding manager with a path to pre-computed embeddings."""
         # Skip initialization if already initialized (singleton pattern)
         if self._initialized:
+            logger.debug("EmbeddingManager already initialized, skipping")
             return
             
         resolved_path = _resolve_embedding_path(embedding_path)
@@ -709,7 +709,6 @@ class EmbeddingManager:
         self.on_demand_embeddings = {}  # Dynamically generated embeddings
         self.on_demand_chain_data = {}  # Chain data for on-demand embeddings
         self.pdb_to_uniprot = {}  # For UniProt exclusion
-        self.shared_embedding_cache = shared_embedding_cache  # Shared cache file for multiprocessing
 
         # Cache configuration
         self.use_cache = use_cache
@@ -749,22 +748,14 @@ class EmbeddingManager:
         return self.embedding_db
 
     def _load_embeddings(self) -> bool:
-        """Load pre-computed embeddings from NPZ file or shared cache."""
+        """Load pre-computed embeddings from NPZ file."""
         
-        # Try shared cache first (for multiprocessing)
-        if self.shared_embedding_cache:
-            try:
-                from templ_pipeline.core.utils import load_shared_embedding_cache
-                cached_data = load_shared_embedding_cache(self.shared_embedding_cache)
-                if cached_data:
-                    self.embedding_db = cached_data.get('embedding_db', {})
-                    self.embedding_chain_data = cached_data.get('embedding_chain_data', {})
-                    logger.info(f"Loaded {len(self.embedding_db)} embeddings from shared cache")
-                    return True
-            except Exception as e:
-                logger.warning(f"Failed to load from shared embedding cache: {e}")
+        # Check if embeddings are already loaded to prevent repeated loading
+        if self.embedding_db:
+            logger.debug("Embeddings already loaded, skipping reload")
+            return True
         
-        # Fallback to loading from NPZ file
+        # Load from NPZ file
         if not self.embedding_path or not os.path.exists(self.embedding_path):
             logger.warning(
                 f"Embedding file not found or path is invalid: '{self.embedding_path}'"
@@ -1727,23 +1718,27 @@ def extract_pdb_id_from_file(pdb_file_path: str) -> str:
         header_dict = parse_pdb_header(pdb_file_path)
         # The PDB ID is stored with the key 'idcode'
         if "idcode" in header_dict and header_dict["idcode"]:
-            return header_dict["idcode"].strip()
+            pdb_id = header_dict["idcode"].strip()
+            if len(pdb_id) == 4 and pdb_id.isalnum():
+                return pdb_id
 
-        # Fallback: manually extract from HEADER line
+        # Fallback: manually extract from HEADER line (positions 62-66)
         with open(pdb_file_path, "r") as f:
             for line in f:
                 if line.startswith("HEADER"):
-                    # PDB ID is typically at positions 62-66
+                    # PDB ID is typically at positions 62-66 in HEADER line
                     if len(line) >= 66:
-                        pdb_id = line[62:66].strip()
-                        if pdb_id:
+                        pdb_id = line[62:66].strip().lower()
+                        if len(pdb_id) == 4 and pdb_id.isalnum():
                             return pdb_id
+                elif line.startswith("TITLE") or line.startswith("ATOM"):
+                    # Stop searching after HEADER section
                     break
     except Exception as e:
         logger.warning(f"Could not extract PDB ID from header: {e}")
 
-    # If we get here, we couldn't extract a PDB ID
-    # Create a temporary ID using the filename
+    # If we get here, we couldn't extract a PDB ID from the file header
+    # Create a temporary ID using the filename as last resort
     filename = os.path.basename(pdb_file_path)
     if filename.endswith(".pdb"):
         filename = filename[:-4]  # Remove .pdb extension
@@ -1751,7 +1746,7 @@ def extract_pdb_id_from_file(pdb_file_path: str) -> str:
 
 
 def extract_pdb_id_from_path(file_path: str) -> Optional[str]:
-    """Extract PDB ID from common file path patterns.
+    """Extract PDB ID from file header, not filename.
 
     Args:
         file_path: Path to PDB file
@@ -1759,29 +1754,21 @@ def extract_pdb_id_from_path(file_path: str) -> Optional[str]:
     Returns:
         4-character PDB ID if found, None otherwise
     """
-    import re
-
-    # Get filename without path
-    filename = os.path.basename(file_path)
-
-    # Common patterns for PDB files
-    patterns = [
-        r"^([0-9][a-zA-Z0-9]{3})_.*\.pdb$",
-        r"^([0-9][a-zA-Z0-9]{3})\.pdb$",
-        r"^([0-9][a-zA-Z0-9]{3})_[A-Z]\.pdb$",
-        r".*_([0-9][a-zA-Z0-9]{3})\.pdb$",
-        r".*_([0-9][a-zA-Z0-9]{3})_.*\.pdb$",
-    ]
-
-    for pattern in patterns:
-        match = re.match(pattern, filename, re.IGNORECASE)
-        if match:
-            pdb_id = match.group(1).lower()
-            # Validate PDB ID format (digit + 3 alphanumeric)
-            if len(pdb_id) == 4 and pdb_id[0].isdigit():
-                return pdb_id
-
-    return None
+    try:
+        with open(file_path, "r") as f:
+            for line in f:
+                if line.startswith("HEADER"):
+                    # PDB ID is typically at positions 62-66 in HEADER line
+                    if len(line) >= 66:
+                        pdb_id = line[62:66].strip().lower()
+                        if len(pdb_id) == 4 and pdb_id.isalnum():
+                            return pdb_id
+                elif line.startswith("TITLE") or line.startswith("ATOM"):
+                    # Stop searching after HEADER section
+                    break
+        return None
+    except Exception:
+        return None
 
 
 def filter_templates_by_ca_rmsd(
@@ -1872,6 +1859,123 @@ def get_templates_with_progressive_fallback(
     # This should never happen since we have templates
     logger.error("No templates available for central atom fallback")
     return [], float("inf"), False
+
+
+def clear_embedding_cache(clear_model_cache: bool = True, clear_disk_cache: bool = True, clear_memory_cache: bool = True) -> Dict[str, bool]:
+    """Clear all types of embedding caches.
+    
+    This function provides a comprehensive way to clear all embedding-related caches:
+    1. Global ESM model cache (_esm_components)
+    2. EmbeddingManager disk cache (cached .npz files)
+    3. EmbeddingManager memory cache (in-memory embeddings)
+    
+    Args:
+        clear_model_cache: Whether to clear the global ESM model cache
+        clear_disk_cache: Whether to clear the disk cache directory
+        clear_memory_cache: Whether to clear in-memory embeddings
+    
+    Returns:
+        Dictionary with success status for each cache type cleared
+    """
+    results = {}
+    
+    # Clear global ESM model cache
+    if clear_model_cache:
+        try:
+            global _esm_components
+            if _esm_components is not None:
+                # Clear GPU memory if using CUDA
+                if ESM_AVAILABLE:
+                    try:
+                        import torch
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except ImportError:
+                        pass
+                
+                _esm_components = None
+                logger.info("Cleared global ESM model cache")
+                results["model_cache"] = True
+            else:
+                logger.info("Global ESM model cache was already empty")
+                results["model_cache"] = True
+        except Exception as e:
+            logger.error(f"Failed to clear global ESM model cache: {str(e)}")
+            results["model_cache"] = False
+    else:
+        results["model_cache"] = None  # Not requested
+    
+    # Clear EmbeddingManager caches
+    if clear_disk_cache or clear_memory_cache:
+        try:
+            # Get the singleton instance if it exists
+            if hasattr(EmbeddingManager, '_instance') and EmbeddingManager._instance is not None:
+                manager = EmbeddingManager._instance
+                
+                # Clear disk cache
+                if clear_disk_cache:
+                    disk_result = manager.clear_cache()
+                    results["disk_cache"] = disk_result
+                else:
+                    results["disk_cache"] = None  # Not requested
+                
+                # Clear memory cache
+                if clear_memory_cache:
+                    try:
+                        # Clear the in-memory embedding databases
+                        manager.embedding_db.clear()
+                        manager.embedding_chain_data.clear()
+                        manager.on_demand_embeddings.clear()
+                        manager.on_demand_chain_data.clear()
+                        manager.pdb_to_uniprot.clear()
+                        manager._batch_queue.clear()
+                        
+                        # Reset initialization flag to allow re-initialization
+                        EmbeddingManager._initialized = False
+                        
+                        logger.info("Cleared EmbeddingManager memory cache")
+                        results["memory_cache"] = True
+                    except Exception as e:
+                        logger.error(f"Failed to clear EmbeddingManager memory cache: {str(e)}")
+                        results["memory_cache"] = False
+                else:
+                    results["memory_cache"] = None  # Not requested
+            else:
+                # No manager instance exists
+                if clear_disk_cache:
+                    # Try to clear disk cache by creating a temporary manager
+                    try:
+                        temp_manager = EmbeddingManager()
+                        disk_result = temp_manager.clear_cache()
+                        results["disk_cache"] = disk_result
+                    except Exception as e:
+                        logger.error(f"Failed to clear disk cache via temporary manager: {str(e)}")
+                        results["disk_cache"] = False
+                else:
+                    results["disk_cache"] = None
+                
+                if clear_memory_cache:
+                    logger.info("No EmbeddingManager instance exists, memory cache already empty")
+                    results["memory_cache"] = True
+                else:
+                    results["memory_cache"] = None
+        except Exception as e:
+            logger.error(f"Failed to access EmbeddingManager for cache clearing: {str(e)}")
+            if clear_disk_cache:
+                results["disk_cache"] = False
+            if clear_memory_cache:
+                results["memory_cache"] = False
+    
+    # Log summary
+    cleared_caches = [k for k, v in results.items() if v is True]
+    if cleared_caches:
+        logger.info(f"Successfully cleared caches: {', '.join(cleared_caches)}")
+    
+    failed_caches = [k for k, v in results.items() if v is False]
+    if failed_caches:
+        logger.warning(f"Failed to clear caches: {', '.join(failed_caches)}")
+    
+    return results
 
 
 class EmbeddingEngine:

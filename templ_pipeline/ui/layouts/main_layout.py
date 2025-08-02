@@ -537,12 +537,7 @@ class MainLayout:
                 help="Display FAIR (Findable, Accessible, Interoperable, Reusable) metadata information"
             )
             
-            # Informational note about scoring process
-            st.markdown("##### Scoring Process")
-            st.info(
-                "**Note**: TEMPL uses sequential pose scoring to ensure all 200 conformers are processed reliably. "
-                "This prevents conformer loss due to parallel processing failures and guarantees complete results."
-            )
+
             
             # Store settings in session
             self.session.set(SESSION_KEYS["USER_DEVICE_PREFERENCE"], device_pref)
