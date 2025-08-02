@@ -1,0 +1,64 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: templ-pipeline-ingress-secure
+  annotations:
+    # TLS and Certificate Management
+    kubernetes.io/tls-acme: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    
+    # Nginx Configuration for Scientific Computing
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "200m"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    
+    # WebSocket Support for Streamlit (simplified)
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/use-forwarded-headers: "true"
+    
+    # Optional: Basic Authentication (uncomment to enable)
+    # nginx.ingress.kubernetes.io/auth-type: basic
+    # nginx.ingress.kubernetes.io/auth-secret: templ-basic-auth
+    # nginx.ingress.kubernetes.io/auth-realm: 'TEMPL Pipeline - Authentication Required'
+    
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - "templ.dyn.cloud.e-infra.cz"  # Shorter domain for TEMPL Pipeline
+      secretName: templ-dyn-cloud-e-infra-cz-tls
+  rules:
+  - host: "templ.dyn.cloud.e-infra.cz"  # Shorter domain for TEMPL Pipeline
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: templ-pipeline-svc
+            port:
+              number: 80
+      # Health check endpoint (bypass auth if basic auth is enabled)
+      - path: /_stcore/health
+        pathType: Exact
+        backend:
+          service:
+            name: templ-pipeline-svc
+            port:
+              number: 80
+
+---
+# Optional: Basic Authentication Secret
+# Uncomment if you want to enable ingress-level basic auth
+# 
+# apiVersion: v1
+# kind: Secret
+# metadata:
+#   name: templ-basic-auth
+# type: Opaque
+# data:
+#   # Generated with: htpasswd -nb admin your-password | base64
+#   # Example: admin:$2y$10$... (base64 encoded)
+#   auth: YWRtaW46JGFwcjEkTjRyOHAuZnokVy5NNzBMMWMyNk84bjNJUzlhNWxtLw==
+#   # Default: admin/templ2025 - CHANGE IN PRODUCTION
