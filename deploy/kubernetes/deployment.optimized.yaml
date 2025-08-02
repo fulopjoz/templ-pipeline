@@ -1,0 +1,237 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: templ-pipeline
+  labels:
+    app: templ-pipeline
+    version: production
+    component: application
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0  # Ensure zero-downtime updates
+  selector:
+    matchLabels:
+      app: templ-pipeline
+  template:
+    metadata:
+      labels:
+        app: templ-pipeline
+        version: production
+        component: application
+    spec:
+      # Security context (CERIT best practices)
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      
+      # Anti-affinity for better distribution (if scaling up)
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - templ-pipeline
+              topologyKey: kubernetes.io/hostname
+      
+      
+      containers:
+      - name: templ-pipeline
+        image: cerit.io/xfulop/templ-pipeline:latest-production
+        imagePullPolicy: Always
+        
+        # Optimized command for faster startup
+        command: ["/bin/bash", "-c"]
+        args: 
+        - |
+          echo "Starting TEMPL Pipeline..."
+          mkdir -p /app/data/embeddings /app/data/ligands /app/temp
+          exec streamlit run /app/templ_pipeline/ui/app.py \
+            --server.headless=true \
+            --server.port=8501 \
+            --server.address=0.0.0.0 \
+            --server.fileWatcherType=none \
+            --server.runOnSave=false
+        
+        # Enhanced security context
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false  # Streamlit needs write access
+          capabilities:
+            drop:
+            - ALL
+          runAsUser: 1000
+          runAsNonRoot: true
+        
+        # Environment variables from ConfigMap and direct settings
+        env:
+        # Kubernetes-specific environment variables
+        - name: KUBERNETES_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: KUBERNETES_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: KUBERNETES_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        
+        # Application-specific optimized settings
+        - name: TEMPL_PASSWORD_HASH
+          valueFrom:
+            secretKeyRef:
+              name: templ-pipeline-secrets
+              key: TEMPL_PASSWORD_HASH
+        - name: STREAMLIT_SERVER_COOKIE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: templ-pipeline-secrets
+              key: STREAMLIT_SERVER_COOKIE_SECRET
+        - name: TEMPL_ENV
+          value: "production"
+        - name: TEMPL_N_WORKERS
+          value: "4"     # Match CPU request for optimal performance
+        - name: TEMPL_N_CONFS
+          value: "150"   # Increase for better GPU utilization
+        - name: TEMPL_SIM_THRESHOLD
+          value: "0.5"
+        - name: TEMPL_USE_CACHE
+          value: "true"
+        - name: TEMPL_ENABLE_BATCHING
+          value: "true"
+        - name: TEMPL_MAX_BATCH_SIZE
+          value: "16"    # Increase batch size for GPU efficiency
+        - name: OMP_NUM_THREADS
+          value: "4"     # Match CPU request
+        - name: TORCH_HOME
+          value: "/app/temp/.torch"
+        - name: TEMPL_SKIP_DATA_DOWNLOAD
+          value: "false"  # Allow data download at startup
+        - name: TEMPL_ENABLE_EMBEDDINGS
+          value: "true"
+        - name: TEMPL_ENABLE_FULL_FEATURES
+          value: "true"
+        
+        # GPU settings optimized for MIG fraction
+        - name: CUDA_VISIBLE_DEVICES
+          value: "0"
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: "all"
+        - name: NVIDIA_DRIVER_CAPABILITIES
+          value: "compute,utility"
+        - name: CUDA_MPS_PIPE_DIRECTORY
+          value: "/tmp/nvidia-mps"
+        - name: CUDA_MPS_LOG_DIRECTORY
+          value: "/tmp/nvidia-log"
+        
+        # Graphics environment
+        - name: LD_LIBRARY_PATH
+          value: "/usr/lib/x86_64-linux-gnu"
+        - name: QT_X11_NO_MITSHM
+          value: "1"
+        
+        # Environment variables from ConfigMap (easily changeable)
+        envFrom:
+        - configMapRef:
+            name: templ-pipeline-config
+        
+        ports:
+        - containerPort: 8501
+          name: http
+          protocol: TCP
+        
+        # Volume mounts
+        volumeMounts:
+        - mountPath: /app/data
+          name: data-volume
+          readOnly: false
+        - mountPath: /app/temp
+          name: temp-volume
+        
+        # Optimized resource management for embeddings workload
+        resources:
+          requests:
+            memory: "12Gi"    
+            cpu: "8"        
+            nvidia.com/mig-1g.10gb: 1  
+          limits:
+            memory: "20Gi"  
+            cpu: "12"         
+            nvidia.com/mig-1g.10gb: 1 
+        
+        # Optimized health checks
+        startupProbe:
+          httpGet:
+            path: /_stcore/health
+            port: 8501
+          initialDelaySeconds: 30    # Reduced startup delay
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30       # Allow more time for initial startup
+          successThreshold: 1
+        
+        readinessProbe:
+          httpGet:
+            path: /_stcore/health
+            port: 8501
+          initialDelaySeconds: 10    # Quick readiness check
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+        
+        livenessProbe:
+          httpGet:
+            path: /_stcore/health
+            port: 8501
+          initialDelaySeconds: 60    # Allow time for full startup
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+          successThreshold: 1
+      
+      # Volumes
+      volumes:
+      - name: data-volume
+        emptyDir:
+          sizeLimit: 8Gi  # Sufficient space for data files (embeddings + ligands)
+      - name: temp-volume
+        emptyDir:
+          sizeLimit: 4Gi  # Increased for GPU model caching
+      
+      # Optimize scheduling
+      nodeSelector:
+        kubernetes.io/os: linux
+      
+      # Tolerations for GPU nodes
+      tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Exists"
+        effect: "NoSchedule"
+      - key: "gpu"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+      
+      # DNS configuration optimization
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+        - name: ndots
+          value: "2"
+        - name: edns0
