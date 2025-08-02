@@ -361,7 +361,6 @@ def run_templ_pipeline_single(
     save_poses: bool = False,
     poses_output_dir: Optional[str] = None,
     unconstrained: bool = False,
-    align_metric: str = "combo",
     enable_optimization: bool = False,
     no_realign: bool = False,
     allowed_pdb_ids: Optional[set] = None,
@@ -441,7 +440,7 @@ def run_templ_pipeline_single(
 
         # Select best poses (using same algorithm as TEMPLPipeline)
         best_poses = select_best(
-            confs, template_mol, no_realign=no_realign, n_workers=n_workers, align_metric=align_metric
+            confs, template_mol, no_realign=no_realign, n_workers=n_workers
         )
 
         # Calculate RMSD to reference
@@ -530,11 +529,11 @@ def evaluate_with_leave_one_out(
     save_poses: bool = False,
     poses_output_dir: Optional[str] = None,
     unconstrained: bool = False,
-    align_metric: str = "combo",
     enable_optimization: bool = False,
     no_realign: bool = False,
     allowed_pdb_ids: Optional[set] = None,
     per_worker_ram_gb: float = 4.0,
+    align_metric: str = "combo",  # CLI compatibility parameter (ignored - uses multi-metric)
 ) -> Dict:
     """Enhanced leave-one-out evaluation."""
 
@@ -586,7 +585,6 @@ def evaluate_with_leave_one_out(
                         save_poses,
                         poses_output_dir,
                         unconstrained,
-                        align_metric,
                         enable_optimization,
                         no_realign,
                         allowed_pdb_ids,
@@ -673,7 +671,6 @@ def evaluate_with_leave_one_out(
                     save_poses,
                     poses_output_dir,
                     unconstrained,
-                    align_metric,
                     enable_optimization,
                     no_realign,
                     allowed_pdb_ids,
@@ -756,11 +753,11 @@ def evaluate_with_templates(
     save_poses: bool = False,
     poses_output_dir: Optional[str] = None,
     unconstrained: bool = False,
-    align_metric: str = "combo",
     enable_optimization: bool = False,
     no_realign: bool = False,
     allowed_pdb_ids: Optional[set] = None,
     per_worker_ram_gb: float = 4.0,
+    align_metric: str = "combo",  # CLI compatibility parameter (ignored - uses multi-metric)
 ) -> Dict:
     """Enhanced evaluation with templates."""
 
@@ -796,15 +793,25 @@ def evaluate_with_templates(
     if PEBBLE_AVAILABLE:
         with ProcessPool(max_workers=n_workers) as pool:
             futures = []
-            for i, query_mol in enumerate(query_mols):
-                mol_name = safe_name(query_mol, f"mol_{i}")
+            for i, crystal_mol in enumerate(query_mols):
+                mol_name = safe_name(crystal_mol, f"mol_{i}")
+                
+                # CRITICAL FIX: Separate query molecule from reference crystal structure
+                # Create query molecule by removing 3D coordinates (convert to 2D SMILES)
+                query_mol = Chem.MolFromSmiles(Chem.MolToSmiles(crystal_mol))
+                if query_mol is None:
+                    logging.warning(f"Failed to create query molecule from SMILES for {mol_name}")
+                    continue
+                
+                # Use crystal structure with 3D coordinates as reference for RMSD
+                reference_mol = crystal_mol  # Keep original 3D structure as reference
 
                 future = pool.schedule(
                     worker_wrapper_with_memory_limit,
-                    args=[per_worker_ram_gb, query_mol, template_mols, query_mol, None, n_conformers, 1, save_poses, poses_output_dir, unconstrained, align_metric, enable_optimization, no_realign, allowed_pdb_ids],
+                    args=[per_worker_ram_gb, query_mol, template_mols, reference_mol, None, n_conformers, 1, save_poses, poses_output_dir, unconstrained, enable_optimization, no_realign, allowed_pdb_ids],
                     timeout=MOLECULE_TIMEOUT,
                 )
-                futures.append((future, mol_name, query_mol))
+                futures.append((future, mol_name, crystal_mol))
 
             # Collect results with progress bar
             desc = f"{virus_type} Test ({template_source})"
@@ -869,27 +876,36 @@ def evaluate_with_templates(
             max_workers=n_workers, mp_context=mp_context
         ) as executor:
             future_to_mol = {}
-            for i, query_mol in enumerate(query_mols):
-                mol_name = safe_name(query_mol, f"mol_{i}")
+            for i, crystal_mol in enumerate(query_mols):
+                mol_name = safe_name(crystal_mol, f"mol_{i}")
+                
+                # CRITICAL FIX: Separate query molecule from reference crystal structure
+                # Create query molecule by removing 3D coordinates (convert to 2D SMILES)
+                query_mol = Chem.MolFromSmiles(Chem.MolToSmiles(crystal_mol))
+                if query_mol is None:
+                    logging.warning(f"Failed to create query molecule from SMILES for {mol_name}")
+                    continue
+                
+                # Use crystal structure with 3D coordinates as reference for RMSD
+                reference_mol = crystal_mol  # Keep original 3D structure as reference
 
                 future = executor.submit(
                     worker_wrapper_with_memory_limit,
                     per_worker_ram_gb,
                     query_mol,
                     template_mols,
-                    query_mol,
+                    reference_mol,
                     None,
                     n_conformers,
                     1,
                     save_poses,
                     poses_output_dir,
                     unconstrained,
-                    align_metric,
                     enable_optimization,
                     no_realign,
                     allowed_pdb_ids,
                 )
-                future_to_mol[future] = (mol_name, query_mol)
+                future_to_mol[future] = (mol_name, crystal_mol)
 
             # Collect results with progress bar
             desc = f"{virus_type} Test ({template_source})"
@@ -1238,7 +1254,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--align-metric",
         choices=["shape", "color", "combo"],
         default="combo",
-        help="Shape alignment metric (default: combo)",
+        help="Shape alignment metric (CLI compatibility - uses multi-metric evaluation)",
     )
     p.add_argument(
         "--enable-optimization",
@@ -1469,11 +1485,11 @@ def main(argv: List[str] | None = None):
                     save_poses=save_poses,
                     poses_output_dir=poses_output_dir,
                     unconstrained=args.unconstrained,
-                    align_metric=args.align_metric,
                     enable_optimization=args.enable_optimization,
                     no_realign=args.no_realign,
                     allowed_pdb_ids=allowed_pdb_ids,
                     per_worker_ram_gb=args.per_worker_ram_gb,
+                    align_metric=args.align_metric,
                 )
 
             # MERS training evaluation with native templates (leave-one-out)
@@ -1491,11 +1507,11 @@ def main(argv: List[str] | None = None):
                     save_poses=save_poses,
                     poses_output_dir=poses_output_dir,
                     unconstrained=args.unconstrained,
-                    align_metric=args.align_metric,
                     enable_optimization=args.enable_optimization,
                     no_realign=args.no_realign,
                     allowed_pdb_ids=allowed_pdb_ids,
                     per_worker_ram_gb=args.per_worker_ram_gb,
+                    align_metric=args.align_metric,
                 )
 
             # MERS training evaluation with combined SARS-aligned + MERS templates
@@ -1515,11 +1531,11 @@ def main(argv: List[str] | None = None):
                     save_poses=save_poses,
                     poses_output_dir=poses_output_dir,
                     unconstrained=args.unconstrained,
-                    align_metric=args.align_metric,
                     enable_optimization=args.enable_optimization,
                     no_realign=args.no_realign,
                     allowed_pdb_ids=allowed_pdb_ids,
                     per_worker_ram_gb=args.per_worker_ram_gb,
+                    align_metric=args.align_metric,
                 )
 
         # Run test set evaluations
@@ -1558,8 +1574,7 @@ def main(argv: List[str] | None = None):
                             save_poses=save_poses,
                             poses_output_dir=poses_output_dir,
                             unconstrained=args.unconstrained,
-                            align_metric=args.align_metric,
-                            enable_optimization=args.enable_optimization,
+                                    enable_optimization=args.enable_optimization,
                             no_realign=args.no_realign,
                             allowed_pdb_ids=allowed_pdb_ids,
                             per_worker_ram_gb=args.per_worker_ram_gb,
@@ -1582,8 +1597,7 @@ def main(argv: List[str] | None = None):
                             save_poses=save_poses,
                             poses_output_dir=poses_output_dir,
                             unconstrained=args.unconstrained,
-                            align_metric=args.align_metric,
-                            enable_optimization=args.enable_optimization,
+                                    enable_optimization=args.enable_optimization,
                             no_realign=args.no_realign,
                             allowed_pdb_ids=allowed_pdb_ids,
                             per_worker_ram_gb=args.per_worker_ram_gb,
@@ -1612,8 +1626,7 @@ def main(argv: List[str] | None = None):
                             save_poses=save_poses,
                             poses_output_dir=poses_output_dir,
                             unconstrained=args.unconstrained,
-                            align_metric=args.align_metric,
-                            enable_optimization=args.enable_optimization,
+                                    enable_optimization=args.enable_optimization,
                             no_realign=args.no_realign,
                             allowed_pdb_ids=allowed_pdb_ids,
                             per_worker_ram_gb=args.per_worker_ram_gb,
