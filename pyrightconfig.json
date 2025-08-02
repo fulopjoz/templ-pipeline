@@ -1,0 +1,37 @@
+{
+    "include": [
+        "templ_pipeline",
+        "tests",
+        "scripts",
+        "examples"
+    ],
+    "exclude": [
+        "**/__pycache__",
+        "**/.pytest_cache",
+        "**/node_modules",
+        "**/.git",
+        "**/.vscode",
+        "**/.streamlit",
+        "**/.templ",
+        "**/.env",
+        "**/benchmarks",
+        "**/data",
+        "**/output",
+        "**/temp",
+        "**/workspace",
+        "**/deploy",
+        "**/docs/api",
+        "**/test_download",
+        "**/templ_pipeline.egg-info",
+        "**/valid_cod",
+        "**/tools",
+        "**/.claude",
+        "**/.cursor",
+        "**/*.tar.gz",
+        "**/kubectl"
+    ],
+    "reportMissingImports": true,
+    "reportMissingTypeStubs": false,
+    "pythonVersion": "3.12",
+    "pythonPlatform": "Linux"
+}

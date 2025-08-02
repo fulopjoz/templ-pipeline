@@ -1,0 +1,71 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: templ-pipeline-ingress
+  labels:
+    app: templ-pipeline
+    component: ingress
+    version: optimized
+  annotations:
+    # SSL/TLS configuration
+    kubernetes.io/tls-acme: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    
+    # NGINX optimization annotations
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-body-size: "200m"
+    
+    # Performance optimizations
+    nginx.ingress.kubernetes.io/proxy-buffering: "on"
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
+    nginx.ingress.kubernetes.io/proxy-buffers-number: "8"
+    nginx.ingress.kubernetes.io/upstream-keepalive-timeout: "60"
+    
+    # Security headers (server-snippet disabled by CERIT ingress admin)
+    # Note: Security headers removed due to CERIT policy restrictions
+    
+    # Rate limiting (optional, adjust as needed)
+    nginx.ingress.kubernetes.io/rate-limit-connections: "10"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    nginx.ingress.kubernetes.io/rate-limit-requests: "100"
+    
+    # Enable compression
+    nginx.ingress.kubernetes.io/enable-gzip: "true"
+    nginx.ingress.kubernetes.io/gzip-types: "text/plain,text/css,application/json,application/javascript,text/xml,application/xml,application/xml+rss,text/javascript"
+    
+    # WebSocket support for Streamlit
+    nginx.ingress.kubernetes.io/proxy-set-headers: |
+      Host $host;
+      X-Real-IP $remote_addr;
+      X-Forwarded-For $proxy_add_x_forwarded_for;
+      X-Forwarded-Proto $scheme;
+      Upgrade $http_upgrade;
+      Connection "upgrade";
+    
+    # Custom error pages (optional)
+    nginx.ingress.kubernetes.io/custom-http-errors: "404,503"
+    nginx.ingress.kubernetes.io/default-backend: "default-http-backend"
+
+spec:
+  ingressClassName: nginx
+  
+  # TLS configuration
+  tls:
+  - hosts:
+    - "templ.dyn.cloud.e-infra.cz"
+    secretName: templ-dyn-cloud-e-infra-cz-tls
+  
+  # Routing rules
+  rules:
+  - host: "templ.dyn.cloud.e-infra.cz"
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: templ-pipeline-svc
+            port:
+              number: 80
