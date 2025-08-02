@@ -234,6 +234,7 @@ data/ligands/
 ~/
 
 benchmarks/
+benchmark_*/
 
 valid_cod/
 docs/
