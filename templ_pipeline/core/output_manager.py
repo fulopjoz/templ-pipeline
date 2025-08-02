@@ -301,9 +301,13 @@ class EnhancedOutputManager:
                 log.debug(f"RMSD skipped: atom count mismatch (pose: {pose_clean.GetNumAtoms()}, crystal: {crystal_clean.GetNumAtoms()})")
                 return float("nan")
             
-            # Note: Removed molecular formula comparison as it incorrectly rejects
-            # same molecules with different protonation states (e.g., C27H37N5 vs C27H41N5+4)
-            # spyrmsd handles molecule compatibility validation internally
+            # Additional validation: check if molecules are reasonably similar
+            pose_formula = Chem.rdMolDescriptors.CalcMolFormula(pose_clean)
+            crystal_formula = Chem.rdMolDescriptors.CalcMolFormula(crystal_clean)
+            
+            if pose_formula != crystal_formula:
+                log.debug(f"RMSD skipped: molecular formula mismatch (pose: {pose_formula}, crystal: {crystal_formula})")
+                return float("nan")
             
             return rmsdwrapper(
                 Molecule.from_rdkit(pose_clean),
