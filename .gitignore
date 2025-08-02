@@ -178,6 +178,9 @@ secrets.yaml
 **/*password*
 **/*credential*
 **/*auth*
+# Allow template files for documentation
+!**/secrets.template.yaml
+!deploy/SECURITY_SETUP.md
 .env.local
 .env.production
 .env.staging
