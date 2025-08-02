@@ -171,6 +171,22 @@ temp_*.sdf
 # DEPLOYMENT & CONFIGURATION
 # ==============================================
 
+# Security-sensitive files
+secrets.yaml
+**/secrets.yaml
+**/*secret*
+**/*password*
+**/*credential*
+**/*auth*
+.env.local
+.env.production
+.env.staging
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+
 # Docker and deployment
 Dockerfile.optimized
 templ-app-optimized.yaml
@@ -213,3 +229,8 @@ temp/
 data/embeddings/
 data/ligands/
 ~/
+
+benchmarks/
+
+valid_cod/
+docs/

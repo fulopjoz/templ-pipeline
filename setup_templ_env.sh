@@ -671,7 +671,7 @@ main() {
     ╚═╝   ╚══════╝╚═╝     ╚═╝╚═╝     ╚══════╝
                                             
 Template-based Protein-Ligand Pose Prediction
-Environment Setup Script v2.0
+Environment Setup Script v1.0
 
 HEADER
     

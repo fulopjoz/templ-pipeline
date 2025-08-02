@@ -480,30 +480,44 @@ class TEMPLPipeline:
             log.error(f"Failed to get protein embedding for {pdb_id}: {e}", exc_info=True)
             return None, None
 
-    def find_similar_templates(self, query_pdb_id: str, query_embedding: np.ndarray, k: int = 100, exclude_pdb_ids: set = None, allowed_pdb_ids: set = None) -> List[str]:
-        """Find similar templates using embedding similarity."""
+    def find_similar_templates(self, query_pdb_id: str, query_embedding: np.ndarray, k: int = 100, exclude_pdb_ids: set = None, allowed_pdb_ids: set = None) -> Tuple[List[str], Dict[str, float]]:
+        """Find similar templates using embedding similarity.
+        
+        Returns:
+            Tuple of (template_pdb_ids, embedding_similarities_dict)
+        """
         try:
             if self.embedding_manager is None:
                 log.error("Embedding manager not initialized")
-                return []
+                return [], {}
                 
-            # Find nearest neighbors
-            neighbors = self.embedding_manager.find_neighbors(
+            # Find nearest neighbors with similarities
+            neighbors_with_similarities = self.embedding_manager.find_neighbors(
                 query_pdb_id=query_pdb_id,
                 query_embedding=query_embedding,
                 k=k,
                 exclude_pdb_ids=exclude_pdb_ids,
                 allowed_pdb_ids=allowed_pdb_ids,
-                return_similarities=False
+                return_similarities=True
             )
             
-            return neighbors
+            # Extract PDB IDs and similarities
+            template_pdb_ids = []
+            embedding_similarities = {}
+            
+            for pdb_id, similarity in neighbors_with_similarities:
+                template_pdb_ids.append(pdb_id)
+                embedding_similarities[pdb_id.upper()] = float(similarity)
+            
+            log.info(f"Found {len(template_pdb_ids)} templates with embedding similarities ranging from {min(embedding_similarities.values()):.3f} to {max(embedding_similarities.values()):.3f}")
+            
+            return template_pdb_ids, embedding_similarities
             
         except Exception as e:
             log.error(f"Failed to find similar templates: {e}")
-            return []
+            return [], {}
     
-    def process_templates(self, template_pdb_ids: List[str], ref_chains: List[str]) -> List[Chem.Mol]:
+    def process_templates(self, template_pdb_ids: List[str], ref_chains: List[str], embedding_similarities: Dict[str, float] = None) -> List[Chem.Mol]:
         """Process and transform template molecules."""
         processed_templates = []
         failed_templates = []
@@ -543,6 +557,11 @@ class TEMPLPipeline:
                 _, mob_chains = self.get_protein_embedding(pdb_id, pdb_file=pdb_file)
                 
                 if self.reference_protein is not None:
+                    # Get actual embedding similarity for this template
+                    embedding_similarity = 1.0  # Default fallback
+                    if embedding_similarities and pdb_id.upper() in embedding_similarities:
+                        embedding_similarity = embedding_similarities[pdb_id.upper()]
+                    
                     transformed_mol = transform_ligand(
                         mob_pdb=pdb_file, 
                         lig=template_mol, 
@@ -550,7 +569,7 @@ class TEMPLPipeline:
                         ref_struct=self.reference_protein,
                         ref_chains=ref_chains,
                         mob_chains=mob_chains,
-                        similarity_score=1.0  # Default similarity score
+                        similarity_score=embedding_similarity
                     )
                     
                     if transformed_mol is not None:
@@ -826,23 +845,40 @@ class TEMPLPipeline:
             num_templates = getattr(self.config, 'num_templates', 100)
             exclude_pdb_ids = getattr(self, 'exclude_pdb_ids', set())
             allowed_pdb_ids = getattr(self, 'allowed_pdb_ids', None)
-            similar_template_ids = self.find_similar_templates(query_pdb_id, query_embedding, k=num_templates, exclude_pdb_ids=exclude_pdb_ids, allowed_pdb_ids=allowed_pdb_ids)
+            similar_template_ids, embedding_similarities = self.find_similar_templates(query_pdb_id, query_embedding, k=num_templates, exclude_pdb_ids=exclude_pdb_ids, allowed_pdb_ids=allowed_pdb_ids)
             log.info(f"Found {len(similar_template_ids)} similar templates for {query_pdb_id}")
+            
+            # Validate timesplit constraints are respected
+            if allowed_pdb_ids is not None:
+                # Check that target is not in template list (should be excluded by constraints)
+                if query_pdb_id.upper() in [pid.upper() for pid in similar_template_ids]:
+                    log.warning(f"Timesplit constraint validation: target {query_pdb_id} found in template list - this may indicate constraint bypass")
+                else:
+                    log.info(f"Timesplit constraint validation: target {query_pdb_id} properly excluded from template list")
+                
+                # Validate all templates are within allowed set
+                invalid_templates = [pid for pid in similar_template_ids if pid.upper() not in allowed_pdb_ids]
+                if invalid_templates:
+                    log.error(f"Constraint violation: templates {invalid_templates} not in allowed set")
+                else:
+                    log.info(f"Constraint validation passed: all {len(similar_template_ids)} templates within allowed set")
+            
             if not similar_template_ids:
                 log.error("No similar templates found.")
                 return False
             
-            # Always include target PDB ID if it exists in the database but not in similar templates
-            if query_pdb_id.upper() not in [pid.upper() for pid in similar_template_ids]:
+            # Only include target PDB ID as template when no constraints are applied (not in timesplit scenarios)
+            if allowed_pdb_ids is None and query_pdb_id.upper() not in [pid.upper() for pid in similar_template_ids]:
                 # Check if target exists in embedding database
                 target_embedding, _ = self.get_protein_embedding(query_pdb_id)
                 if target_embedding is not None:
-                    # Ensure target is in allowed_pdb_ids if provided
-                    if allowed_pdb_ids is None or query_pdb_id.upper() in allowed_pdb_ids:
-                        similar_template_ids.insert(0, query_pdb_id)
-                        log.info(f"Added target {query_pdb_id} to template list as it exists in database")
-                    else:
-                        log.warning(f"Target {query_pdb_id} exists in database but not in allowed_pdb_ids, skipping")
+                    similar_template_ids.insert(0, query_pdb_id)
+                    # Add perfect similarity score for the target itself
+                    embedding_similarities[query_pdb_id.upper()] = 1.0
+                    log.info(f"Added target {query_pdb_id} to template list as it exists in database")
+            elif allowed_pdb_ids is not None:
+                # In constrained scenarios (like timesplit), respect the constraints strictly
+                log.info(f"Template constraints active: target {query_pdb_id} excluded to maintain benchmark integrity")
             
             log.info(f"Found {len(similar_template_ids)} similar templates.")
 
@@ -852,11 +888,15 @@ class TEMPLPipeline:
             # Prepare list for all transformed ligands, including native if applicable
             all_transformed_ligands = []
             
-            # Handle self-superimposition
+            # Handle native ligand use when target is legitimately found as a template
+            # Note: In timesplit scenarios, target won't be in similar_template_ids due to constraints
             target_is_template = False
             if query_pdb_id.upper() in [pid.upper() for pid in similar_template_ids]:
                 target_is_template = True
-                log.info(f"Target {query_pdb_id} is in templates, using its native pose.")
+                if allowed_pdb_ids is not None:
+                    log.info(f"Target {query_pdb_id} found as legitimate template within constraints, using native pose.")
+                else:
+                    log.info(f"Target {query_pdb_id} is in templates, using its native pose.")
                 native_ligand_path = ligand_path(query_pdb_id, "data")
                 if native_ligand_path and os.path.exists(native_ligand_path):
                     try:
@@ -877,7 +917,7 @@ class TEMPLPipeline:
 
             # Process remaining templates
             if similar_template_ids:
-                transformed_ligands_from_templates = self.process_templates(similar_template_ids, ref_chains)
+                transformed_ligands_from_templates = self.process_templates(similar_template_ids, ref_chains, embedding_similarities)
                 
                 # Apply RMSD filtering with progressive fallback
                 filtered_templates = self.filter_templates_by_rmsd(transformed_ligands_from_templates)
@@ -951,12 +991,25 @@ class TEMPLPipeline:
             
             # Store template information for CLI interface  
             if hasattr(self, 'pipeline_template_info'):
+                # Use MCS similarity score instead of template similarity score for accurate benchmarking
+                # The template similarity_score can be "1.0" for native poses, but MCS similarity is the real metric
+                similarity_score = mcs_details.get('similarity_score', 0.0) if mcs_details else 0.0
+                template_similarity = best_template.GetProp('similarity_score') if best_template.HasProp('similarity_score') else 'unknown'
+                
+                # For benchmarking accuracy, prefer MCS similarity over template similarity
+                if template_similarity == "1.0" and similarity_score != 1.0:
+                    # Native template detected - use MCS similarity for benchmarking accuracy
+                    final_similarity = f"{similarity_score:.3f}"
+                else:
+                    # Use template similarity (for non-native cases)
+                    final_similarity = template_similarity
+                
                 self.pipeline_template_info = {
                     "best_template_pdb": best_template.GetProp('template_pid') if best_template.HasProp('template_pid') else 'unknown',
                     "mcs_smarts": mcs_smarts,
                     "num_conformers_generated": target_with_conformers.GetNumConformers(),
                     "ca_rmsd": best_template.GetProp('ca_rmsd') if best_template.HasProp('ca_rmsd') else 'unknown',
-                    "similarity_score": best_template.GetProp('similarity_score') if best_template.HasProp('similarity_score') else 'unknown'
+                    "similarity_score": final_similarity
                 }
 
             # Get crystal structure for RMSD calculation if available
