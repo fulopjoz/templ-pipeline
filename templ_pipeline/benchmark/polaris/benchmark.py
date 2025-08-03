@@ -66,7 +66,7 @@ except ImportError:
 
 # Configuration
 MOLECULE_TIMEOUT = 300
-OUTPUT_DIR = "benchmarks/results/polaris"
+OUTPUT_DIR = "benchmarks/polaris"
 
 # Global flag for graceful shutdown
 shutdown_requested = False
@@ -337,6 +337,7 @@ def run_templ_pipeline_single(
             return result
 
         # Select best poses (using same algorithm as TEMPLPipeline)
+        logging.info(f"PIPELINE DEBUG: Calling select_best with align_metric='{align_metric}' for molecule {result['molecule_name']}")
         best_poses = select_best(
             confs, template_mol, no_realign=no_realign, n_workers=n_workers, align_metric=align_metric
         )
@@ -351,7 +352,14 @@ def run_templ_pipeline_single(
                     result["rmsd_values"][metric] = {
                         "rmsd": rmsd,
                         "score": scores[metric],
+                        "selection_metric": scores.get('selection_metric', 'unknown'),
+                        "selected_conformer_id": scores.get('selected_conformer_id', 'unknown'),
                     }
+                    
+                    # Debug logging to verify align_metric is working
+                    selection_metric = scores.get('selection_metric', 'unknown')
+                    selected_conf_id = scores.get('selected_conformer_id', 'unknown')
+                    logging.info(f"BENCHMARK DEBUG: {metric} result - RMSD={rmsd:.3f}, score={scores[metric]:.3f}, selected_by={selection_metric}, conf_id={selected_conf_id}")
                     
                     # Save pose if requested
                     if save_poses and poses_output_dir:
@@ -403,6 +411,10 @@ def run_templ_pipeline_single(
 
 def worker_wrapper_with_memory_limit(per_worker_ram_gb, *args, **kwargs):
     """Worker wrapper that sets memory limits before calling the pipeline."""
+    # Debug logging to verify align_metric parameter passing
+    align_metric = kwargs.get('align_metric', 'unknown')
+    logging.info(f"WORKER DEBUG: Received align_metric='{align_metric}' in worker process")
+    
     try:
         max_bytes = int(per_worker_ram_gb * 1024 ** 3)
         resource.setrlimit(resource.RLIMIT_AS, (max_bytes, max_bytes))
@@ -472,22 +484,22 @@ def evaluate_with_leave_one_out(
 
                 future = pool.schedule(
                     worker_wrapper_with_memory_limit,
-                    args=[
-                        per_worker_ram_gb,
-                        query_mol,
-                        template_pool,
-                        query_mol,
-                        query_mol,
-                        n_conformers,
-                        1,
-                        save_poses,
-                        poses_output_dir,
-                        unconstrained,
-                        enable_optimization,
-                        no_realign,
-                        allowed_pdb_ids,
-                        align_metric,
-                    ],
+                    args=[per_worker_ram_gb],
+                    kwargs={
+                        'query_mol': query_mol,
+                        'templates': template_pool,
+                        'reference_mol': query_mol,
+                        'exclude_mol': query_mol,
+                        'n_conformers': n_conformers,
+                        'n_workers': 1,
+                        'save_poses': save_poses,
+                        'poses_output_dir': poses_output_dir,
+                        'unconstrained': unconstrained,
+                        'enable_optimization': enable_optimization,
+                        'no_realign': no_realign,
+                        'allowed_pdb_ids': allowed_pdb_ids,
+                        'align_metric': align_metric,
+                    },
                     timeout=MOLECULE_TIMEOUT,
                 )
                 futures.append((future, mol_name, query_mol))
@@ -561,19 +573,19 @@ def evaluate_with_leave_one_out(
                 future = executor.submit(
                     worker_wrapper_with_memory_limit,
                     per_worker_ram_gb,
-                    query_mol,
-                    template_pool,
-                    query_mol,
-                    query_mol,
-                    n_conformers,
-                    1,
-                    save_poses,
-                    poses_output_dir,
-                    unconstrained,
-                    enable_optimization,
-                    no_realign,
-                    allowed_pdb_ids,
-                    align_metric,
+                    query_mol=query_mol,
+                    templates=template_pool,
+                    reference_mol=query_mol,
+                    exclude_mol=query_mol,
+                    n_conformers=n_conformers,
+                    n_workers=1,
+                    save_poses=save_poses,
+                    poses_output_dir=poses_output_dir,
+                    unconstrained=unconstrained,
+                    enable_optimization=enable_optimization,
+                    no_realign=no_realign,
+                    allowed_pdb_ids=allowed_pdb_ids,
+                    align_metric=align_metric,
                 )
                 future_to_mol[future] = (mol_name, query_mol)
 
@@ -732,7 +744,22 @@ def evaluate_with_templates(
 
                 future = pool.schedule(
                     worker_wrapper_with_memory_limit,
-                    args=[per_worker_ram_gb, query_mol, template_mols, reference_mol, None, n_conformers, 1, save_poses, poses_output_dir, unconstrained, enable_optimization, no_realign, allowed_pdb_ids, align_metric],
+                    args=[per_worker_ram_gb],
+                    kwargs={
+                        'query_mol': query_mol,
+                        'templates': template_mols,
+                        'reference_mol': reference_mol,
+                        'exclude_mol': None,
+                        'n_conformers': n_conformers,
+                        'n_workers': 1,
+                        'save_poses': save_poses,
+                        'poses_output_dir': poses_output_dir,
+                        'unconstrained': unconstrained,
+                        'enable_optimization': enable_optimization,
+                        'no_realign': no_realign,
+                        'allowed_pdb_ids': allowed_pdb_ids,
+                        'align_metric': align_metric,
+                    },
                     timeout=MOLECULE_TIMEOUT,
                 )
                 futures.append((future, mol_name, crystal_mol))
@@ -820,19 +847,19 @@ def evaluate_with_templates(
                 future = executor.submit(
                     worker_wrapper_with_memory_limit,
                     per_worker_ram_gb,
-                    query_mol,
-                    template_mols,
-                    reference_mol,
-                    None,
-                    n_conformers,
-                    1,
-                    save_poses,
-                    poses_output_dir,
-                    unconstrained,
-                    enable_optimization,
-                    no_realign,
-                    allowed_pdb_ids,
-                    align_metric,
+                    query_mol=query_mol,
+                    templates=template_mols,
+                    reference_mol=reference_mol,
+                    exclude_mol=None,
+                    n_conformers=n_conformers,
+                    n_workers=1,
+                    save_poses=save_poses,
+                    poses_output_dir=poses_output_dir,
+                    unconstrained=unconstrained,
+                    enable_optimization=enable_optimization,
+                    no_realign=no_realign,
+                    allowed_pdb_ids=allowed_pdb_ids,
+                    align_metric=align_metric,
                 )
                 future_to_mol[future] = (mol_name, crystal_mol)
 
@@ -1210,6 +1237,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum RAM (GiB) per worker process (prevents memory explosion, default: 4.0)",
     )
     
+    p.add_argument(
+        "--template-source",
+        choices=["auto", "native", "cross_aligned"],
+        default="auto",
+        help="Template source for MERS evaluation: 'native' (MERS only), 'cross_aligned' (MERS+SARS-aligned), 'auto' (both)"
+    )
+    
     return p
 
 
@@ -1548,59 +1582,66 @@ def main(argv: List[str] | None = None):
                             no_realign=args.no_realign,
                             allowed_pdb_ids=allowed_pdb_ids,
                             per_worker_ram_gb=args.per_worker_ram_gb,
+                            align_metric=args.align_metric,
                         )
 
-                # 2. MERS test evaluation with native templates
-                if mers_test_mols and not args.quick:
-                    mers_templates, mers_template_counts = get_training_templates(
-                        "MERS", "native", train_sars, train_mers, train_sars_aligned
-                    )
-                    if mers_templates:
-                        all_results["MERS_test_native"] = evaluate_with_templates(
-                            mers_test_mols,
-                            mers_templates,
-                            "MERS",
-                            "native",
-                            mers_template_counts,
-                            args.n_workers,
-                            args.n_conformers,
-                            save_poses=save_poses,
-                            poses_output_dir=poses_output_dir,
-                            unconstrained=args.unconstrained,
-                                    enable_optimization=args.enable_optimization,
-                            no_realign=args.no_realign,
-                            allowed_pdb_ids=allowed_pdb_ids,
-                            per_worker_ram_gb=args.per_worker_ram_gb,
+                # 2. MERS test evaluation with template source control
+                if mers_test_mols:
+                    # Run native templates if requested
+                    if args.template_source in ["auto", "native"]:
+                        mers_templates, mers_template_counts = get_training_templates(
+                            "MERS", "native", train_sars, train_mers, train_sars_aligned
                         )
+                        if mers_templates:
+                            all_results["MERS_test_native"] = evaluate_with_templates(
+                                mers_test_mols,
+                                mers_templates,
+                                "MERS",
+                                "native",
+                                mers_template_counts,
+                                args.n_workers,
+                                args.n_conformers,
+                                save_poses=save_poses,
+                                poses_output_dir=poses_output_dir,
+                                unconstrained=args.unconstrained,
+                                enable_optimization=args.enable_optimization,
+                                no_realign=args.no_realign,
+                                allowed_pdb_ids=allowed_pdb_ids,
+                                per_worker_ram_gb=args.per_worker_ram_gb,
+                                align_metric=args.align_metric,
+                            )
 
                 # 3. MERS test evaluation with combined MERS + SARS-aligned templates
-                if mers_test_mols and not args.quick:
-                    combined_templates, mers_cross_template_counts = (
-                        get_training_templates(
-                            "MERS",
-                            "cross_aligned",
-                            train_sars,
-                            train_mers,
-                            train_sars_aligned,
+                if mers_test_mols:
+                    # Run cross-aligned templates if requested
+                    if args.template_source in ["auto", "cross_aligned"]:
+                        combined_templates, mers_cross_template_counts = (
+                            get_training_templates(
+                                "MERS",
+                                "cross_aligned",
+                                train_sars,
+                                train_mers,
+                                train_sars_aligned,
+                            )
                         )
-                    )
-                    if combined_templates:
-                        all_results["MERS_test_cross"] = evaluate_with_templates(
-                            mers_test_mols,
-                            combined_templates,
-                            "MERS",
-                            "cross_aligned",
-                            mers_cross_template_counts,
-                            args.n_workers,
-                            args.n_conformers,
-                            save_poses=save_poses,
-                            poses_output_dir=poses_output_dir,
-                            unconstrained=args.unconstrained,
-                                    enable_optimization=args.enable_optimization,
-                            no_realign=args.no_realign,
-                            allowed_pdb_ids=allowed_pdb_ids,
-                            per_worker_ram_gb=args.per_worker_ram_gb,
-                        )
+                        if combined_templates:
+                            all_results["MERS_test_cross"] = evaluate_with_templates(
+                                mers_test_mols,
+                                combined_templates,
+                                "MERS",
+                                "cross_aligned",
+                                mers_cross_template_counts,
+                                args.n_workers,
+                                args.n_conformers,
+                                save_poses=save_poses,
+                                poses_output_dir=poses_output_dir,
+                                unconstrained=args.unconstrained,
+                                enable_optimization=args.enable_optimization,
+                                no_realign=args.no_realign,
+                                allowed_pdb_ids=allowed_pdb_ids,
+                                per_worker_ram_gb=args.per_worker_ram_gb,
+                                align_metric=args.align_metric,
+                            )
 
     except KeyboardInterrupt:
         print("\nWARNING: Benchmark interrupted by user")
