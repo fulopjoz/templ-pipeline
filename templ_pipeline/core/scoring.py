@@ -832,6 +832,7 @@ def select_best(
         return {} if not return_all_ranked else []
 
     logger.info(f"Scoring {n_confs} conformers using {n_workers} workers")
+    logger.info(f"ALIGN_METRIC DEBUG: Using align_metric='{align_metric}' for conformer selection")
 
     # Process conformers in memory-efficient batches with adaptive sizing
     # Adjust batch size based on worker count and system load
@@ -1002,55 +1003,67 @@ def select_best(
         logger.warning("No valid scoring results obtained")
         return {} if not return_all_ranked else []
 
-    # Sort by combo score (descending)
-    all_results.sort(key=lambda x: x[1].get("combo", 0.0), reverse=True)
+    # DEBUG: Print all conformer metrics before sorting
+    logger.info(f"CONFORMER_METRICS DEBUG: Found {len(all_results)} scored conformers")
+    for conf_id, scores, mol in all_results[:5]:  # Show first 5 conformers
+        logger.info(f"CONFORMER_METRICS DEBUG: Conf {conf_id}: shape={scores.get('shape', 'N/A'):.3f}, color={scores.get('color', 'N/A'):.3f}, combo={scores.get('combo', 'N/A'):.3f}")
+    if len(all_results) > 5:
+        logger.info(f"CONFORMER_METRICS DEBUG: ... and {len(all_results) - 5} more conformers")
+
+    # Sort by the specified align_metric (respects user choice)
+    all_results.sort(key=lambda x: x[1].get(align_metric, 0.0), reverse=True)
+
+    # DEBUG: Print top conformers after sorting by align_metric
+    logger.info(f"BEST_CONFORMER DEBUG: Top 3 conformers after sorting by '{align_metric}':")
+    for conf_id, scores, mol in all_results[:3]:
+        logger.info(f"BEST_CONFORMER DEBUG: Conf {conf_id}: shape={scores.get('shape', 'N/A'):.3f}, color={scores.get('color', 'N/A'):.3f}, combo={scores.get('combo', 'N/A'):.3f}, {align_metric}={scores.get(align_metric, 'N/A'):.3f}")
 
     if return_all_ranked:
         return all_results
 
-    # Select best pose based on specified align_metric, then compute all scores from that conformer
+    # Select the single best conformer based on align_metric
     best_poses = {}
     
-    # Find best conformer based on the specified align_metric
-    metric_results = [(r[0], r[1], r[2]) for r in all_results if align_metric in r[1]]
-    if not metric_results:
-        logger.warning(f"No results found for align_metric '{align_metric}'")
-        return {} if not return_all_ranked else []
+    # Get the best conformer according to align_metric (first result after sorting)
+    best_conf_id, best_scores, best_mol = all_results[0]
     
-    # Sort by the specified metric and select the best conformer
-    metric_results.sort(key=lambda x: x[1][align_metric], reverse=True)
-    best_conf_id, best_scores, best_mol = metric_results[0]
-    
-    logger.info(f"Selected conformer {best_conf_id} based on {align_metric} score: {best_scores[align_metric]:.3f}")
+    logger.info(f"Selected conformer {best_conf_id} based on {align_metric} metric: score {best_scores[align_metric]:.3f}")
+    logger.info(f"SELECTED_CONFORMER DEBUG: Conf {best_conf_id} scores - shape={best_scores.get('shape', 'N/A'):.3f}, color={best_scores.get('color', 'N/A'):.3f}, combo={best_scores.get('combo', 'N/A'):.3f}")
     
     # Create clean copy for output with robust error handling
     try:
         # Validate the best_mol before copying
         if best_mol is None:
-            logger.warning(f"Best molecule is None")
-            return {} if not return_all_ranked else []
+            logger.warning(f"Best molecule is None for align_metric {align_metric}")
+            return best_poses
 
         if not isinstance(best_mol, Chem.Mol):
             logger.error(f"Best molecule has invalid type: {type(best_mol)}")
-            return {} if not return_all_ranked else []
+            return best_poses
 
         output_mol = FixedMolecularProcessor.create_independent_copy(best_mol)
 
         if output_mol is None:
-            logger.warning("Failed to create copy of best pose, trying direct assignment")
-            # Fallback: use original molecule if copying fails
+            logger.warning(f"Failed to create copy of best pose, using original")
             output_mol = best_mol
 
-        # Return all three metrics using the same conformer
+        # Store the same conformer for all metrics with all scores computed from this conformer
+        # IMPORTANT: The conformer was selected based on align_metric, but we return it for all metrics
+        # to maintain backwards compatibility with existing API expectations
         for metric in ["shape", "color", "combo"]:
             if metric in best_scores:
-                best_poses[metric] = (output_mol, best_scores)
-                logger.debug(f"Using selected conformer for {metric}: score {best_scores[metric]:.3f}")
+                # Add metadata about which metric was used for selection
+                enhanced_scores = best_scores.copy()
+                enhanced_scores['selection_metric'] = align_metric
+                enhanced_scores['selected_conformer_id'] = best_conf_id
+                best_poses[metric] = (output_mol, enhanced_scores)
+                logger.debug(f"Stored best pose for {metric}: score {best_scores[metric]:.3f} (selected by {align_metric})")
+            else:
+                logger.warning(f"Missing {metric} score in best conformer results")
 
     except Exception as e:
         logger.error(f"Failed to process best pose: {e}")
-        logger.error(f"Best molecule type: {type(best_mol)}, scores: {best_scores}")
-        return {} if not return_all_ranked else []
+        return best_poses
 
     # Final cleanup
     cleanup_memory()
