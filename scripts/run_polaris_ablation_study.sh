@@ -23,14 +23,13 @@ fi
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BENCHMARK_SCRIPT="$SCRIPT_DIR/templ_pipeline/benchmark/polaris/benchmark.py"
+BENCHMARK_SCRIPT="$SCRIPT_DIR/../templ_pipeline/benchmark/polaris/benchmark.py"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-RESULTS_DIR="ablation_study_results_$TIMESTAMP"
+RESULTS_DIR="benchmarks/polaris"
 SUMMARY_FILE="ablation_study_summary_$TIMESTAMP"
 
 # Create results directory
 mkdir -p "$RESULTS_DIR"
-cd "$RESULTS_DIR"
 
 echo "=== Polaris Benchmark Ablation Study ==="
 echo "Results will be saved to: $RESULTS_DIR"
@@ -48,13 +47,13 @@ run_benchmark() {
     local output_file="${name}_${TIMESTAMP}.json"
     
     echo "Running: $name"
-    echo "Command: python $BENCHMARK_SCRIPT $args $WORKERS_ARG --output-dir results_$name"
+    echo "Command: python $BENCHMARK_SCRIPT $args $WORKERS_ARG --output-dir $RESULTS_DIR"
     echo "Output: $output_file"
     
-    python "$BENCHMARK_SCRIPT" $args $WORKERS_ARG --output-dir "results_$name" > "${name}.log" 2>&1
+    python "$BENCHMARK_SCRIPT" $args $WORKERS_ARG --output-dir "$RESULTS_DIR" > "${name}.log" 2>&1
     
     # Find and copy the most recent results file
-    latest_result=$(find "results_$name" -name "templ_polaris_benchmark_results_*.json" -type f -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-)
+    latest_result=$(find "$RESULTS_DIR" -name "templ_polaris_benchmark_results_*.json" -type f -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-)
     if [ -n "$latest_result" ]; then
         cp "$latest_result" "$output_file"
         echo "Results saved to: $output_file"
@@ -168,8 +167,13 @@ experiments = {
 # Prepare output files
 import csv
 from datetime import datetime
+import os
 
-summary_base = "$SUMMARY_FILE"
+# Create results directory if it doesn't exist
+results_dir = "$RESULTS_DIR"
+os.makedirs(results_dir, exist_ok=True)
+
+summary_base = os.path.join(results_dir, "$SUMMARY_FILE")
 txt_file = f"{summary_base}.txt"
 csv_file = f"{summary_base}.csv"
 md_file = f"{summary_base}.md"
@@ -260,8 +264,8 @@ echo ""
 echo "Summary generation completed!"
 echo "Results directory: $RESULTS_DIR"
 echo "Summary files generated:"
-echo "   ${SUMMARY_FILE}.txt  (Text format)"
-echo "   ${SUMMARY_FILE}.csv  (Excel/CSV format)"  
-echo "   ${SUMMARY_FILE}.md   (Markdown format)"
+echo "   $RESULTS_DIR/${SUMMARY_FILE}.txt  (Text format)"
+echo "   $RESULTS_DIR/${SUMMARY_FILE}.csv  (Excel/CSV format)"  
+echo "   $RESULTS_DIR/${SUMMARY_FILE}.md   (Markdown format)"
 echo ""
 echo "Ablation study complete!"
