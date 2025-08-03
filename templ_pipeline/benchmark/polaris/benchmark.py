@@ -66,7 +66,7 @@ except ImportError:
 
 # Configuration
 MOLECULE_TIMEOUT = 300
-OUTPUT_DIR = "benchmarks/results/polaris"
+OUTPUT_DIR = "benchmarks/polaris"
 
 # Global flag for graceful shutdown
 shutdown_requested = False
