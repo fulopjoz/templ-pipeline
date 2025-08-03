@@ -337,6 +337,7 @@ def run_templ_pipeline_single(
             return result
 
         # Select best poses (using same algorithm as TEMPLPipeline)
+        logging.info(f"PIPELINE DEBUG: Calling select_best with align_metric='{align_metric}' for molecule {result['molecule_name']}")
         best_poses = select_best(
             confs, template_mol, no_realign=no_realign, n_workers=n_workers, align_metric=align_metric
         )
@@ -351,7 +352,14 @@ def run_templ_pipeline_single(
                     result["rmsd_values"][metric] = {
                         "rmsd": rmsd,
                         "score": scores[metric],
+                        "selection_metric": scores.get('selection_metric', 'unknown'),
+                        "selected_conformer_id": scores.get('selected_conformer_id', 'unknown'),
                     }
+                    
+                    # Debug logging to verify align_metric is working
+                    selection_metric = scores.get('selection_metric', 'unknown')
+                    selected_conf_id = scores.get('selected_conformer_id', 'unknown')
+                    logging.info(f"BENCHMARK DEBUG: {metric} result - RMSD={rmsd:.3f}, score={scores[metric]:.3f}, selected_by={selection_metric}, conf_id={selected_conf_id}")
                     
                     # Save pose if requested
                     if save_poses and poses_output_dir:
@@ -403,6 +411,10 @@ def run_templ_pipeline_single(
 
 def worker_wrapper_with_memory_limit(per_worker_ram_gb, *args, **kwargs):
     """Worker wrapper that sets memory limits before calling the pipeline."""
+    # Debug logging to verify align_metric parameter passing
+    align_metric = kwargs.get('align_metric', 'unknown')
+    logging.info(f"WORKER DEBUG: Received align_metric='{align_metric}' in worker process")
+    
     try:
         max_bytes = int(per_worker_ram_gb * 1024 ** 3)
         resource.setrlimit(resource.RLIMIT_AS, (max_bytes, max_bytes))
@@ -472,22 +484,22 @@ def evaluate_with_leave_one_out(
 
                 future = pool.schedule(
                     worker_wrapper_with_memory_limit,
-                    args=[
-                        per_worker_ram_gb,
-                        query_mol,
-                        template_pool,
-                        query_mol,
-                        query_mol,
-                        n_conformers,
-                        1,
-                        save_poses,
-                        poses_output_dir,
-                        unconstrained,
-                        enable_optimization,
-                        no_realign,
-                        allowed_pdb_ids,
-                        align_metric,
-                    ],
+                    args=[per_worker_ram_gb],
+                    kwargs={
+                        'query_mol': query_mol,
+                        'templates': template_pool,
+                        'reference_mol': query_mol,
+                        'exclude_mol': query_mol,
+                        'n_conformers': n_conformers,
+                        'n_workers': 1,
+                        'save_poses': save_poses,
+                        'poses_output_dir': poses_output_dir,
+                        'unconstrained': unconstrained,
+                        'enable_optimization': enable_optimization,
+                        'no_realign': no_realign,
+                        'allowed_pdb_ids': allowed_pdb_ids,
+                        'align_metric': align_metric,
+                    },
                     timeout=MOLECULE_TIMEOUT,
                 )
                 futures.append((future, mol_name, query_mol))
@@ -561,19 +573,19 @@ def evaluate_with_leave_one_out(
                 future = executor.submit(
                     worker_wrapper_with_memory_limit,
                     per_worker_ram_gb,
-                    query_mol,
-                    template_pool,
-                    query_mol,
-                    query_mol,
-                    n_conformers,
-                    1,
-                    save_poses,
-                    poses_output_dir,
-                    unconstrained,
-                    enable_optimization,
-                    no_realign,
-                    allowed_pdb_ids,
-                    align_metric,
+                    query_mol=query_mol,
+                    templates=template_pool,
+                    reference_mol=query_mol,
+                    exclude_mol=query_mol,
+                    n_conformers=n_conformers,
+                    n_workers=1,
+                    save_poses=save_poses,
+                    poses_output_dir=poses_output_dir,
+                    unconstrained=unconstrained,
+                    enable_optimization=enable_optimization,
+                    no_realign=no_realign,
+                    allowed_pdb_ids=allowed_pdb_ids,
+                    align_metric=align_metric,
                 )
                 future_to_mol[future] = (mol_name, query_mol)
 
@@ -732,7 +744,22 @@ def evaluate_with_templates(
 
                 future = pool.schedule(
                     worker_wrapper_with_memory_limit,
-                    args=[per_worker_ram_gb, query_mol, template_mols, reference_mol, None, n_conformers, 1, save_poses, poses_output_dir, unconstrained, enable_optimization, no_realign, allowed_pdb_ids, align_metric],
+                    args=[per_worker_ram_gb],
+                    kwargs={
+                        'query_mol': query_mol,
+                        'templates': template_mols,
+                        'reference_mol': reference_mol,
+                        'exclude_mol': None,
+                        'n_conformers': n_conformers,
+                        'n_workers': 1,
+                        'save_poses': save_poses,
+                        'poses_output_dir': poses_output_dir,
+                        'unconstrained': unconstrained,
+                        'enable_optimization': enable_optimization,
+                        'no_realign': no_realign,
+                        'allowed_pdb_ids': allowed_pdb_ids,
+                        'align_metric': align_metric,
+                    },
                     timeout=MOLECULE_TIMEOUT,
                 )
                 futures.append((future, mol_name, crystal_mol))
@@ -820,19 +847,19 @@ def evaluate_with_templates(
                 future = executor.submit(
                     worker_wrapper_with_memory_limit,
                     per_worker_ram_gb,
-                    query_mol,
-                    template_mols,
-                    reference_mol,
-                    None,
-                    n_conformers,
-                    1,
-                    save_poses,
-                    poses_output_dir,
-                    unconstrained,
-                    enable_optimization,
-                    no_realign,
-                    allowed_pdb_ids,
-                    align_metric,
+                    query_mol=query_mol,
+                    templates=template_mols,
+                    reference_mol=reference_mol,
+                    exclude_mol=None,
+                    n_conformers=n_conformers,
+                    n_workers=1,
+                    save_poses=save_poses,
+                    poses_output_dir=poses_output_dir,
+                    unconstrained=unconstrained,
+                    enable_optimization=enable_optimization,
+                    no_realign=no_realign,
+                    allowed_pdb_ids=allowed_pdb_ids,
+                    align_metric=align_metric,
                 )
                 future_to_mol[future] = (mol_name, crystal_mol)
 
@@ -1555,6 +1582,7 @@ def main(argv: List[str] | None = None):
                             no_realign=args.no_realign,
                             allowed_pdb_ids=allowed_pdb_ids,
                             per_worker_ram_gb=args.per_worker_ram_gb,
+                            align_metric=args.align_metric,
                         )
 
                 # 2. MERS test evaluation with template source control
@@ -1580,6 +1608,7 @@ def main(argv: List[str] | None = None):
                                 no_realign=args.no_realign,
                                 allowed_pdb_ids=allowed_pdb_ids,
                                 per_worker_ram_gb=args.per_worker_ram_gb,
+                                align_metric=args.align_metric,
                             )
 
                 # 3. MERS test evaluation with combined MERS + SARS-aligned templates
@@ -1611,6 +1640,7 @@ def main(argv: List[str] | None = None):
                                 no_realign=args.no_realign,
                                 allowed_pdb_ids=allowed_pdb_ids,
                                 per_worker_ram_gb=args.per_worker_ram_gb,
+                                align_metric=args.align_metric,
                             )
 
     except KeyboardInterrupt:
