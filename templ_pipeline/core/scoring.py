@@ -832,6 +832,7 @@ def select_best(
         return {} if not return_all_ranked else []
 
     logger.info(f"Scoring {n_confs} conformers using {n_workers} workers")
+    logger.info(f"ALIGN_METRIC DEBUG: Using align_metric='{align_metric}' for conformer selection")
 
     # Process conformers in memory-efficient batches with adaptive sizing
     # Adjust batch size based on worker count and system load
@@ -1002,8 +1003,20 @@ def select_best(
         logger.warning("No valid scoring results obtained")
         return {} if not return_all_ranked else []
 
+    # DEBUG: Print all conformer metrics before sorting
+    logger.info(f"CONFORMER_METRICS DEBUG: Found {len(all_results)} scored conformers")
+    for conf_id, scores, mol in all_results[:5]:  # Show first 5 conformers
+        logger.info(f"CONFORMER_METRICS DEBUG: Conf {conf_id}: shape={scores.get('shape', 'N/A'):.3f}, color={scores.get('color', 'N/A'):.3f}, combo={scores.get('combo', 'N/A'):.3f}")
+    if len(all_results) > 5:
+        logger.info(f"CONFORMER_METRICS DEBUG: ... and {len(all_results) - 5} more conformers")
+
     # Sort by the specified align_metric (respects user choice)
     all_results.sort(key=lambda x: x[1].get(align_metric, 0.0), reverse=True)
+
+    # DEBUG: Print top conformers after sorting by align_metric
+    logger.info(f"BEST_CONFORMER DEBUG: Top 3 conformers after sorting by '{align_metric}':")
+    for conf_id, scores, mol in all_results[:3]:
+        logger.info(f"BEST_CONFORMER DEBUG: Conf {conf_id}: shape={scores.get('shape', 'N/A'):.3f}, color={scores.get('color', 'N/A'):.3f}, combo={scores.get('combo', 'N/A'):.3f}, {align_metric}={scores.get(align_metric, 'N/A'):.3f}")
 
     if return_all_ranked:
         return all_results
@@ -1015,6 +1028,7 @@ def select_best(
     best_conf_id, best_scores, best_mol = all_results[0]
     
     logger.info(f"Selected conformer {best_conf_id} based on {align_metric} metric: score {best_scores[align_metric]:.3f}")
+    logger.info(f"SELECTED_CONFORMER DEBUG: Conf {best_conf_id} scores - shape={best_scores.get('shape', 'N/A'):.3f}, color={best_scores.get('color', 'N/A'):.3f}, combo={best_scores.get('combo', 'N/A'):.3f}")
     
     # Create clean copy for output with robust error handling
     try:
@@ -1034,10 +1048,16 @@ def select_best(
             output_mol = best_mol
 
         # Store the same conformer for all metrics with all scores computed from this conformer
+        # IMPORTANT: The conformer was selected based on align_metric, but we return it for all metrics
+        # to maintain backwards compatibility with existing API expectations
         for metric in ["shape", "color", "combo"]:
             if metric in best_scores:
-                best_poses[metric] = (output_mol, best_scores)
-                logger.debug(f"Stored best pose for {metric}: score {best_scores[metric]:.3f}")
+                # Add metadata about which metric was used for selection
+                enhanced_scores = best_scores.copy()
+                enhanced_scores['selection_metric'] = align_metric
+                enhanced_scores['selected_conformer_id'] = best_conf_id
+                best_poses[metric] = (output_mol, enhanced_scores)
+                logger.debug(f"Stored best pose for {metric}: score {best_scores[metric]:.3f} (selected by {align_metric})")
             else:
                 logger.warning(f"Missing {metric} score in best conformer results")
 
