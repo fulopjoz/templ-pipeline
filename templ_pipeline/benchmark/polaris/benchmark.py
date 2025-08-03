@@ -1210,6 +1210,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum RAM (GiB) per worker process (prevents memory explosion, default: 4.0)",
     )
     
+    p.add_argument(
+        "--template-source",
+        choices=["auto", "native", "cross_aligned"],
+        default="auto",
+        help="Template source for MERS evaluation: 'native' (MERS only), 'cross_aligned' (MERS+SARS-aligned), 'auto' (both)"
+    )
+    
     return p
 
 
@@ -1550,57 +1557,61 @@ def main(argv: List[str] | None = None):
                             per_worker_ram_gb=args.per_worker_ram_gb,
                         )
 
-                # 2. MERS test evaluation with native templates
-                if mers_test_mols and not args.quick:
-                    mers_templates, mers_template_counts = get_training_templates(
-                        "MERS", "native", train_sars, train_mers, train_sars_aligned
-                    )
-                    if mers_templates:
-                        all_results["MERS_test_native"] = evaluate_with_templates(
-                            mers_test_mols,
-                            mers_templates,
-                            "MERS",
-                            "native",
-                            mers_template_counts,
-                            args.n_workers,
-                            args.n_conformers,
-                            save_poses=save_poses,
-                            poses_output_dir=poses_output_dir,
-                            unconstrained=args.unconstrained,
-                                    enable_optimization=args.enable_optimization,
-                            no_realign=args.no_realign,
-                            allowed_pdb_ids=allowed_pdb_ids,
-                            per_worker_ram_gb=args.per_worker_ram_gb,
+                # 2. MERS test evaluation with template source control
+                if mers_test_mols:
+                    # Run native templates if requested
+                    if args.template_source in ["auto", "native"]:
+                        mers_templates, mers_template_counts = get_training_templates(
+                            "MERS", "native", train_sars, train_mers, train_sars_aligned
                         )
+                        if mers_templates:
+                            all_results["MERS_test_native"] = evaluate_with_templates(
+                                mers_test_mols,
+                                mers_templates,
+                                "MERS",
+                                "native",
+                                mers_template_counts,
+                                args.n_workers,
+                                args.n_conformers,
+                                save_poses=save_poses,
+                                poses_output_dir=poses_output_dir,
+                                unconstrained=args.unconstrained,
+                                enable_optimization=args.enable_optimization,
+                                no_realign=args.no_realign,
+                                allowed_pdb_ids=allowed_pdb_ids,
+                                per_worker_ram_gb=args.per_worker_ram_gb,
+                            )
 
                 # 3. MERS test evaluation with combined MERS + SARS-aligned templates
-                if mers_test_mols and not args.quick:
-                    combined_templates, mers_cross_template_counts = (
-                        get_training_templates(
-                            "MERS",
-                            "cross_aligned",
-                            train_sars,
-                            train_mers,
-                            train_sars_aligned,
+                if mers_test_mols:
+                    # Run cross-aligned templates if requested
+                    if args.template_source in ["auto", "cross_aligned"]:
+                        combined_templates, mers_cross_template_counts = (
+                            get_training_templates(
+                                "MERS",
+                                "cross_aligned",
+                                train_sars,
+                                train_mers,
+                                train_sars_aligned,
+                            )
                         )
-                    )
-                    if combined_templates:
-                        all_results["MERS_test_cross"] = evaluate_with_templates(
-                            mers_test_mols,
-                            combined_templates,
-                            "MERS",
-                            "cross_aligned",
-                            mers_cross_template_counts,
-                            args.n_workers,
-                            args.n_conformers,
-                            save_poses=save_poses,
-                            poses_output_dir=poses_output_dir,
-                            unconstrained=args.unconstrained,
-                                    enable_optimization=args.enable_optimization,
-                            no_realign=args.no_realign,
-                            allowed_pdb_ids=allowed_pdb_ids,
-                            per_worker_ram_gb=args.per_worker_ram_gb,
-                        )
+                        if combined_templates:
+                            all_results["MERS_test_cross"] = evaluate_with_templates(
+                                mers_test_mols,
+                                combined_templates,
+                                "MERS",
+                                "cross_aligned",
+                                mers_cross_template_counts,
+                                args.n_workers,
+                                args.n_conformers,
+                                save_poses=save_poses,
+                                poses_output_dir=poses_output_dir,
+                                unconstrained=args.unconstrained,
+                                enable_optimization=args.enable_optimization,
+                                no_realign=args.no_realign,
+                                allowed_pdb_ids=allowed_pdb_ids,
+                                per_worker_ram_gb=args.per_worker_ram_gb,
+                            )
 
     except KeyboardInterrupt:
         print("\nWARNING: Benchmark interrupted by user")
