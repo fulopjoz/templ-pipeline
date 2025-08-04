@@ -262,6 +262,7 @@ def run_templ_pipeline_single(
     no_realign: bool = False,
     allowed_pdb_ids: Optional[set] = None,
     align_metric: str = "combo",
+    molecule_name: Optional[str] = None,
 ) -> Dict:
     """Run TEMPL pipeline for a single molecule with comprehensive result tracking.
     
@@ -273,6 +274,10 @@ def run_templ_pipeline_single(
     - Delegates to run_templ_pipeline_single_unified() for execution
     - Maintains original result format for compatibility
     """
+    # Use provided molecule_name or extract from molecule, with better fallback
+    if molecule_name is None:
+        molecule_name = safe_name(query_mol, f"molecule_{id(query_mol) % 10000:04d}")
+    
     result = {
         "success": False,
         "rmsd_values": {},
@@ -281,7 +286,7 @@ def run_templ_pipeline_single(
         "error": None,
         "processing_time": 0,
         "timeout": False,
-        "molecule_name": safe_name(query_mol, "unknown"),
+        "molecule_name": molecule_name,
         "filter_reason": None,
     }
 
@@ -499,6 +504,7 @@ def evaluate_with_leave_one_out(
                         'no_realign': no_realign,
                         'allowed_pdb_ids': allowed_pdb_ids,
                         'align_metric': align_metric,
+                        'molecule_name': mol_name,
                     },
                     timeout=MOLECULE_TIMEOUT,
                 )
@@ -586,6 +592,7 @@ def evaluate_with_leave_one_out(
                     no_realign=no_realign,
                     allowed_pdb_ids=allowed_pdb_ids,
                     align_metric=align_metric,
+                    molecule_name=mol_name,
                 )
                 future_to_mol[future] = (mol_name, query_mol)
 
@@ -759,6 +766,7 @@ def evaluate_with_templates(
                         'no_realign': no_realign,
                         'allowed_pdb_ids': allowed_pdb_ids,
                         'align_metric': align_metric,
+                        'molecule_name': mol_name,
                     },
                     timeout=MOLECULE_TIMEOUT,
                 )
@@ -860,6 +868,7 @@ def evaluate_with_templates(
                     no_realign=no_realign,
                     allowed_pdb_ids=allowed_pdb_ids,
                     align_metric=align_metric,
+                    molecule_name=mol_name,
                 )
                 future_to_mol[future] = (mol_name, crystal_mol)
 
@@ -1453,9 +1462,9 @@ def main(argv: List[str] | None = None):
             # Use workspace structure like time-split benchmark
             poses_output_dir = str(Path(workspace_dir) / "raw_results" / "polaris" / "poses")
         else:
-            # Fallback to timestamp-based directory  
+            # Fallback to organized directory under OUTPUT_DIR
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            poses_output_dir = f"benchmark_poses_polaris_{timestamp}"
+            poses_output_dir = str(Path(OUTPUT_DIR) / "poses" / f"benchmark_poses_polaris_{timestamp}")
         
         # Ensure poses output directory exists
         Path(poses_output_dir).mkdir(parents=True, exist_ok=True)
@@ -1659,8 +1668,13 @@ def main(argv: List[str] | None = None):
 
         # Save results
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        results_dir = Path(OUTPUT_DIR)
-        results_dir.mkdir(exist_ok=True)
+        
+        # Use workspace directory if provided, otherwise fall back to OUTPUT_DIR
+        if workspace_dir:
+            results_dir = Path(workspace_dir) / "summaries"
+        else:
+            results_dir = Path(OUTPUT_DIR)
+        results_dir.mkdir(parents=True, exist_ok=True)
 
         # Save detailed results as JSON
         results_file = results_dir / f"templ_polaris_benchmark_results_{timestamp}.json"
