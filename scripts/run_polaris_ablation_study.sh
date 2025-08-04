@@ -25,11 +25,18 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BENCHMARK_SCRIPT="$SCRIPT_DIR/../templ_pipeline/benchmark/polaris/benchmark.py"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-RESULTS_DIR="benchmarks/polaris"
+BASE_DIR="benchmarks/polaris"
+RESULTS_DIR="$BASE_DIR/ablation_study_results_$TIMESTAMP"
+RAW_RESULTS_DIR="$RESULTS_DIR/raw_results"
+LOGS_DIR="$RESULTS_DIR/logs"
+POSES_DIR="$RESULTS_DIR/poses"
 SUMMARY_FILE="ablation_study_summary_$TIMESTAMP"
 
-# Create results directory
+# Create results directory structure
 mkdir -p "$RESULTS_DIR"
+mkdir -p "$RAW_RESULTS_DIR"
+mkdir -p "$LOGS_DIR"
+mkdir -p "$POSES_DIR"
 
 echo "=== Polaris Benchmark Ablation Study ==="
 echo "Results will be saved to: $RESULTS_DIR"
@@ -44,18 +51,27 @@ echo ""
 run_benchmark() {
     local name="$1"
     local args="$2"
-    local output_file="${name}_${TIMESTAMP}.json"
+    local output_file="$RAW_RESULTS_DIR/${name}_${TIMESTAMP}.json"
+    local log_file="$LOGS_DIR/${name}.log"
+    local poses_subdir="$POSES_DIR/${name}"
+    
+    # Create poses subdirectory for this experiment
+    mkdir -p "$poses_subdir"
     
     echo "Running: $name"
-    echo "Command: python $BENCHMARK_SCRIPT $args $WORKERS_ARG --output-dir $RESULTS_DIR"
+    echo "Command: python $BENCHMARK_SCRIPT $args $WORKERS_ARG --output-dir $RAW_RESULTS_DIR --poses-dir $poses_subdir"
     echo "Output: $output_file"
+    echo "Log: $log_file"
+    echo "Poses: $poses_subdir"
     
-    python "$BENCHMARK_SCRIPT" $args $WORKERS_ARG --output-dir "$RESULTS_DIR" > "${name}.log" 2>&1
+    python "$BENCHMARK_SCRIPT" $args $WORKERS_ARG --output-dir "$RAW_RESULTS_DIR" --poses-dir "$poses_subdir" > "$log_file" 2>&1
     
     # Find and copy the most recent results file
-    latest_result=$(find "$RESULTS_DIR" -name "templ_polaris_benchmark_results_*.json" -type f -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-)
+    latest_result=$(find "$RAW_RESULTS_DIR" -name "templ_polaris_benchmark_results_*.json" -type f -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-)
     if [ -n "$latest_result" ]; then
         cp "$latest_result" "$output_file"
+        # Remove the original benchmark output file to keep directory clean
+        rm "$latest_result"
         echo "Results saved to: $output_file"
     else
         echo "Warning: No results file found for $name"
@@ -177,13 +193,14 @@ summary_base = os.path.join(results_dir, "$SUMMARY_FILE")
 txt_file = f"{summary_base}.txt"
 csv_file = f"{summary_base}.csv"
 md_file = f"{summary_base}.md"
+json_file = f"{summary_base}.json"
 
 # Collect all results first
 results_data = []
 header = ["Settings", "MERS < 2 Å", "SARS < 2 Å", "MERS+SARS < 2 Å"]
 
 for exp_name, pattern in experiments.items():
-    files = glob.glob(pattern)
+    files = glob.glob(os.path.join("$RAW_RESULTS_DIR", pattern))
     if files:
         filepath = files[0]  # Take first match
         
@@ -254,7 +271,29 @@ with open(md_file, 'w') as f:
         f.write(f"| {row[0]} | {row[1]} | {row[2]} | {row[3]} |\\n")
     f.write(f"\\n**Total configurations tested:** {len(results_data)}\\n")
 
+# 5. JSON file output
+summary_json = {
+    "metadata": {
+        "generated": timestamp,
+        "location": os.getcwd(),
+        "total_configurations": len(results_data)
+    },
+    "results": []
+}
+
+for row in results_data:
+    summary_json["results"].append({
+        "settings": row[0],
+        "mers_success_rate": row[1],
+        "sars_success_rate": row[2], 
+        "combined_success_rate": row[3]
+    })
+
+with open(json_file, 'w') as f:
+    json.dump(summary_json, f, indent=2)
+
 print(f"\\nResults saved to:")
+print(f"   JSON format: {json_file}")
 print(f"   Text format: {txt_file}")
 print(f"   CSV format:  {csv_file}")
 print(f"   Markdown:    {md_file}")
@@ -262,10 +301,34 @@ EOF
 
 echo ""
 echo "Summary generation completed!"
-echo "Results directory: $RESULTS_DIR"
-echo "Summary files generated:"
-echo "   $RESULTS_DIR/${SUMMARY_FILE}.txt  (Text format)"
-echo "   $RESULTS_DIR/${SUMMARY_FILE}.csv  (Excel/CSV format)"  
-echo "   $RESULTS_DIR/${SUMMARY_FILE}.md   (Markdown format)"
+
+# Cleanup any remaining temporary files in raw_results
+echo "Cleaning up temporary files..."
+find "$RAW_RESULTS_DIR" -name "templ_polaris_benchmark_results_*.json" -delete 2>/dev/null || true
+
+# Clean up any stray experiment subdirectories that might be created
+find "$RAW_RESULTS_DIR" -type d -name "*_test_*" -exec rm -rf {} + 2>/dev/null || true
+find "$RAW_RESULTS_DIR" -type d -name "*_train_*" -exec rm -rf {} + 2>/dev/null || true
+
+# Clean up any stray benchmark_poses directories in root or other locations
+find . -maxdepth 1 -type d -name "benchmark_poses_polaris_*" -exec rm -rf {} + 2>/dev/null || true
+
+echo ""
+echo "=== RESULTS ORGANIZATION ==="
+echo "Main results directory: $RESULTS_DIR"
+echo "   ├── Raw results (JSON): $RAW_RESULTS_DIR/"
+echo "   ├── Log files: $LOGS_DIR/"
+echo "   ├── Poses (SDF files): $POSES_DIR/"
+echo "   └── Summary files:"
+echo "       ├── ${SUMMARY_FILE}.json  (Structured JSON format)"
+echo "       ├── ${SUMMARY_FILE}.txt   (Human-readable text)"
+echo "       ├── ${SUMMARY_FILE}.csv   (Excel/CSV format)"  
+echo "       └── ${SUMMARY_FILE}.md    (Markdown format)"
+echo ""
+echo "Total files generated:"
+echo "   $(find "$RAW_RESULTS_DIR" -name "*.json" | wc -l) raw result files"
+echo "   $(find "$LOGS_DIR" -name "*.log" | wc -l) log files"
+echo "   $(find "$POSES_DIR" -name "*.sdf" 2>/dev/null | wc -l) pose files"
+echo "   4 summary files (JSON, TXT, CSV, MD)"
 echo ""
 echo "Ablation study complete!"
