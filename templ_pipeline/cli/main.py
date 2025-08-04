@@ -1248,32 +1248,25 @@ def benchmark_command(args):
     if hardware_config.get('memory_optimized'):
         logger.info(f"Memory optimized: {hardware_config['total_memory_gb']:.1f}GB available")
 
-    # Create organized workspace directory for benchmark results
-    from datetime import datetime
-    from pathlib import Path
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    workspace_dir = Path("benchmarks") / "workspaces" / f"benchmark_workspace_{args.suite}_{timestamp}"
-    workspace_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Create subdirectories for organization
-    (workspace_dir / "raw_results").mkdir(exist_ok=True)
-    (workspace_dir / "summaries").mkdir(exist_ok=True)
-    logs_dir = workspace_dir / "logs"
-    logs_dir.mkdir(exist_ok=True)
-    
-    # Setup structured log files
-    main_log_file = logs_dir / "benchmark.log"
-    error_log_file = logs_dir / "errors.log"
-
     if args.suite == "polaris":
+        # Create organized workspace directory for polaris benchmark results
+        from datetime import datetime
+        from pathlib import Path
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        workspace_dir = Path("benchmarks") / "polaris" / f"benchmark_polaris_{timestamp}"
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create subdirectories for organization
+        (workspace_dir / "raw_results").mkdir(exist_ok=True)
+        (workspace_dir / "summaries").mkdir(exist_ok=True)
+        logs_dir = workspace_dir / "logs"
+        logs_dir.mkdir(exist_ok=True)
+        
         print("DEBUG: Polaris benchmark requested")
         try:
             from templ_pipeline.benchmark.polaris.benchmark import (
                 main as benchmark_main,
             )
-
-            # Setup file-only logging for clean progress bar display
-            from templ_pipeline.core.benchmark_logging import benchmark_logging_context
             
             # Determine log level based on verbosity
             if hasattr(args, "verbose") and args.verbose:
@@ -1281,7 +1274,42 @@ def benchmark_command(args):
             else:
                 log_level = "INFO"
                 
-            # Suppress warnings before starting benchmark
+            logger.info(f"Starting Polaris benchmark with {args.n_workers} workers")
+            logger.info(f"Workspace directory: {workspace_dir}/")
+
+            # Convert CLI args to benchmark args with organized workspace structure
+            benchmark_args = []
+            
+            if hasattr(args, "n_workers") and args.n_workers:
+                benchmark_args.extend(["--n-workers", str(args.n_workers)])
+            if hasattr(args, "n_conformers") and args.n_conformers:
+                benchmark_args.extend(["--n-conformers", str(args.n_conformers)])
+            if hasattr(args, "quick") and args.quick:
+                benchmark_args.append("--quick")
+            if hasattr(args, "verbose") and args.verbose:
+                benchmark_args.extend(["--log-level", "DEBUG"])
+            else:
+                benchmark_args.extend(["--log-level", "INFO"])
+            
+            # Pass workspace directory to polaris benchmark for organized structure
+            benchmark_args.extend(["--workspace-dir", str(workspace_dir)])
+            
+            # Add pose saving arguments (polaris will organize automatically in workspace)
+            if hasattr(args, "poses_dir") and args.poses_dir:
+                benchmark_args.extend(["--poses-dir", args.poses_dir])
+            
+            # Add ablation study flags
+            if hasattr(args, "unconstrained") and args.unconstrained:
+                benchmark_args.append("--unconstrained")
+            if hasattr(args, "align_metric") and args.align_metric:
+                benchmark_args.extend(["--align-metric", args.align_metric])
+            if hasattr(args, "enable_optimization") and args.enable_optimization:
+                benchmark_args.append("--enable-optimization")
+            if hasattr(args, "no_realign") and args.no_realign:
+                benchmark_args.append("--no-realign")
+
+            # Setup file-only logging for clean progress bar display
+            from templ_pipeline.core.benchmark_logging import benchmark_logging_context
             
             # Use benchmark logging context for clean terminal output
             with benchmark_logging_context(
@@ -1290,70 +1318,41 @@ def benchmark_command(args):
                 log_level=log_level,
                 suppress_console=False  # Allow progress bars to show
             ) as log_info:
-                logger.info(f"Starting Polaris benchmark with {args.n_workers} workers")
-                logger.info(f"Workspace directory: {workspace_dir}/")
                 logger.info(f"Logs will be written to: {logs_dir}")
-
-                # Setup quiet mode for terminal output only
-                # For clean progress bars, we want quiet=False so progress bars show up
-                # but all logging goes to files due to the logging context
-                quiet_mode = False
-
-                # Convert CLI args to benchmark args with workspace integration
-                benchmark_args = []
                 
-                # Set output directory to workspace raw_results
-                polaris_output_dir = workspace_dir / "raw_results" / "polaris"
-                polaris_output_dir.mkdir(parents=True, exist_ok=True)
-                benchmark_args.extend(["--output-dir", str(polaris_output_dir)])
-                
-                # Add workspace directory for logging integration
-                benchmark_args.extend(["--workspace-dir", str(workspace_dir)])
-                
-                if hasattr(args, "n_workers") and args.n_workers:
-                    benchmark_args.extend(["--n-workers", str(args.n_workers)])
-                if hasattr(args, "n_conformers") and args.n_conformers:
-                    benchmark_args.extend(["--n-conformers", str(args.n_conformers)])
-                if hasattr(args, "quick") and args.quick:
-                    benchmark_args.append("--quick")
-                if hasattr(args, "verbose") and args.verbose:
-                    benchmark_args.extend(["--log-level", "DEBUG"])
-                else:
-                    benchmark_args.extend(["--log-level", "INFO"])
-                
-                # Add pose saving arguments
-                if hasattr(args, "save_poses") and args.save_poses:
-                    benchmark_args.append("--save-poses")
-                    if hasattr(args, "poses_dir") and args.poses_dir:
-                        benchmark_args.extend(["--poses-dir", args.poses_dir])
-                    else:
-                        # Use workspace subdirectory for poses
-                        default_poses_dir = workspace_dir / "predicted_poses"
-                        default_poses_dir.mkdir(exist_ok=True)
-                        benchmark_args.extend(["--poses-dir", str(default_poses_dir)])
-                
-                # Add ablation study flags
-                if hasattr(args, "unconstrained") and args.unconstrained:
-                    benchmark_args.append("--unconstrained")
-                if hasattr(args, "align_metric") and args.align_metric:
-                    benchmark_args.extend(["--align-metric", args.align_metric])
-                if hasattr(args, "enable_optimization") and args.enable_optimization:
-                    benchmark_args.append("--enable-optimization")
-                if hasattr(args, "no_realign") and args.no_realign:
-                    benchmark_args.append("--no-realign")
-
                 result = benchmark_main(benchmark_args)
 
                 # Generate unified summary for Polaris results
-                _generate_unified_summary(workspace_dir, "polaris")
-
-                logger.info(f"Polaris benchmark completed. Workspace: {workspace_dir}")
-                return result
+                if result == 0:
+                    _generate_unified_summary(workspace_dir, "polaris")
+                    logger.info(f"Polaris benchmark completed successfully!")
+                    logger.info(f"Workspace directory: {workspace_dir}")
+                    return 0
+                else:
+                    logger.error(f"Polaris benchmark failed with exit code: {result}")
+                    return result
         except ImportError as e:
             logger.error(f"Polaris benchmark module not available: {e}")
             return 1
 
     elif args.suite == "time-split":
+        # Create organized workspace directory for time-split benchmark results
+        from datetime import datetime
+        from pathlib import Path
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        workspace_dir = Path("benchmarks") / "pdbbind" / f"benchmark_timesplit_{timestamp}"
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create subdirectories for organization
+        (workspace_dir / "raw_results").mkdir(exist_ok=True)
+        (workspace_dir / "summaries").mkdir(exist_ok=True)
+        logs_dir = workspace_dir / "logs"
+        logs_dir.mkdir(exist_ok=True)
+        
+        # Setup structured log files
+        main_log_file = logs_dir / "benchmark.log"
+        error_log_file = logs_dir / "errors.log"
+        
         try:
             from templ_pipeline.benchmark.timesplit import run_timesplit_benchmark
 
@@ -1439,7 +1438,7 @@ def benchmark_command(args):
                     max_pdbs=getattr(args, "max_pdbs", None),
                     data_dir=data_dir,
                     results_dir=str(timesplit_results_dir),
-                    poses_output_dir=poses_dir,
+                    poses_output_dir=poses_dir if poses_dir is not None else "",
                     timeout=getattr(args, "pipeline_timeout", 300),
                     quiet=False,  # Let progress bars show
                     unconstrained=getattr(args, "unconstrained", False),
