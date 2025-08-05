@@ -125,6 +125,12 @@ markers = [
     "integration: marks tests as integration tests",
     "ui: marks tests as UI/Streamlit tests",
     "performance: marks tests as performance-related",
+    "flaky: marks tests as flaky (may need retries)",
+    "critical: marks tests as critical path tests",
+    "isolation: marks tests requiring isolation verification",
+    "coverage_critical: marks tests as critical for coverage analysis",
+    "performance_critical: marks tests as critical performance tests",
+    "asyncio: marks tests requiring asyncio support",
 ]
 
 [tool.deptry]
