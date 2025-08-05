@@ -328,7 +328,7 @@ class TEMPLUXConfig:
         if command == "run":
             # For full pipeline, use conservative defaults for beginners
             if self.get_effective_experience_level() == ExperienceLevel.BEGINNER:
-                defaults["num-conformers"] = 100
+                defaults["num-conformers"] = 200
                 defaults["num-templates"] = 50
             else:
                 # Use learned preferences from usage patterns
