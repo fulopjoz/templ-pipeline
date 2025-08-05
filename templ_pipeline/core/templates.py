@@ -41,7 +41,6 @@ BLOSUM_GAP_PENALTY = -10
 CA_RMSD_THRESHOLD = 10.0
 CA_RMSD_FALLBACK_THRESHOLDS = [10.0, 15.0, 20.0]
 
-#  Template Loading Functions 
 
 def load_reference_protein(target_pdb: str) -> Optional[AtomArray]:
     """Load reference protein structure from PDB file.
@@ -101,8 +100,6 @@ def load_target_data(target_pdb: str, target_smiles: Optional[str] = None) -> Tu
         log.error(f"Failed to load target data: {e}")
         return None, None
 
-
-#  Template Transformation Functions 
 
 def transform_ligand(mob_pdb: str, lig: Chem.Mol, pid: str, ref_struct: AtomArray, 
                     ref_chains: Optional[List[str]] = None,
@@ -268,8 +265,6 @@ def transform_ligand(mob_pdb: str, lig: Chem.Mol, pid: str, ref_struct: AtomArra
         return None
 
 
-#  Template Filtering Functions 
-
 def filter_templates_by_ca_rmsd(all_templates: List[Chem.Mol], ca_rmsd_threshold: float) -> List[Chem.Mol]:
     """Filter templates by CA RMSD threshold.
     
@@ -325,11 +320,11 @@ def get_templates_with_progressive_fallback(
                 )
             else:
                 log.info(
-                    f"Found {len(filtered_templates)} templates with CA RMSD d {threshold}Å"
+                    f"Found {len(filtered_templates)} templates with CA RMSD ≤ {threshold}Å"
                 )
             return filtered_templates, threshold, False
     
-    #  fallback: find template with smallest CA RMSD and use central atom positioning
+    # Fallback: find template with smallest CA RMSD and use central atom positioning
     best_template = None
     best_rmsd = float('inf')
     
@@ -358,264 +353,6 @@ def get_templates_with_progressive_fallback(
     log.error("No templates available for central atom fallback")
     return [], float('inf'), False
 
-
-#  Template Validation Functions 
-
-def validate_template_molecule(mol: Chem.Mol, mol_name: str = "unknown") -> Tuple[bool, str]:
-    """Validate template molecule for processing.
-    
-    Args:
-        mol: Template molecule to validate
-        mol_name: Name for logging purposes
-        
-    Returns:
-        Tuple of (is_valid, error_message)
-    """
-    if mol is None:
-        return False, f"{mol_name}: Template molecule is None"
-        
-    try:
-        # Check if atoms are present
-        if mol.GetNumAtoms() == 0:
-            return False, f"{mol_name}: Template has no atoms"
-            
-        # Check for conformers
-        if mol.GetNumConformers() == 0:
-            return False, f"{mol_name}: Template has no conformers"
-            
-        # Check for required properties
-        if not mol.HasProp("template_pid"):
-            return False, f"{mol_name}: Template missing PDB ID property"
-            
-        # Try to sanitize
-        try:
-            test_mol = Chem.Mol(mol)
-            Chem.SanitizeMol(test_mol)
-        except Exception as e:
-            return False, f"{mol_name}: Template fails sanitization: {e}"
-            
-        return True, f"{mol_name}: Template validation passed"
-        
-    except Exception as e:
-        return False, f"{mol_name}: Template validation error: {e}"
-
-
-def validate_template_compatibility(query_mol: Chem.Mol, template_mol: Chem.Mol) -> Tuple[bool, str]:
-    """Validate compatibility between query and template molecules.
-    
-    Args:
-        query_mol: Query molecule
-        template_mol: Template molecule
-        
-    Returns:
-        Tuple of (is_compatible, compatibility_message)
-    """
-    try:
-        # Check both molecules are valid
-        if query_mol is None or template_mol is None:
-            return False, "One or both molecules are None"
-            
-        # Check both have atoms
-        if query_mol.GetNumAtoms() == 0 or template_mol.GetNumAtoms() == 0:
-            return False, "One or both molecules have no atoms"
-            
-        # Check both have conformers
-        if query_mol.GetNumConformers() == 0 or template_mol.GetNumConformers() == 0:
-            return False, "One or both molecules have no conformers"
-            
-        # Check for reasonable size compatibility
-        query_atoms = query_mol.GetNumAtoms()
-        template_atoms = template_mol.GetNumAtoms()
-        
-        # Allow significant size differences but flag extreme cases
-        size_ratio = max(query_atoms, template_atoms) / min(query_atoms, template_atoms)
-        if size_ratio > 10.0:
-            return False, f"Extreme size difference: query={query_atoms}, template={template_atoms} atoms"
-            
-        return True, "Template compatibility check passed"
-        
-    except Exception as e:
-        return False, f"Template compatibility check error: {e}"
-
-
-#  Template Processing Utilities 
-
-def extract_template_metadata(mol: Chem.Mol) -> Dict[str, Any]:
-    """Extract metadata from template molecule properties.
-    
-    Args:
-        mol: Template molecule with properties
-        
-    Returns:
-        Dictionary of template metadata
-    """
-    metadata = {}
-    
-    if mol is None:
-        return metadata
-        
-    try:
-        # Extract standard properties
-        prop_names = [
-            "template_pid", "ca_rmsd", "similarity_score", 
-            "ref_chains", "mob_chains", "template_source",
-            "alignment_method", "anchor_count"
-        ]
-        
-        for prop_name in prop_names:
-            if mol.HasProp(prop_name):
-                metadata[prop_name] = mol.GetProp(prop_name)
-                
-        # Extract numeric properties with validation
-        numeric_props = ["ca_rmsd", "similarity_score", "anchor_count"]
-        for prop_name in numeric_props:
-            if prop_name in metadata:
-                try:
-                    metadata[prop_name] = float(metadata[prop_name])
-                except (ValueError, TypeError):
-                    log.warning(f"Invalid numeric value for {prop_name}: {metadata[prop_name]}")
-                    metadata[prop_name] = None
-                    
-        # Extract list properties
-        list_props = ["ref_chains", "mob_chains"]
-        for prop_name in list_props:
-            if prop_name in metadata and metadata[prop_name]:
-                try:
-                    metadata[prop_name] = metadata[prop_name].split(",")
-                except AttributeError:
-                    metadata[prop_name] = [metadata[prop_name]]
-                    
-        return metadata
-        
-    except Exception as e:
-        log.error(f"Failed to extract template metadata: {e}")
-        return {}
-
-
-def enhance_template_with_metadata(mol: Chem.Mol, metadata: Dict[str, Any]) -> Chem.Mol:
-    """Enhance template molecule with additional metadata.
-    
-    Args:
-        mol: Template molecule to enhance
-        metadata: Additional metadata to add
-        
-    Returns:
-        Enhanced template molecule
-    """
-    if mol is None:
-        return None
-        
-    try:
-        enhanced_mol = Chem.Mol(mol)
-        
-        for key, value in metadata.items():
-            if value is not None:
-                if isinstance(value, list):
-                    enhanced_mol.SetProp(key, ",".join(map(str, value)))
-                else:
-                    enhanced_mol.SetProp(key, str(value))
-                    
-        return enhanced_mol
-        
-    except Exception as e:
-        log.error(f"Failed to enhance template with metadata: {e}")
-        return mol
-
-
-#  Template Selection Utilities 
-
-def rank_templates_by_quality(templates: List[Chem.Mol]) -> List[Tuple[Chem.Mol, float]]:
-    """Rank templates by quality score (combination of CA RMSD and similarity).
-    
-    Args:
-        templates: List of template molecules
-        
-    Returns:
-        List of (template, quality_score) tuples sorted by quality (higher is better)
-    """
-    template_scores = []
-    
-    for template in templates:
-        try:
-            # Extract CA RMSD (lower is better)
-            ca_rmsd = float('inf')
-            if template.HasProp("ca_rmsd"):
-                try:
-                    ca_rmsd = float(template.GetProp("ca_rmsd"))
-                except (ValueError, TypeError):
-                    pass
-                    
-            # Extract similarity score (higher is better)
-            similarity = 0.0
-            if template.HasProp("similarity_score"):
-                try:
-                    similarity = float(template.GetProp("similarity_score"))
-                except (ValueError, TypeError):
-                    pass
-                    
-            # Calculate quality score (normalize and combine)
-            # Lower CA RMSD is better, so invert it
-            rmsd_score = 1.0 / (1.0 + ca_rmsd) if ca_rmsd != float('inf') else 0.0
-            
-            # Combine scores (weighted average)
-            quality_score = 0.6 * similarity + 0.4 * rmsd_score
-            
-            template_scores.append((template, quality_score))
-            
-        except Exception as e:
-            log.warning(f"Failed to calculate quality score for template: {e}")
-            template_scores.append((template, 0.0))
-            
-    # Sort by quality score (descending)
-    template_scores.sort(key=lambda x: x[1], reverse=True)
-    
-    return template_scores
-
-
-def select_diverse_templates(templates: List[Chem.Mol], max_templates: int = 50) -> List[Chem.Mol]:
-    """Select diverse templates to avoid redundancy.
-    
-    Args:
-        templates: List of template molecules
-        max_templates: Maximum number of templates to select
-        
-    Returns:
-        List of selected diverse templates
-    """
-    if len(templates) <= max_templates:
-        return templates
-        
-    # Rank templates by quality first
-    ranked_templates = rank_templates_by_quality(templates)
-    
-    # Select top templates ensuring diversity
-    selected = []
-    used_pids = set()
-    
-    for template, quality_score in ranked_templates:
-        if len(selected) >= max_templates:
-            break
-            
-        # Check for PDB ID diversity
-        pid = template.GetProp("template_pid") if template.HasProp("template_pid") else "unknown"
-        
-        if pid not in used_pids:
-            selected.append(template)
-            used_pids.add(pid)
-            
-    # If we still need more templates, add remaining ones
-    if len(selected) < max_templates:
-        for template, _ in ranked_templates:
-            if len(selected) >= max_templates:
-                break
-            if template not in selected:
-                selected.append(template)
-                
-    log.info(f"Selected {len(selected)} diverse templates from {len(templates)} total")
-    return selected
-
-
-#  Path Utilities 
 
 def pdb_path(pid: str, data_dir: str = "data") -> Optional[str]:
     """Find protein PDB file in either refined-set or other-PL directories.
@@ -678,8 +415,6 @@ def ligand_path(pid: str, data_dir: str = "data") -> Optional[str]:
     log.warning(f"Ligand file for {pid} not found in any standard location")
     return None
 
-
-#  Advanced Alignment Helper Functions 
 
 def _rmsd_from_alignment(fixed_ca: AtomArray, mobile_ca: AtomArray, alignment, pid: str) -> Tuple[AtomArray, float, int]:
     """
@@ -877,3 +612,73 @@ def _validate_and_select_chains(ref_prot: AtomArray, mob_prot: AtomArray,
     # No valid chains found
     log.error(f"No valid chains found for {pid}")
     return [], []
+
+
+def load_template_molecules_standardized(template_pdb_ids: List[str], 
+                                       max_templates: int = 100,
+                                       exclude_target_smiles: Optional[str] = None) -> Tuple[List[Chem.Mol], Dict[str, Any]]:
+    """Load template molecules from SDF file using standardized approach.
+    
+    Args:
+        template_pdb_ids: List of PDB IDs to load as templates
+        max_templates: Maximum number of templates to load
+        exclude_target_smiles: SMILES string to exclude from templates (optional)
+        
+    Returns:
+        Tuple of (templates, loading_stats)
+    """
+    templates = []
+    loading_stats = {
+        "requested": len(template_pdb_ids),
+        "loaded": 0,
+        "missing_pdbs": [],
+        "excluded_by_smiles": 0
+    }
+    
+    try:
+        # Import here to avoid circular imports
+        from .data import load_molecules_with_shared_cache
+        
+        # Load all available molecules
+        all_molecules = load_molecules_with_shared_cache()
+        
+        if not all_molecules:
+            loading_stats["error"] = "No molecules loaded from database"
+            return [], loading_stats
+        
+        # Create lookup dictionary for efficient searching
+        mol_dict = {}
+        for mol in all_molecules:
+            if mol.HasProp("template_pid"):
+                pid = mol.GetProp("template_pid").upper()
+                mol_dict[pid] = mol
+        
+        # Load requested templates
+        for pid in template_pdb_ids[:max_templates]:
+            pid_upper = pid.upper()
+            
+            if pid_upper in mol_dict:
+                mol = mol_dict[pid_upper]
+                
+                # Check if molecule should be excluded by SMILES
+                if exclude_target_smiles:
+                    try:
+                        mol_smiles = Chem.MolToSmiles(mol)
+                        if mol_smiles == exclude_target_smiles:
+                            loading_stats["excluded_by_smiles"] += 1
+                            continue
+                    except Exception:
+                        pass  # Continue if SMILES comparison fails
+                
+                templates.append(mol)
+                loading_stats["loaded"] += 1
+            else:
+                loading_stats["missing_pdbs"].append(pid)
+        
+        log.info(f"Loaded {loading_stats['loaded']} templates from {len(template_pdb_ids)} requested")
+        
+    except Exception as e:
+        loading_stats["error"] = f"Failed to load templates: {e}"
+        log.error(f"Template loading error: {e}")
+    
+    return templates, loading_stats

@@ -511,6 +511,17 @@ class TEMPLPipeline:
             
             log.info(f"Found {len(template_pdb_ids)} templates with embedding similarities ranging from {min(embedding_similarities.values()):.3f} to {max(embedding_similarities.values()):.3f}")
             
+            # Store similarity search information for JSON output
+            self.similarity_search_info = {
+                "method": "cosine_similarity_knn",
+                "knn_k_value": k,
+                "raw_similar_proteins_found": len(template_pdb_ids),
+                "similarity_threshold_used": None,  # Could be enhanced if threshold parameter is added
+                "embedding_dimension": query_embedding.shape[0] if query_embedding is not None else None,
+                "exclude_pdb_ids_count": len(exclude_pdb_ids) if exclude_pdb_ids else 0,
+                "allowed_pdb_ids_count": len(allowed_pdb_ids) if allowed_pdb_ids else None
+            }
+            
             return template_pdb_ids, embedding_similarities
             
         except Exception as e:
@@ -521,6 +532,9 @@ class TEMPLPipeline:
         """Process and transform template molecules."""
         processed_templates = []
         failed_templates = []
+        
+        # Initialize alignment method tracking
+        alignment_methods_used = {"homologs": 0, "sequence": 0, "3di": 0, "centroid": 0}
         
         for i, pdb_id in enumerate(template_pdb_ids):
             try:
@@ -574,6 +588,11 @@ class TEMPLPipeline:
                     
                     if transformed_mol is not None:
                         processed_templates.append(transformed_mol)
+                        # Track alignment method used
+                        if transformed_mol.HasProp("alignment_method"):
+                            alignment_method = transformed_mol.GetProp("alignment_method")
+                            if alignment_method in alignment_methods_used:
+                                alignment_methods_used[alignment_method] += 1
                         log.debug(f"Processed template {i+1}/{len(template_pdb_ids)}: {pdb_id}")
                     else:
                         log.debug(f"Failed to transform template {pdb_id}")
@@ -590,6 +609,14 @@ class TEMPLPipeline:
         log.info(f"Successfully processed {len(processed_templates)} templates from {len(template_pdb_ids)} candidates")
         if failed_templates:
             log.info(f"Failed to process {len(failed_templates)} templates: {failed_templates[:5]}{'...' if len(failed_templates) > 5 else ''}")
+        
+        # Store protein alignment information for JSON output
+        self.protein_alignment_info = {
+            "uses_superimposition": len(processed_templates) > 0,
+            "total_templates_processed": len(processed_templates),
+            "superimposed_poses_used": len(processed_templates),
+            "alignment_methods_breakdown": alignment_methods_used.copy()
+        }
         
         return processed_templates
     
@@ -640,7 +667,6 @@ class TEMPLPipeline:
                     self.target_mol,
                     template_mol,
                     num_conformers,
-                    n_workers,
                     enable_optimization
                 )
             else:
@@ -789,7 +815,10 @@ class TEMPLPipeline:
                 "processing_stats": getattr(self, "template_processing_stats", {}),
                 "filtering_stats": getattr(self, "template_filtering_stats", {}),
                 "total_available_ligands": len(getattr(self, "templates", [])),
-                "final_usable_templates": getattr(self, "final_template_count", 0)
+                "final_usable_templates": getattr(self, "final_template_count", 0),
+                "similarity_search": getattr(self, "similarity_search_info", {}),
+                "protein_alignment": getattr(self, "protein_alignment_info", {}),
+                "mcs_analysis_input": getattr(self, "mcs_analysis_input", {})
             },
             "poses": getattr(self, "pipeline_poses", {}),
             "template_info": getattr(self, "pipeline_template_info", {}),
@@ -911,6 +940,9 @@ class TEMPLPipeline:
             # Prepare list for all transformed ligands, including native if applicable
             all_transformed_ligands = []
             
+            # Initialize native pose tracking
+            native_poses_used = 0
+            
             # Handle native ligand use when target is legitimately found as a template
             # Note: In timesplit scenarios, target won't be in similar_template_ids due to constraints
             target_is_template = False
@@ -931,6 +963,7 @@ class TEMPLPipeline:
                             native_ligand.SetProp("alignment_method", "native") # Native template uses no alignment
                             native_ligand.SetProp("anchor_count", "N/A") # Native template has no alignment anchors
                             all_transformed_ligands.append(native_ligand)
+                            native_poses_used += 1  # Track native pose usage
                             # Remove target from list to be processed by transform_ligand
                             similar_template_ids = [pid for pid in similar_template_ids if pid.upper() != query_pdb_id.upper()]
                         else:
@@ -970,11 +1003,37 @@ class TEMPLPipeline:
             
             # Store final template count after all filtering (including native template if added)
             self.final_template_count = len(all_transformed_ligands)
+            
+            # Update protein alignment info to include native pose tracking
+            if hasattr(self, 'protein_alignment_info'):
+                self.protein_alignment_info["native_poses_used"] = native_poses_used
+                self.protein_alignment_info["alignment_methods_breakdown"]["native"] = native_poses_used
+            else:
+                # In case no templates were processed via transform_ligand, initialize the info
+                self.protein_alignment_info = {
+                    "uses_superimposition": False,
+                    "total_templates_processed": 0,
+                    "superimposed_poses_used": 0,
+                    "native_poses_used": native_poses_used,
+                    "alignment_methods_breakdown": {"homologs": 0, "sequence": 0, "3di": 0, "centroid": 0, "native": native_poses_used}
+                }
 
             # Ensure target molecule is properly prepared
             if self.target_mol is None:
                 log.error("Target molecule is None, cannot proceed with MCS finding")
                 return False
+
+            # Store MCS analysis input information for JSON output
+            pre_rmsd_filtering_count = len(transformed_ligands_from_templates) if 'transformed_ligands_from_templates' in locals() else 0
+            post_rmsd_filtering_count = len(filtered_templates) if 'filtered_templates' in locals() else 0
+            
+            self.mcs_analysis_input = {
+                "total_templates_for_mcs": len(all_transformed_ligands),
+                "native_templates": native_poses_used,
+                "superimposed_templates": len(all_transformed_ligands) - native_poses_used,
+                "pre_rmsd_filtering": pre_rmsd_filtering_count,
+                "post_rmsd_filtering": post_rmsd_filtering_count
+            }
 
             best_template_idx, mcs_smarts, mcs_details = find_mcs(self.target_mol, all_transformed_ligands, return_details=True)
             best_template = all_transformed_ligands[best_template_idx]
@@ -1091,6 +1150,11 @@ class TEMPLPipeline:
                 "target_pdb": query_pdb_id,
                 "template_info": self.pipeline_template_info,
                 "mcs_details": mcs_details_organized,
+                "pipeline_analysis": {
+                    "similarity_search": getattr(self, "similarity_search_info", {}),
+                    "protein_alignment": getattr(self, "protein_alignment_info", {}),
+                    "mcs_analysis_input": getattr(self, "mcs_analysis_input", {})
+                },
                 "num_conformers": target_with_conformers.GetNumConformers(),
                 "top_poses_file": str(top_poses_file),
                 "all_poses_file": str(all_poses_file),

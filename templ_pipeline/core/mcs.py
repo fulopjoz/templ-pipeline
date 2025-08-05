@@ -4,11 +4,8 @@
 import logging
 import multiprocessing as mp
 import time
-import traceback
-from typing import Dict, List, Optional, Tuple, Union, Any
-from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple, Union
 
-import numpy as np
 from rdkit import Chem
 from rdkit.Chem import (
     AllChem,
@@ -19,62 +16,11 @@ from rdkit.Chem import (
 )
 from rdkit.Geometry import Point3D
 
-# Error framework classes (fallback implementation)
-class ErrorCategory:
-    SYSTEM = "system"
-    MCS_FINDING = "mcs_finding"
-    CONFORMER_GENERATION = "conformer_generation"
-    MOLECULAR_ALIGNMENT = "molecular_alignment"
-    COORDINATE_TRANSFORMATION = "coordinate_transformation"
-    FORCE_FIELD = "force_field"
-    TEMPLATE_PROCESSING = "template_processing"
-    VALIDATION = "validation"
-    LIGAND_EMBEDDING = "ligand_embedding"
-
-class ErrorSeverity:
-    ERROR = "error"
-    WARNING = "warning"
-    INFO = "info"
-
-class UnifiedErrorTracker:
-    def __init__(self, storage_mode="dict"):
-        self._errors = {}
-        self.storage_mode = storage_mode
-    
-    def track_error(self, pdb_id, category, message, severity="error", component="unknown", **kwargs):
-        self._errors[pdb_id] = {
-            "category": category,
-            "message": message,
-            "severity": severity,
-            "component": component,
-            "timestamp": time.time()
-        }
-    
-    def has_errors(self, pdb_id=None):
-        if pdb_id:
-            return pdb_id in self._errors
-        return len(self._errors) > 0
-    
-    def get_errors(self, pdb_id=None):
-        if pdb_id:
-            return self._errors.get(pdb_id)
-        return self._errors
-    
-    def clear_errors(self, pdb_id=None):
-        if pdb_id:
-            self._errors.pop(pdb_id, None)
-        else:
-            self._errors.clear()
-
 log = logging.getLogger(__name__)
 
-# Constants from original code
-N_CONFS = 50
-MIN_PROTEIN_LENGTH = 20
-DEFAULT_MMFF_ITERATIONS = 500
-CA_RMSD_THRESHOLD = 2.0
+N_CONFS = 200
 
-#  Molecular Geometry Validation 
+# Molecular Geometry Validation
 
 def validate_molecular_connectivity(mol: Chem.Mol, step_name: str = "unknown") -> bool:
     """Validate that molecular connectivity is preserved after processing.
@@ -222,8 +168,6 @@ def relax_close_constraints(coord_map: dict, min_distance: float = 1.0) -> dict:
     if not coord_map or len(coord_map) < 2:
         return coord_map
     
-    from rdkit.Geometry import Point3D
-    
     # Convert to list for easier manipulation
     atom_indices = list(coord_map.keys())
     coordinates = list(coord_map.values())
@@ -305,7 +249,7 @@ def simple_minimize_molecule(mol: Chem.Mol) -> bool:
         return False
 
 
-#  Core MCS Functions 
+# Core MCS Functions
 
 def get_central_atom(mol: Chem.Mol) -> int:
     """Get the idx of the central atom by picking the atom with the smallest
@@ -445,7 +389,7 @@ def find_mcs(tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False) 
     return best_template_idx, "*"
 
 
-#  Conformer Generation Functions 
+# Conformer Generation Functions
 
 def validate_mmff_parameters(mol: Chem.Mol) -> bool:
     """Check if MMFF parameters are available for all atoms in the molecule.
@@ -513,8 +457,6 @@ def needs_uff_fallback(mol: Chem.Mol) -> bool:
     return False
 
 
-
-
 def embed_organometallic_with_constraints(mol: Chem.Mol, n_conformers: int, coordMap: dict) -> List[int]:
     """Organometallic-compatible embedding with constraints."""
     try:
@@ -557,7 +499,7 @@ def embed_organometallic_with_constraints(mol: Chem.Mol, n_conformers: int, coor
     try:
         conf_ids = rdDistGeom.EmbedMultipleConfs(
             mol, 
-            min(n_conformers, 50), 
+            min(n_conformers, 200), 
             randomSeed=42,
             numThreads=1,
             useRandomCoords=True,
@@ -656,7 +598,7 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: dict = N
         log.debug("UFF fallback failed, trying relaxed parameters")
         cids = rdDistGeom.EmbedMultipleConfs(
             mol, 
-            numConfs=min(adaptive_conformers, 50),  # Further reduce conformer count
+            numConfs=min(adaptive_conformers, 200),  # Further reduce conformer count
             randomSeed=42,
             numThreads=safe_threads,
             useRandomCoords=True,
@@ -990,14 +932,7 @@ def central_atom_embed(tgt: Chem.Mol, ref: Chem.Mol, n_conformers: int, n_worker
         return None
 
 
-#  MMFF Minimization Functions 
-
-
-
-
-
-
-#  Utility Functions 
+# Utility Functions
 
 def safe_name(mol_or_name: Union[Chem.Mol, str], fallback: str = "unnamed") -> str:
     """Convert a molecule name or string to a filesystem-safe version.
