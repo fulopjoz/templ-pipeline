@@ -351,9 +351,8 @@ def find_best_ca_rmsd_template(refs: List[Chem.Mol]) -> int:
 def find_mcs(tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False) -> Union[Tuple[int, str], Tuple[int, str, Dict]]:
     """RascalMCES-only MCS finding with progressive fallback strategy.
     
-    This function now uses RascalMCES exclusively for all molecule sizes to avoid
-    timeout issues in benchmarking. The rdFMCS path has been disabled but kept
-    for potential future implementation.
+    This function uses RascalMCES exclusively for all molecule sizes to ensure
+    stable performance and memory efficiency in benchmarking environments.
     
     Args:
         tgt: Target molecule
@@ -364,17 +363,6 @@ def find_mcs(tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False) 
         If return_details=False: (best_template_index, smarts)
         If return_details=True: (best_template_index, smarts, mcs_details_dict)
     """
-    # TODO: Future implementation - rdFMCS for very large molecules (>200 atoms)
-    # Currently disabled due to timeout issues in benchmarking.
-    # The rdFMCS path can be re-enabled by uncommenting the following lines:
-    # 
-    # from rdkit.Chem import rdFMCS
-    # target_atoms = tgt.GetNumAtoms()
-    # max_template_atoms = max(mol.GetNumAtoms() for mol in refs)
-    # if target_atoms > 200 or max_template_atoms > 200:
-    #     log.info(f"Very large molecules detected (target: {target_atoms}, max template: {max_template_atoms}), using rdFMCS with timeout")
-    #     return _find_mcs_with_fmcs(tgt, refs, return_details)
-    
     mcs_details = {}  # Only populated if return_details=True
     min_acceptable_size = 5
     
@@ -383,11 +371,10 @@ def find_mcs(tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False) 
     max_template_atoms = max(mol.GetNumAtoms() for mol in refs)
     log.debug(f"Using RascalMCES for molecules (target: {target_atoms}, max template: {max_template_atoms})")
     
-    # Use continuous threshold reduction like true_mcs.py
+    # Use continuous threshold reduction for optimal MCS finding
     opts = rdRascalMCES.RascalOptions()
     opts.singleLargestFrag = True
     opts.similarityThreshold = 0.9  # Start at high threshold
-    # opts.ignoreAtomAromaticity = False # added to try to fix OOM errors
 
     # Continuous threshold reduction with 0.1 steps
     while opts.similarityThreshold >= 0.0:
@@ -456,107 +443,6 @@ def find_mcs(tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False) 
         }
         return best_template_idx, "*", central_details
     return best_template_idx, "*"
-
-
-# def _find_mcs_with_fmcs(tgt: Chem.Mol, refs: List[Chem.Mol], return_details: bool = False) -> Union[Tuple[int, str], Tuple[int, str, Dict]]:
-#     """Memory-efficient MCS finding using rdFMCS with timeout.
-    
-#     Args:
-#         tgt: Target molecule
-#         refs: Reference molecules
-#         return_details: If True, return detailed MCS information
-        
-#     Returns:
-#         If return_details=False: (best_template_index, smarts)
-#         If return_details=True: (best_template_index, smarts, mcs_details_dict)
-#     """
-#     from rdkit.Chem import rdFMCS
-    
-#     min_acceptable_size = 5
-#     threshold = 0.9
-#     timeout = 10  # seconds
-    
-#     while threshold > 0.0:
-#         hits = []
-#         for i, r in enumerate(refs):
-#             try:
-#                 # Use rdFMCS with timeout for memory safety
-#                 result = rdFMCS.FindMCS(
-#                     [tgt, r],
-#                     threshold=threshold,
-#                     timeout=timeout,
-#                     atomCompare=rdFMCS.AtomCompare.CompareElements,
-#                     bondCompare=rdFMCS.BondCompare.CompareOrder,
-#                     completeRingsOnly=True
-#                 )
-                
-#                 if result.smartsString and not result.canceled:
-#                     atom_count = result.numAtoms
-#                     bond_count = result.numBonds
-#                     smarts = result.smartsString
-                    
-#                     # Store details if requested
-#                     if return_details:
-#                         # Get atom matches for detailed info
-#                         pattern = Chem.MolFromSmarts(smarts)
-#                         if pattern:
-#                             tgt_matches = tgt.GetSubstructMatch(pattern)
-#                             ref_matches = r.GetSubstructMatch(pattern)
-                            
-#                             mcs_info = {
-#                                 "atom_count": atom_count,
-#                                 "bond_count": bond_count,
-#                                 "similarity_score": threshold,
-#                                 "query_atoms": list(tgt_matches),
-#                                 "template_atoms": list(ref_matches),
-#                                 "smarts": smarts
-#                             }
-#                             hits.append((atom_count, i, smarts, mcs_info))
-#                         else:
-#                             hits.append((atom_count, i, smarts))
-#                     else:
-#                         hits.append((atom_count, i, smarts))
-                        
-#             except (MemoryError, RuntimeError) as e:
-#                 log.warning(f"rdFMCS failed for template {i}: {e}")
-#                 continue
-        
-#         if hits:
-#             # Get best match by size
-#             if return_details:
-#                 best_size, idx, smarts, details = max(hits)
-#             else:
-#                 best_size, idx, smarts = max(hits)
-            
-#             # Accept matches based on size and threshold
-#             if best_size >= min_acceptable_size or threshold <= 0.3:
-#                 log.info(f"rdFMCS found: size={best_size}, threshold={threshold:.2f}")
-#                 if return_details:
-#                     return idx, smarts, details
-#                 return idx, smarts
-#             else:
-#                 log.warning(f"Rejecting small rdFMCS (size={best_size}) at threshold {threshold:.2f}")
-        
-#         # Reduce threshold and continue
-#         log.warning(f"No rdFMCS at threshold {threshold:.2f}, reducing…")
-#         threshold -= 0.1
-    
-#     # Final fallback to central atom
-#     log.warning("rdFMCS search failed - using central atom fallback with best CA RMSD template")
-#     best_template_idx = find_best_ca_rmsd_template(refs)
-    
-#     if return_details:
-#         central_details = {
-#             "atom_count": 1,
-#             "bond_count": 0,
-#             "similarity_score": 0.0,
-#             "query_atoms": [get_central_atom(tgt)],
-#             "template_atoms": [get_central_atom(refs[best_template_idx])],
-#             "smarts": "*",
-#             "central_atom_fallback": True
-#         }
-#         return best_template_idx, "*", central_details
-#     return best_template_idx, "*"
 
 
 #  Conformer Generation Functions 
@@ -700,14 +586,13 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: dict = N
         List of conformer IDs generated, empty list if failed
     """
     
-    # Simple thread limiting to prevent resource exhaustion
+        # Simple thread limiting to prevent resource exhaustion
     safe_threads = min(numThreads if numThreads > 0 else mp.cpu_count(), 3)
     
-    # Use fixed number of conformers regardless of molecule size
+    # Use fixed number of conformers for consistent performance
     adaptive_conformers = 200
     
     try:
-                    # Skip memory check - always use 200 conformers
             
         # Try standard embedding with coordinate map
         if coordMap:

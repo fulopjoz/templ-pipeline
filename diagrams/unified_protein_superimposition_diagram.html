@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Protein Superimposition Workflow - Complete Reference</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background-color: white;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            font-weight: 300;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 40px;
+        }
+        
+        .diagram-section {
+            margin-bottom: 50px;
+        }
+        
+        .section-title {
+            font-size: 1.8em;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+        }
+        
+        .mermaid {
+            text-align: center;
+            margin: 30px 0;
+            padding: 30px;
+            background-color: #fafafa;
+            border-radius: 12px;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .reference-section {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            border-radius: 12px;
+            margin-top: 40px;
+        }
+        
+        .reference-section h2 {
+            color: white;
+            margin-bottom: 30px;
+            font-size: 1.8em;
+        }
+        
+        .function-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 25px;
+            margin-top: 30px;
+        }
+        
+        .function-card {
+            background: rgba(255,255,255,0.1);
+            padding: 25px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .function-card h3 {
+            color: #ffd700;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+            border-bottom: 2px solid rgba(255,255,255,0.3);
+            padding-bottom: 8px;
+        }
+        
+        .function-card ul {
+            margin: 15px 0;
+            padding-left: 20px;
+        }
+        
+        .function-card li {
+            margin: 8px 0;
+            line-height: 1.5;
+        }
+        
+        .function-card strong {
+            color: #ffd700;
+        }
+        
+        .workflow-features {
+            background: rgba(255,255,255,0.1);
+            padding: 25px;
+            border-radius: 10px;
+            margin-top: 30px;
+        }
+        
+        .workflow-features h3 {
+            color: #ffd700;
+            margin-bottom: 15px;
+        }
+        
+        .workflow-features ul {
+            margin: 15px 0;
+            padding-left: 20px;
+        }
+        
+        .workflow-features li {
+            margin: 8px 0;
+            line-height: 1.5;
+        }
+        
+        .color-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-top: 30px;
+            justify-content: center;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 15px;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.1);
+            font-size: 0.9em;
+        }
+        
+        .legend-color {
+            width: 25px;
+            height: 25px;
+            border-radius: 6px;
+            border: 2px solid rgba(255,255,255,0.5);
+        }
+        
+        .navigation {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+        
+        .navigation h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+        
+        .nav-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .nav-link {
+            background: #667eea;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 6px;
+            text-decoration: none;
+            transition: background-color 0.3s;
+        }
+        
+        .nav-link:hover {
+            background: #5a6fd8;
+        }
+        
+        .table-of-contents {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+        
+        .table-of-contents h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+        
+        .toc-list {
+            list-style: none;
+            padding-left: 0;
+        }
+        
+        .toc-list li {
+            margin: 8px 0;
+            padding: 8px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .toc-list a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .toc-list a:hover {
+            color: #5a6fd8;
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Protein Superimposition Workflow</h1>
+            <p>Complete Reference with Visual Diagram and Function Descriptions</p>
+        </div>
+        
+        <div class="content">
+            <div class="navigation">
+                <h3>Quick Navigation</h3>
+                <div class="nav-links">
+                    <a href="#diagram" class="nav-link">Visual Workflow Diagram</a>
+                    <a href="#reference" class="nav-link">Function Reference Table</a>
+                    <a href="#workflow" class="nav-link">Workflow Features</a>
+                    <a href="#legend" class="nav-link">Color Legend</a>
+                </div>
+            </div>
+            
+            <div class="table-of-contents">
+                <h3>Table of Contents</h3>
+                <ul class="toc-list">
+                    <li><a href="#diagram">Visual Workflow Diagram</a> - Complete superimposition process flow</li>
+                    <li><a href="#reference">Function Reference Table</a> - Detailed function descriptions by category</li>
+                    <li><a href="#workflow">Workflow Features</a> - Quality control and validation criteria</li>
+                    <li><a href="#legend">Color Legend</a> - Visual coding explanation</li>
+                </ul>
+            </div>
+            
+            <div id="diagram" class="diagram-section">
+                <h2 class="section-title">Visual Workflow Diagram</h2>
+                <p style="margin-bottom: 20px; color: #666;">
+                    The diagram below shows the complete 4-level fallback strategy for protein superimposition, 
+                    with detailed function calls and decision points at each stage.
+                </p>
+                
+                <div class="mermaid">
+flowchart TD
+    Start([transform_ligand<br/>Primary Orchestrator]) --> Load[Load Protein Structures<br/>load_reference_protein<br/>load_target_data]
+    Load --> Filter[Filter Amino Acids<br/>filter_amino_acids<br/>Extract protein residues only]
+    Filter --> Validate[Validate & Select Chains<br/>_validate_and_select_chains<br/>get_chains]
+    Validate --> CheckAtoms{Enough CA Atoms?<br/>MIN_CA_ATOMS_FOR_ALIGNMENT = 3}
+    
+    CheckAtoms -->|No| Fail[Return None<br/>Insufficient atoms for alignment]
+    CheckAtoms -->|Yes| Level1[Level 1: Homologous Alignment<br/>For similar-length sequences]
+    
+    Level1 --> CheckLength{Sequence Length Similar?<br/>Length difference < 30%}
+    CheckLength -->|No| Level2[Level 2: Sequence Alignment<br/>_align_with_biotite_sequence<br/>to_sequence + align_optimal]
+    CheckLength -->|Yes| TryHomologs[Try superimpose_homologs<br/>BLOSUM62 matrix<br/>Gap penalty: -10]
+    
+    TryHomologs --> CheckAnchors{Sufficient Anchors?<br/>MIN_ANCHOR_RESIDUES = 15}
+    CheckAnchors -->|No| Level2
+    CheckAnchors -->|Yes| CalcRMSD[Calculate CA RMSD<br/>rmsd function<br/>Measure alignment quality]
+    
+    Level2 --> CheckSeq{Sequence Alignment Success?<br/>BLOSUM62 + optimal alignment}
+    CheckSeq -->|No| Level3[Level 3: 3Di Structural<br/>_align_with_3di_structural<br/>3Di structural alphabet]
+    CheckSeq -->|Yes| CalcRMSD
+    
+    Level3 --> Check3Di{3Di Available & Success?<br/>STRUCTURAL_ALPHABET_AVAILABLE}
+    Check3Di -->|No| Level4[Level 4: Centroid Fallback<br/>_align_with_centroid_fallback<br/>Simple superimpose]
+    Check3Di -->|Yes| CalcRMSD
+    
+    Level4 --> CheckMin{Min Atoms Available?<br/>MIN_CA_ATOMS_FOR_ALIGNMENT}
+    CheckMin -->|No| Fail
+    CheckMin -->|Yes| SimpleAlign[Simple Superimposition<br/>superimpose<br/>First N atoms only]
+    SimpleAlign --> CalcRMSD
+    
+    CalcRMSD --> CheckThreshold{CA RMSD <= Threshold?<br/>CA_RMSD_THRESHOLD = 10.0Å}
+    CheckThreshold -->|No| Fallback[Apply Fallback Thresholds<br/>CA_RMSD_FALLBACK_THRESHOLDS<br/>10.0, 15.0, 20.0Å]
+    CheckThreshold -->|Yes| Transform[Transform Ligand Coordinates<br/>Apply transformation matrix<br/>Point3D coordinates]
+    
+    Fallback --> CheckTemplates{Any Templates Pass?<br/>filter_templates_by_ca_rmsd]
+    CheckTemplates -->|No| BestTemplate[Use Best Available Template<br/>get_templates_with_progressive_fallback]
+    CheckTemplates -->|Yes| Transform
+    
+    Transform --> ApplyMatrix[Apply Transformation Matrix<br/>transformation.apply coords<br/>Bulk coordinate transformation]
+    ApplyMatrix --> ValidateBonds[Validate Bond Lengths<br/>Check 0.5-3.0Å range<br/>Ensure molecular geometry]
+    ValidateBonds --> AddMetadata[Add Metadata Properties<br/>ca_rmsd, template_pid<br/>alignment_method, anchor_count]
+    AddMetadata --> Success[Return Transformed Ligand<br/>Enhanced with metadata<br/>Ready for downstream processing]
+    
+    classDef startEnd fill:#e1f5fe,stroke:#01579b,stroke-width:3px
+    classDef process fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef decision fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef error fill:#ffebee,stroke:#c62828,stroke-width:2px
+    classDef success fill:#e8f5e8,stroke:#2e7d32,stroke-width:3px
+    classDef level1 fill:#e8faf5,stroke:#00695c,stroke-width:2px
+    classDef level2 fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef level3 fill:#fff8e1,stroke:#f57f17,stroke-width:2px
+    classDef level4 fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    
+    class Start,Success startEnd
+    class Load,Filter,Validate,ApplyMatrix,ValidateBonds,AddMetadata process
+    class CheckAtoms,CheckLength,CheckAnchors,CheckSeq,Check3Di,CheckMin,CheckThreshold,CheckTemplates decision
+    class Fail error
+    class Fallback,BestTemplate process
+    class TryHomologs,CalcRMSD level1
+    class Level2 level2
+    class Level3 level3
+    class Level4,SimpleAlign level4
+    class Transform process
+                </div>
+            </div>
+            
+            <div id="reference" class="reference-section">
+                <h2>Function Reference Table</h2>
+                <p style="margin-bottom: 20px; opacity: 0.9;">
+                    Comprehensive reference of all functions used in the protein superimposition workflow, 
+                    organized by functional category for easy navigation and understanding.
+                </p>
+                
+                <div class="function-grid">
+                    <div class="function-card">
+                        <h3>Data Loading Stage</h3>
+                        <ul>
+                            <li><strong>load_reference_protein()</strong>: Loads reference PDB structure using biotite</li>
+                            <li><strong>load_target_data()</strong>: Creates target molecule from SMILES and adds hydrogens</li>
+                            <li><strong>filter_amino_acids()</strong>: Extracts only protein residues for alignment</li>
+                            <li><strong>get_chains()</strong>: Identifies available protein chains</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="function-card">
+                        <h3>Chain Validation Stage</h3>
+                        <ul>
+                            <li><strong>_validate_and_select_chains()</strong>: Validates binding site chains from embedding data</li>
+                            <li>Falls back to all available chains if specified chains not found</li>
+                            <li>Ensures sufficient CA atoms for alignment (minimum 3)</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="function-card">
+                        <h3>Level 1: Homologous Alignment</h3>
+                        <ul>
+                            <li><strong>superimpose_homologs()</strong>: Uses BLOSUM62 substitution matrix</li>
+                            <li>Requires sequence length similarity (< 30% difference)</li>
+                            <li>Minimum 15 anchor residues for quality alignment</li>
+                            <li>Gap penalty: -10, terminal penalty: True</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="function-card">
+                        <h3>Level 2: Sequence Alignment</h3>
+                        <ul>
+                            <li><strong>_align_with_biotite_sequence()</strong>: Optimal sequence alignment</li>
+                            <li><strong>to_sequence()</strong>: Converts protein structures to sequences</li>
+                            <li><strong>align_optimal()</strong>: Performs optimal alignment with BLOSUM62</li>
+                            <li><strong>_rmsd_from_alignment()</strong>: Extracts anchors and calculates RMSD</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="function-card">
+                        <h3>Level 3: 3Di Structural Alignment</h3>
+                        <ul>
+                            <li><strong>_align_with_3di_structural()</strong>: Uses 3Di structural alphabet</li>
+                            <li>Requires STRUCTURAL_ALPHABET_AVAILABLE = True</li>
+                            <li>Specialized for remote homologs with poor sequence similarity</li>
+                            <li>Uses 3Di substitution matrix for structural similarity</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="function-card">
+                        <h3>Level 4: Centroid Fallback</h3>
+                        <ul>
+                            <li><strong>_align_with_centroid_fallback()</strong>: Simple centroid-based alignment</li>
+                            <li><strong>superimpose()</strong>: Basic structural superimposition</li>
+                            <li>Uses first N atoms from both structures (minimum 3)</li>
+                            <li>Final fallback when all other methods fail</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="function-card">
+                        <h3>Quality Assessment</h3>
+                        <ul>
+                            <li><strong>rmsd()</strong>: Calculates CA RMSD between structures</li>
+                            <li><strong>filter_templates_by_ca_rmsd()</strong>: Filters by RMSD threshold</li>
+                            <li>Progressive fallback thresholds: 10Å, 15Å, 20Å</li>
+                            <li>Bond length validation: 0.5-3.0Å range</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="function-card">
+                        <h3>Coordinate Transformation</h3>
+                        <ul>
+                            <li><strong>transformation.apply()</strong>: Bulk coordinate transformation</li>
+                            <li>Point3D coordinate setting for each atom</li>
+                            <li>Bond length validation ensures molecular geometry</li>
+                            <li>Metadata addition: ca_rmsd, template_pid, alignment_method</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div id="workflow" class="workflow-features">
+                    <h3>Workflow Features & Quality Control</h3>
+                    <ul>
+                        <li><strong>Multi-Level Fallback Strategy</strong>: 4 progressive alignment methods for maximum robustness</li>
+                        <li><strong>CA RMSD Thresholds</strong>: Progressive fallback (10Å → 15Å → 20Å) with central atom final fallback</li>
+                        <li><strong>Anchor Count Validation</strong>: Minimum 3 anchors required for reliable alignment</li>
+                        <li><strong>Bond Length Validation</strong>: Ensures reasonable molecular geometry (0.5-3.0Å range)</li>
+                        <li><strong>Chain Selection</strong>: Validates binding site chains from embedding data with fallback to all chains</li>
+                        <li><strong>Metadata Tracking</strong>: Records alignment method, RMSD, anchor count, and chain information</li>
+                    </ul>
+                </div>
+                
+                <div id="legend" class="color-legend">
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #e1f5fe;"></div>
+                        <span>Start/End Points</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #f3e5f5;"></div>
+                        <span>Process Steps</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #fff3e0;"></div>
+                        <span>Decision Points</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #e8faf5;"></div>
+                        <span>Level 1: Homologous</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #f3e5f5;"></div>
+                        <span>Level 2: Sequence</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #fff8e1;"></div>
+                        <span>Level 3: 3Di Structural</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #fce4ec;"></div>
+                        <span>Level 4: Centroid</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #ffebee;"></div>
+                        <span>Error/Failure</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #e8f5e8;"></div>
+                        <span>Success</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            flowchart: {
+                useMaxWidth: true,
+                htmlLabels: true,
+                curve: 'basis',
+                nodeSpacing: 50,
+                rankSpacing: 50
+            }
+        });
+    </script>
+</body>
+</html> 

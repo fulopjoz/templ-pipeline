@@ -293,7 +293,7 @@ def setup_parser():
     generate_poses_parser.add_argument(
         "--num-conformers",
         type=int,
-        default=100,
+        default=200,
         help="Number of conformers to generate",
     )
     generate_poses_parser.add_argument(
@@ -369,7 +369,7 @@ def setup_parser():
     run_parser.add_argument(
         "--num-conformers",
         type=int,
-        default=100,
+        default=200,
         help="Number of conformers to generate",
     )
     run_parser.add_argument(
@@ -912,7 +912,7 @@ def run_command(args):
                 ligand_smiles=getattr(args, "ligand_smiles", None),
                 ligand_file=getattr(args, "ligand_file", None),
                 num_templates=getattr(args, "num_templates", 100),
-                num_conformers=getattr(args, "num_conformers", 100),
+                num_conformers=getattr(args, "num_conformers", 200),
                 n_workers=args.workers,
                 similarity_threshold=getattr(args, "similarity_threshold", None),
                 no_realign=getattr(args, "no_realign", False),
@@ -991,7 +991,11 @@ def run_command(args):
         # Output structured JSON for subprocess parsing
         json_output = {
             "success": results.get("success", False),  
-            "templates_count": len(results.get('templates', [])),
+            "total_templates_in_database": len(results.get('templates', [])),
+            "templates_used_for_poses": results.get('template_processing_pipeline', {}).get('final_usable_templates', 0),
+            "template_filtering_info": results.get('filtering_info', {}),
+            "template_processing_pipeline": results.get('template_processing_pipeline', {}),
+            "template_embedding_similarities": results.get('template_similarities', {}),
             "poses_count": len(results.get('poses', {})),
             "output_file": results.get('output_file', 'unknown'),
             "rmsd_values": rmsd_values

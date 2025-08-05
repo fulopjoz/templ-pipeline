@@ -60,7 +60,7 @@ class MoleculeValidationException(Exception):
         self.molecule_info = molecule_info
 
 # Constants
-DEFAULT_N_CONFS = 50
+DEFAULT_N_CONFS = 200
 DEFAULT_N_WORKERS = 0  # Auto-detect based on CPU count
 DEFAULT_SIM_THRESHOLD = 0.90
 DEFAULT_CA_RMSD_THRESHOLD = 10.0
@@ -729,7 +729,7 @@ class TEMPLPipeline:
     
     def run_full_pipeline(self, protein_file: str = None, protein_pdb_id: str = None, 
                          ligand_smiles: str = None, ligand_file: str = None,
-                         num_templates: int = 100, num_conformers: int = 50,
+                         num_templates: int = 100, num_conformers: int = 200,
                          n_workers: int = 4, similarity_threshold: float = 0.9,
                          exclude_pdb_ids: set = None, allowed_pdb_ids: set = None,
                          output_dir: str = None, no_realign: bool = False, 
@@ -777,6 +777,20 @@ class TEMPLPipeline:
         return {
             "success": success,
             "templates": getattr(self, "templates", []),
+            "filtered_templates": getattr(self, "similar_template_ids", []),
+            "template_similarities": getattr(self, "embedding_similarities", {}),
+            "filtering_info": {
+                "exclude_pdb_ids": list(getattr(self, "exclude_pdb_ids_used", set())),
+                "allowed_pdb_ids": list(getattr(self, "allowed_pdb_ids_used", set())) if getattr(self, "allowed_pdb_ids_used", None) is not None else None,
+                "requested_templates": getattr(self, "num_templates_requested", 0),
+                "found_templates": len(getattr(self, "similar_template_ids", []))
+            },
+            "template_processing_pipeline": {
+                "processing_stats": getattr(self, "template_processing_stats", {}),
+                "filtering_stats": getattr(self, "template_filtering_stats", {}),
+                "total_available_ligands": len(getattr(self, "templates", [])),
+                "final_usable_templates": getattr(self, "final_template_count", 0)
+            },
             "poses": getattr(self, "pipeline_poses", {}),
             "template_info": getattr(self, "pipeline_template_info", {}),
             "all_ranked_poses": getattr(self, "pipeline_all_ranked_poses", []),
@@ -848,6 +862,13 @@ class TEMPLPipeline:
             similar_template_ids, embedding_similarities = self.find_similar_templates(query_pdb_id, query_embedding, k=num_templates, exclude_pdb_ids=exclude_pdb_ids, allowed_pdb_ids=allowed_pdb_ids)
             log.info(f"Found {len(similar_template_ids)} similar templates for {query_pdb_id}")
             
+            # Store filtered template information for JSON output
+            self.similar_template_ids = similar_template_ids
+            self.embedding_similarities = embedding_similarities
+            self.exclude_pdb_ids_used = exclude_pdb_ids.copy()
+            self.allowed_pdb_ids_used = allowed_pdb_ids.copy() if allowed_pdb_ids is not None else None
+            self.num_templates_requested = num_templates
+            
             # Validate timesplit constraints are respected
             if allowed_pdb_ids is not None:
                 # Check that target is not in template list (should be excluded by constraints)
@@ -867,8 +888,10 @@ class TEMPLPipeline:
                 log.error("No similar templates found.")
                 return False
             
-            # Only include target PDB ID as template when no constraints are applied (not in timesplit scenarios)
-            if allowed_pdb_ids is None and query_pdb_id.upper() not in [pid.upper() for pid in similar_template_ids]:
+            # Only include target PDB ID as template when no constraints are applied (not in timesplit scenarios) and not excluded
+            if (allowed_pdb_ids is None and 
+                query_pdb_id.upper() not in [pid.upper() for pid in similar_template_ids] and
+                (exclude_pdb_ids is None or query_pdb_id.upper() not in exclude_pdb_ids)):
                 # Check if target exists in embedding database
                 target_embedding, _ = self.get_protein_embedding(query_pdb_id)
                 if target_embedding is not None:
@@ -905,6 +928,8 @@ class TEMPLPipeline:
                             native_ligand.SetProp("template_pid", query_pdb_id)
                             native_ligand.SetProp("ca_rmsd", "0.0") # Native pose has 0 RMSD
                             native_ligand.SetProp("similarity_score", "1.0") # Native pose has 1.0 similarity
+                            native_ligand.SetProp("alignment_method", "native") # Native template uses no alignment
+                            native_ligand.SetProp("anchor_count", "N/A") # Native template has no alignment anchors
                             all_transformed_ligands.append(native_ligand)
                             # Remove target from list to be processed by transform_ligand
                             similar_template_ids = [pid for pid in similar_template_ids if pid.upper() != query_pdb_id.upper()]
@@ -919,13 +944,32 @@ class TEMPLPipeline:
             if similar_template_ids:
                 transformed_ligands_from_templates = self.process_templates(similar_template_ids, ref_chains, embedding_similarities)
                 
+                # Store processing statistics
+                self.template_processing_stats = {
+                    "embedding_search_found": len(similar_template_ids),
+                    "processing_attempted": len(similar_template_ids),
+                    "processing_successful": len(transformed_ligands_from_templates),
+                    "processing_failed": len(similar_template_ids) - len(transformed_ligands_from_templates)
+                }
+                
                 # Apply RMSD filtering with progressive fallback
                 filtered_templates = self.filter_templates_by_rmsd(transformed_ligands_from_templates)
+                
+                # Store filtering statistics
+                self.template_filtering_stats = {
+                    "before_rmsd_filtering": len(transformed_ligands_from_templates),
+                    "after_rmsd_filtering": len(filtered_templates),
+                    "removed_by_rmsd_filter": len(transformed_ligands_from_templates) - len(filtered_templates)
+                }
+                
                 all_transformed_ligands.extend(filtered_templates)
 
             if not all_transformed_ligands:
                 log.error("Failed to process and transform any template ligands.")
                 return False
+            
+            # Store final template count after all filtering (including native template if added)
+            self.final_template_count = len(all_transformed_ligands)
 
             # Ensure target molecule is properly prepared
             if self.target_mol is None:
@@ -991,25 +1035,18 @@ class TEMPLPipeline:
             
             # Store template information for CLI interface  
             if hasattr(self, 'pipeline_template_info'):
-                # Use MCS similarity score instead of template similarity score for accurate benchmarking
-                # The template similarity_score can be "1.0" for native poses, but MCS similarity is the real metric
-                similarity_score = mcs_details.get('similarity_score', 0.0) if mcs_details else 0.0
-                template_similarity = best_template.GetProp('similarity_score') if best_template.HasProp('similarity_score') else 'unknown'
-                
-                # For benchmarking accuracy, prefer MCS similarity over template similarity
-                if template_similarity == "1.0" and similarity_score != 1.0:
-                    # Native template detected - use MCS similarity for benchmarking accuracy
-                    final_similarity = f"{similarity_score:.3f}"
-                else:
-                    # Use template similarity (for non-native cases)
-                    final_similarity = template_similarity
+                # Store template info (without MCS details which go in separate section)
+                embedding_similarity = best_template.GetProp('similarity_score') if best_template.HasProp('similarity_score') else 'unknown'
+                alignment_method = best_template.GetProp('alignment_method') if best_template.HasProp('alignment_method') else 'unknown'
+                anchor_count = best_template.GetProp('anchor_count') if best_template.HasProp('anchor_count') else 'unknown'
                 
                 self.pipeline_template_info = {
                     "best_template_pdb": best_template.GetProp('template_pid') if best_template.HasProp('template_pid') else 'unknown',
-                    "mcs_smarts": mcs_smarts,
                     "num_conformers_generated": target_with_conformers.GetNumConformers(),
                     "ca_rmsd": best_template.GetProp('ca_rmsd') if best_template.HasProp('ca_rmsd') else 'unknown',
-                    "similarity_score": final_similarity
+                    "embedding_similarity": embedding_similarity,
+                    "alignment_method": alignment_method,
+                    "anchor_count": anchor_count
                 }
 
             # Get crystal structure for RMSD calculation if available
@@ -1029,10 +1066,31 @@ class TEMPLPipeline:
             template_file = self.output_manager.save_template(best_template)
             
             # Save structured pipeline results
+            # Reorganize MCS details with similarity and SMARTS at top, plus additional useful info
+            mcs_details_organized = {}
+            if mcs_details:
+                # Put key information first
+                mcs_details_organized["mcs_similarity"] = mcs_details.get("similarity_score", 0.0)
+                mcs_details_organized["smarts"] = mcs_details.get("smarts", "")
+                mcs_details_organized["atom_count"] = mcs_details.get("atom_count", 0)
+                mcs_details_organized["bond_count"] = mcs_details.get("bond_count", 0)
+                
+                # Add derived metrics for better understanding
+                total_query_atoms = len(self.target_mol.GetAtoms()) if self.target_mol else 0
+                total_template_atoms = len(best_template.GetAtoms()) if best_template else 0
+                mcs_details_organized["query_molecule_atoms"] = total_query_atoms
+                mcs_details_organized["template_molecule_atoms"] = total_template_atoms
+                mcs_details_organized["mcs_coverage_query"] = round(mcs_details_organized["atom_count"] / total_query_atoms * 100, 1) if total_query_atoms > 0 else 0.0
+                mcs_details_organized["mcs_coverage_template"] = round(mcs_details_organized["atom_count"] / total_template_atoms * 100, 1) if total_template_atoms > 0 else 0.0
+                
+                # Add atom mappings at the end
+                mcs_details_organized["query_atoms"] = mcs_details.get("query_atoms", [])
+                mcs_details_organized["template_atoms"] = mcs_details.get("template_atoms", [])
+            
             pipeline_results = {
                 "target_pdb": query_pdb_id,
                 "template_info": self.pipeline_template_info,
-                "mcs_details": mcs_details,
+                "mcs_details": mcs_details_organized,
                 "num_conformers": target_with_conformers.GetNumConformers(),
                 "top_poses_file": str(top_poses_file),
                 "all_poses_file": str(all_poses_file),
