@@ -464,11 +464,15 @@ def main(argv: List[str] = None) -> int:
                 for split_name, split_data in results_data.get("split_results", {}).items():
                     results_file = split_data.get("results_file")
                     if results_file and Path(results_file).exists():
-                        # Load JSONL results
+                        # Load JSONL results and add split information
                         with open(results_file, 'r') as f:
                             for line in f:
                                 if line.strip():
-                                    individual_results.append(json.loads(line))
+                                    result = json.loads(line)
+                                    # Add split information to each result
+                                    result["target_split"] = split_name
+                                    result["results_file"] = results_file
+                                    individual_results.append(result)
                 
                 if individual_results:
                     summary = generator.generate_unified_summary(individual_results, "timesplit")

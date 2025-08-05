@@ -187,11 +187,28 @@ class BenchmarkSummaryGenerator:
         successful_groups = defaultdict(list)
         
         for result in individual_results:
-            # Handle missing target_split by extracting from context or defaulting
+            # Handle missing target_split by extracting from context
             split = result.get("target_split")
             if split is None:
-                # Extract split from filename or default to "test"
-                split = "test"  # Default for timesplit benchmarks
+                # Try to extract split from results_file path if available
+                results_file = result.get("results_file", "")
+                if results_file and "results_" in results_file:
+                    # Extract from pattern: results_{split}_{timestamp}.jsonl
+                    import re
+                    match = re.search(r'results_([^_]+)_\d+\.jsonl', results_file)
+                    if match:
+                        split = match.group(1)
+                    else:
+                        logger.warning(f"Could not extract split from filename: {results_file}")
+                        split = "unknown"
+                else:
+                    # Check if there's a global split context we can infer
+                    # This can happen when processing data with split metadata
+                    if hasattr(self, '_current_split_context'):
+                        split = self._current_split_context
+                    else:
+                        logger.warning("No target_split found and no filename context available - defaulting to 'unknown'")
+                        split = "unknown"
             
             split_groups[split].append(result)
             
@@ -228,7 +245,7 @@ class BenchmarkSummaryGenerator:
                         metric_data = metrics[metric]
                         table_data.append({
                             "Benchmark": "Timesplit",
-                            "Split": split_name.title(),
+                            "Split": split_name,
                             "Metric": metric.title(),
                             "Total_Targets": total_processed,
                             "Targets_With_RMSD": successful_count,
@@ -245,7 +262,7 @@ class BenchmarkSummaryGenerator:
                 # No successful results - add summary entry
                 table_data.append({
                     "Benchmark": "Timesplit",
-                    "Split": split_name.title(),
+                    "Split": split_name,
                     "Metric": "Summary",
                     "Total_Targets": total_processed,
                     "Targets_With_RMSD": successful_count,
@@ -383,14 +400,259 @@ class BenchmarkSummaryGenerator:
         return validation_report
 
     def _parse_exclusion_reason(self, error_msg: str) -> str:
-        """Parse exclusion reason from error message."""
+        """Parse exclusion reason from error message with comprehensive categorization.
+        
+        This method categorizes error messages into specific exclusion reasons based on
+        the analysis of the TEMPL pipeline codebase. The categories are:
+        
+        Molecule Validation Exclusions:
+        - large_peptide: Molecules with too many peptide residues (>8 by default)
+        - rhenium_complex: Molecules containing rhenium complexes (except 3rj7)
+        - complex_polysaccharide: Complex polysaccharides with many sugar rings
+        - molecule_validation_failed: General molecule validation failures
+        - invalid_molecule: Invalid molecule objects or structures
+        
+        Timeout and Processing Exclusions:
+        - timeout: Subprocess timeout after specified seconds
+        - pose_generation_failed: No poses generated during processing
+        - rmsd_calculation_failed: RMSD calculation failed
+        - conformer_generation_failed: Conformer generation failed
+        - molecular_alignment_failed: Molecular alignment failed
+        - mcs_calculation_failed: MCS (Maximum Common Substructure) calculation failed
+        - central_atom_embedding_failed: Central atom embedding fallback failed
+        - constrained_embedding_failed: Constrained embedding failed
+        - embedding_failed: General embedding failures
+        - geometry_validation_failed: Molecular geometry validation failed
+        - molecular_connectivity_failed: Molecular connectivity validation failed
+        - molecular_optimization_failed: Molecular optimization failed
+        - force_field_failed: Force field application failed
+        - molecule_sanitization_failed: Molecule sanitization failed
+                 - coordinate_access_failed: Coordinate access failed
+         - invalid_coordinates: NaN or infinite coordinates detected
+         - molecular_fragmentation: Molecular fragmentation detected
+         - invalid_atom_positions: Unreasonable atom positions detected
+         - suspicious_bond_lengths: Suspicious bond lengths detected
+         - empty_coordinate_map: Empty coordinate map for constraints
+         - constraint_distance_issues: Constraint distance issues (too close/distant)
+         - minimization_no_conformers: Cannot minimize molecule (no conformers)
+         - rascal_mcs_failed: RascalMCES MCS calculation failed
+         - mcs_too_small: MCS found but too small for processing
+         - rascal_search_failed: RascalMCES search failed at all thresholds
+         - molecule_too_large: Extremely large molecule (>150 atoms)
+         - invalid_smarts_pattern: Invalid SMARTS pattern for MCS
+         - invalid_mcs_match: Invalid MCS match for constrained embedding
+         - hydrogen_addition_failed: Hydrogen addition failed during processing
+         - mcs_hydrogen_addition_failed: MCS match failed after hydrogen addition
+         - mcs_index_mismatch: Index length mismatch in MCS processing
+         - mcs_matching_inconsistency: MCS matching inconsistency detected
+         - atom_mapping_failed: Error mapping atoms during processing
+         - insufficient_coordinate_constraints: Insufficient coordinate constraints
+         - relaxed_constraints_failed: Embedding failed with relaxed constraints
+         - progressive_embedding_failed: Progressive embedding reduction failed
+         - zero_conformers_generated: Embedding succeeded but generated 0 conformers
+         - molecular_distortion: Molecular distortion detected after processing
+         - alignment_index_mismatch: Index length mismatch during alignment
+         - rdkit_alignment_failed: RDKit AlignMol failed
+         - alignment_skipped: Post-embedding alignment skipped
+         - connectivity_issues: Molecular connectivity issues detected
+         - organometallic_embedding_failed: All organometallic embedding attempts failed
+         - all_embedding_methods_failed: All embedding methods failed
+         - uff_fallback_failed: UFF fallback embedding failed
+         - mmff_parameter_validation_failed: MMFF parameter validation failed
+         
+         File and Data Exclusions:
+        - ligand_data_missing: Ligand SMILES data not found
+        - protein_file_missing: Protein PDB file not found
+        - template_file_missing: Template SDF file not found
+        - embedding_file_missing: Embedding file not found
+        - crystal_structure_missing: Crystal structure data missing
+        - file_not_found: General file not found errors
+        
+        System and Execution Exclusions:
+        - memory_error: Memory errors during processing
+        - cli_execution_failed: CLI command execution failed
+        - subprocess_failed: Subprocess execution failed
+        - cli_command_invalid: CLI command validation failed
+        - pipeline_error: General pipeline errors
+        
+        Legacy Categories (for backward compatibility):
+        - molecule_too_small: Legacy small molecule exclusion
+        - molecule_too_large: Legacy large molecule exclusion
+        - poor_quality_crystal: Legacy crystal quality exclusion
+        - invalid_smiles: Legacy SMILES validation exclusion
+        - validation_failed: Legacy validation failure
+        
+        Args:
+            error_msg: Error message string to categorize
+            
+        Returns:
+            Categorized exclusion reason string
+        """
         if not error_msg:
             return "unknown_error"
         
         error_msg_lower = error_msg.lower()
         
-        # Parse skip reasons
-        if "skipped" in error_msg_lower:
+        # Parse molecule validation exclusions (from chemistry.py and pipeline.py)
+        if "large peptide" in error_msg_lower or "large peptides" in error_msg_lower:
+            return "large_peptide"
+        elif "rhenium complex" in error_msg_lower:
+            return "rhenium_complex"
+        elif "peptide" in error_msg_lower and ("residues" in error_msg_lower or "threshold" in error_msg_lower):
+            return "large_peptide"
+        elif "polysaccharide" in error_msg_lower:
+            return "complex_polysaccharide"
+        elif "validation failed" in error_msg_lower and "geometry" in error_msg_lower:
+            return "geometry_validation_failed"
+        elif "validation failed" in error_msg_lower:
+            return "molecule_validation_failed"
+        elif "invalid molecule" in error_msg_lower:
+            return "invalid_molecule"
+        
+        # Parse timeout exclusions (from simple_runner.py)
+        elif "timeout" in error_msg_lower:
+            return "timeout"
+        
+        # Parse file and data exclusions
+        elif "could not load ligand smiles" in error_msg_lower or "ligand smiles" in error_msg_lower and "not found" in error_msg_lower:
+            return "ligand_data_missing"
+        elif "protein file" in error_msg_lower and "not found" in error_msg_lower:
+            return "protein_file_missing"
+        elif "template sdf file not found" in error_msg_lower:
+            return "template_file_missing"
+        elif "template file not found" in error_msg_lower:
+            return "template_file_missing"
+        elif "template file" in error_msg_lower and "not found" in error_msg_lower:
+            return "template_file_missing"
+        elif "template" in error_msg_lower and "file" in error_msg_lower and "not found" in error_msg_lower:
+            return "template_file_missing"
+        elif "pdb file" in error_msg_lower and "not found" in error_msg_lower:
+            return "protein_file_missing"
+        elif "file not found" in error_msg_lower:
+            return "file_not_found"
+        elif "embedding file not found" in error_msg_lower:
+            return "embedding_file_missing"
+        elif "crystal ligand" in error_msg_lower and "not found" in error_msg_lower:
+            return "crystal_structure_missing"
+        elif "no crystal ligand found" in error_msg_lower:
+            return "crystal_structure_missing"
+        
+        # Parse pipeline processing exclusions
+        elif "no poses generated" in error_msg_lower or "pose generation failed" in error_msg_lower:
+            return "pose_generation_failed"
+        elif "rmsd calculation failed" in error_msg_lower or "rmsd failed" in error_msg_lower:
+            return "rmsd_calculation_failed"
+        elif "conformer generation failed" in error_msg_lower or "conformer failed" in error_msg_lower:
+            return "conformer_generation_failed"
+        elif "alignment failed" in error_msg_lower or "molecular alignment" in error_msg_lower:
+            return "molecular_alignment_failed"
+        elif "rascal" in error_msg_lower and "search" in error_msg_lower and "failed" in error_msg_lower:
+            return "rascal_search_failed"
+        elif "mcs" in error_msg_lower and ("failed" in error_msg_lower or "calculation" in error_msg_lower):
+            return "mcs_calculation_failed"
+        elif "central atom embedding failed" in error_msg_lower:
+            return "central_atom_embedding_failed"
+        elif "constrained embedding failed" in error_msg_lower:
+            return "constrained_embedding_failed"
+        elif "embedding failed" in error_msg_lower or "embedding error" in error_msg_lower:
+            return "embedding_failed"
+        elif "memory" in error_msg_lower and ("error" in error_msg_lower or "failed" in error_msg_lower):
+            return "memory_error"
+        elif "geometry validation failed" in error_msg_lower:
+            return "geometry_validation_failed"
+        elif "validation failed" in error_msg_lower and "geometry" in error_msg_lower:
+            return "geometry_validation_failed"
+        elif "connectivity" in error_msg_lower and "failed" in error_msg_lower:
+            return "molecular_connectivity_failed"
+        elif "optimization failed" in error_msg_lower:
+            return "molecular_optimization_failed"
+        elif "force field" in error_msg_lower and "failed" in error_msg_lower:
+            return "force_field_failed"
+        elif "sanitization failed" in error_msg_lower:
+            return "molecule_sanitization_failed"
+        elif "coordinates" in error_msg_lower and "inaccessible" in error_msg_lower:
+            return "coordinate_access_failed"
+        elif "nan" in error_msg_lower or "infinite coordinates" in error_msg_lower:
+            return "invalid_coordinates"
+        elif "molecular fragmentation" in error_msg_lower:
+            return "molecular_fragmentation"
+        elif "unreasonable atom position" in error_msg_lower:
+            return "invalid_atom_positions"
+        elif "suspicious bond" in error_msg_lower:
+            return "suspicious_bond_lengths"
+        elif "empty coordinate map" in error_msg_lower:
+            return "empty_coordinate_map"
+        elif "very close constraints" in error_msg_lower or "very distant constraints" in error_msg_lower:
+            return "constraint_distance_issues"
+        elif "cannot minimize molecule" in error_msg_lower:
+            return "minimization_no_conformers"
+        elif "rejecting small mcs" in error_msg_lower:
+            return "mcs_too_small"
+        elif "rascal" in error_msg_lower and "failed" in error_msg_lower:
+            return "rascal_mcs_failed"
+        elif "rascal" in error_msg_lower and "search" in error_msg_lower and "failed" in error_msg_lower:
+            return "rascal_search_failed"
+        elif "extremely large molecule" in error_msg_lower:
+            return "molecule_too_large"
+        elif "invalid smarts pattern" in error_msg_lower:
+            return "invalid_smarts_pattern"
+        elif "invalid mcs match" in error_msg_lower:
+            return "invalid_mcs_match"
+        elif "hydrogen addition failed" in error_msg_lower:
+            return "hydrogen_addition_failed"
+        elif "index length mismatch during alignment" in error_msg_lower:
+            return "alignment_index_mismatch"
+        elif "index length mismatch" in error_msg_lower:
+            return "mcs_index_mismatch"
+        elif "mcs match failed after hydrogen addition" in error_msg_lower:
+            return "mcs_hydrogen_addition_failed"
+        elif "mcs matching inconsistency" in error_msg_lower:
+            return "mcs_matching_inconsistency"
+        elif "error mapping atom" in error_msg_lower:
+            return "atom_mapping_failed"
+        elif "insufficient coordinate constraints" in error_msg_lower:
+            return "insufficient_coordinate_constraints"
+        elif "progressive embedding failed" in error_msg_lower:
+            return "progressive_embedding_failed"
+        elif "embedding failed with relaxed constraints" in error_msg_lower:
+            return "relaxed_constraints_failed"
+        elif "embedding failed" in error_msg_lower and "relaxed" in error_msg_lower:
+            return "relaxed_constraints_failed"
+        elif "embedding succeeded but generated 0 conformers" in error_msg_lower:
+            return "zero_conformers_generated"
+        elif "molecular distortion detected" in error_msg_lower:
+            return "molecular_distortion"
+        elif "index length mismatch during alignment" in error_msg_lower:
+            return "alignment_index_mismatch"
+        elif "rdkit alignmol failed" in error_msg_lower:
+            return "rdkit_alignment_failed"
+        elif "continuing without post-embedding alignment" in error_msg_lower:
+            return "alignment_skipped"
+        elif "molecular connectivity issues" in error_msg_lower:
+            return "connectivity_issues"
+        elif "all organometallic embedding attempts failed" in error_msg_lower:
+            return "organometallic_embedding_failed"
+        elif "all embedding methods failed" in error_msg_lower:
+            return "all_embedding_methods_failed"
+        elif "embedding with uff fallback failed" in error_msg_lower:
+            return "uff_fallback_failed"
+        elif "mmff parameter validation failed" in error_msg_lower:
+            return "mmff_parameter_validation_failed"
+        elif "validation failed" in error_msg_lower and "mmff" in error_msg_lower:
+            return "mmff_parameter_validation_failed"
+        elif "mmff" in error_msg_lower and "failed" in error_msg_lower:
+            return "mmff_parameter_validation_failed"
+        
+        # Parse CLI and subprocess errors
+        elif "cli returned" in error_msg_lower or "returncode" in error_msg_lower:
+            return "cli_execution_failed"
+        elif "subprocess" in error_msg_lower and "failed" in error_msg_lower:
+            return "subprocess_failed"
+        elif "command validation failed" in error_msg_lower:
+            return "cli_command_invalid"
+        
+        # Parse legacy skip reasons (for backward compatibility)
+        elif "skipped" in error_msg_lower:
             if "molecule_too_small" in error_msg_lower:
                 return "molecule_too_small"
             elif "molecule_too_large" in error_msg_lower:
@@ -398,7 +660,7 @@ class BenchmarkSummaryGenerator:
             elif "poor_quality" in error_msg_lower:
                 return "poor_quality_crystal"
             elif "peptide" in error_msg_lower:
-                return "peptide_excluded"
+                return "large_peptide"
             elif "invalid_smiles" in error_msg_lower:
                 return "invalid_smiles"
             elif "sanitization_failed" in error_msg_lower:
@@ -406,32 +668,15 @@ class BenchmarkSummaryGenerator:
             else:
                 return "validation_failed"
         
-        # Parse pipeline errors
-        elif "file not found" in error_msg_lower:
-            if "protein" in error_msg_lower:
-                return "protein_file_missing"
-            elif "ligand" in error_msg_lower:
-                return "ligand_data_missing"
-            else:
-                return "file_not_found"
-        elif "pose generation" in error_msg_lower or "no poses generated" in error_msg_lower:
-            return "pose_generation_failed"
-        elif "rmsd calculation failed" in error_msg_lower:
-            return "rmsd_calculation_failed"
-        elif "conformer generation failed" in error_msg_lower:
-            return "conformer_generation_failed"
-        elif "alignment failed" in error_msg_lower:
-            return "molecular_alignment_failed"
-        elif "mcs" in error_msg_lower:
-            return "mcs_calculation_failed"
-        elif "embedding failed" in error_msg_lower:
-            return "embedding_failed"
-        elif "timeout" in error_msg_lower:
-            return "timeout"
-        elif "memory" in error_msg_lower:
-            return "memory_error"
-        else:
+        # Parse general pipeline errors
+        elif "pipeline" in error_msg_lower and "failed" in error_msg_lower:
             return "pipeline_error"
+        elif "error" in error_msg_lower and "failed" in error_msg_lower:
+            return "pipeline_error"
+        
+        # Default fallback
+        else:
+            return "unknown_error"
 
     def _calculate_timesplit_metrics_with_exclusions(self, all_results: List[Dict], successful_results: List[Dict], total_targets: int) -> Tuple[Dict, Dict]:
         """Calculate metrics for Timesplit benchmark results with exclusion analysis.
@@ -771,12 +1016,24 @@ def generate_summary_from_files(
             
         try:
             if file_path.suffix == ".jsonl":
-                # JSONL format
+                # JSONL format - extract split information from filename
                 results = []
+                
+                # Extract split from filename pattern: results_{split}_{timestamp}.jsonl
+                import re
+                split_match = re.search(r'results_([^_]+)_\d+\.jsonl', file_path.name)
+                extracted_split = split_match.group(1) if split_match else None
+                
                 with open(file_path, 'r') as f:
                     for line in f:
                         if line.strip():
-                            results.append(json.loads(line))
+                            result = json.loads(line)
+                            # Add split information if extracted from filename
+                            if extracted_split and "target_split" not in result:
+                                result["target_split"] = extracted_split
+                                result["results_file"] = str(file_path)
+                            results.append(result)
+                            
                 all_results[file_path.stem] = results
                 
             elif file_path.suffix == ".json":
