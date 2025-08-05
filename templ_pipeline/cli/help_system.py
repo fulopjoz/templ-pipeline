@@ -98,102 +98,63 @@ Commands by Workflow:
 FULL PIPELINE (Most Common):
   templ run --protein-file protein.pdb --ligand-smiles "SMILES_STRING"
   templ run --protein-pdb-id 2hyy --ligand-file ligand.sdf
-
-STEP-BY-STEP WORKFLOW:
-  1. Generate embedding:     templ embed --protein-file protein.pdb
-  2. Find templates:         templ find-templates --query protein.pdb --embedding-file embeddings.npz
-  3. Generate poses:         templ generate-poses --protein-file protein.pdb --ligand-smiles "SMILES" --template-pdb 5eqy
-
-PERFORMANCE OPTIONS:
-  --workers N              Number of CPU cores to use
-  --num-conformers N       Number of conformers to generate (default: 100)
-
-BENCHMARKING:
-  templ benchmark polaris  Run Polaris benchmark suite
-  templ benchmark time-split --quick  Quick benchmark test
-
-Get More Help:
-  templ --help expert       Complete reference with all options
-  templ --help examples     Comprehensive examples
-  templ --help troubleshooting  Common issues and solutions
 """,
             expert="""
 TEMPL Pipeline - Template-based Protein-Ligand Pose Prediction
 
-COMPLETE COMMAND REFERENCE:
+Complete Command Reference:
 
 GLOBAL OPTIONS:
   --log-level {DEBUG,INFO,WARNING,ERROR}  Set logging verbosity
   --output-dir PATH                       Output directory (default: output)
 
-COMMANDS:
+FULL PIPELINE:
+  templ run --protein-file protein.pdb --ligand-smiles "SMILES" [OPTIONS]
+  templ run --protein-pdb-id PDB_ID --ligand-file ligand.sdf [OPTIONS]
 
-run - Full pipeline execution
-  Input (required, choose one):
-    --protein-file PATH | --protein-pdb-id ID
-    --ligand-smiles STR | --ligand-file PATH
-  
-  Template control:
-    --embedding-file PATH     Pre-computed embeddings (default: auto-download)
-    --num-templates INT       Templates to consider (default: 100)
-    --similarity-threshold FLOAT  Min similarity (overrides num-templates)
-  
-  Generation control:
-    --num-conformers INT      Conformers to generate (default: 100)
-    --workers INT             Parallel workers (default: auto-detect)
-    --run-id STR             Custom identifier (default: timestamp)
-    --no-realign             Use raw conformers (no shape alignment)
-    --enable-optimization    Enable force field optimization (disabled by default)
-    --align-metric STR       Ranking metric: shape, color, combo (default: combo)
-                            Selected conformer evaluated with all metrics
+EMBEDDING GENERATION:
+  templ embed --protein-file protein.pdb [OPTIONS]
 
-embed - Generate protein embeddings
-  --protein-file PATH       Protein PDB file (required)
-  --chain STR               Specific chain (default: first chain)
-  --output-file PATH        Output embedding file
+TEMPLATE SEARCH:
+  templ find-templates --protein-file protein.pdb [OPTIONS]
 
-find-templates - Search for similar templates
-  --query PATH              Protein (.pdb) or embedding (.npz) (required)
-  --embedding-file PATH     Database embeddings (required)
-  --num-templates INT       Number to return (default: 10)
-  --similarity-threshold FLOAT  Minimum similarity
-  --exclude-uniprot-file PATH   UniProt IDs to exclude
-
-generate-poses - Generate ligand poses
-  --protein-file PATH       Query protein (required)
-  --ligand-smiles STR | --ligand-file PATH  Query ligand (required)
-  --template-pdb STR        Template PDB ID (required)
-  --template-ligand-file PATH  Template ligand SDF (optional)
-  --num-conformers INT      Conformers to generate (default: 100)
-  --workers INT             Parallel workers (default: auto)
-  --no-realign             Use raw conformers (no shape alignment)
-  --align-metric STR       Ranking metric: shape, color, combo (default: combo)
-
-benchmark - Run benchmark suites
-  polaris                   Polaris benchmark suite
-  time-split                Time-split validation
-  
-  Options:
-    --n-workers INT         CPU workers (default: auto)
-    --n-conformers INT      Conformers per molecule (default: 200)
-    --quick                 Reduced subset for testing
-    --verbose               Debug output
-    
-  Time-split specific:
-    --template-knn INT      Template neighbors (default: 100)
-    --max-pdbs INT          Limit PDBs for testing
-    --val-only, --test-only, --train-only  Specific dataset
-    --pipeline-timeout INT  Per-PDB timeout (default: 300s)
-    --max-ram FLOAT         RAM limit in GiB
-    --per-worker-ram FLOAT  Per-worker RAM cap (default: 4.0 GiB)
-
-ENVIRONMENT VARIABLES:
-  TEMPL_DATA_DIR           Data directory (default: ./data)
-  TEMPL_CACHE_DIR          Cache directory (default: ~/.templ/cache)
-  TEMPL_LOG_LEVEL          Global log level
+POSE GENERATION:
+  templ generate-poses --protein-file protein.pdb --ligand-smiles "SMILES" [OPTIONS]
 """,
-            examples=[],
+            examples=[
+                "templ run --protein-file data/example/1iky_protein.pdb --ligand-smiles 'CCO'",
+                "templ generate-poses --protein-file data/example/1iky_protein.pdb --ligand-smiles 'CCO' --template-pdb 5eqy",
+                "templ embed --protein-file data/example/1iky_protein.pdb",
+                "templ find-templates --protein-file data/example/1iky_protein.pdb"
+            ]
         )
+
+        # Examples help content
+        self.examples_help = HelpContent(
+            basic="""
+BASIC EXAMPLES
+
+Simple pose prediction:
+  templ run --protein-file data/example/1iky_protein.pdb --ligand-smiles "CCO"
+
+Using PDB ID instead of file:
+  templ run --protein-pdb-id 1iky --ligand-smiles "CCO"
+
+Using SDF file for ligand:
+  templ run --protein-file data/example/1iky_protein.pdb --ligand-file data/example/1iky_ligand.sdf
+
+With optimization enabled:
+  templ run --protein-file data/example/1iky_protein.pdb --ligand-smiles "CCO" --enable-optimization
+""",
+            intermediate="",
+            expert="",
+            examples=[]
+        )
+
+        # Set up topic help dictionary
+        self.topic_help = {
+            HelpTopic.EXAMPLES: self.examples_help,
+        }
 
         # Topic-specific help content
         self.topic_help = {
@@ -311,8 +272,8 @@ BASIC EXAMPLES
 Simple pose prediction:
   templ run --protein-file data/example/1iky_protein.pdb --ligand-smiles "CCO"
 
-Using available example files:
-  templ run --protein-file data/example/5eqy_protein.pdb --ligand-smiles "CN1CCCN(CC1)Cc2ccc(cc2)c3ccc(CN4CCCN(C)CC4)cc3C#N"
+Using PDB ID instead of file:
+  templ run --protein-pdb-id 1iky --ligand-smiles "CCO"
 
 Using SDF file for ligand:
   templ run --protein-file data/example/1iky_protein.pdb --ligand-file data/example/1iky_ligand.sdf

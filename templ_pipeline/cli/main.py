@@ -1482,13 +1482,14 @@ def main():
             if len(sys.argv) > 2:
                 help_type = sys.argv[2]
 
-            # Use enhanced help system
-            from .help_system import TEMPLHelpSystem
+            # Use enhanced help system without importing heavy modules
+            from .help_system import TEMPLHelpSystem, handle_help_request
 
             help_system = TEMPLHelpSystem()
             handle_help_request(help_type, help_system)
             return 0
 
+        # Only import heavy modules after help check
         parser, help_system = setup_parser()
         args = parser.parse_args()
 
@@ -1523,17 +1524,17 @@ def main():
         if hasattr(args, "ligand_smiles") and args.ligand_smiles:
             valid, msg = validate_smiles(args.ligand_smiles)
             if not valid:
-                logger.error(f"Invalid SMILES: {msg}")
+                print(f"Invalid SMILES: {msg}", file=sys.stderr)
                 return 2
 
         if hasattr(args, "num_conformers") and args.num_conformers is not None:
             if args.num_conformers <= 0:
-                logger.error("Number of conformers must be positive")
+                print("Number of conformers must be positive", file=sys.stderr)
                 return 2
 
         if hasattr(args, "workers") and args.workers is not None:
             if args.workers <= 0:
-                logger.error("Number of workers must be positive")
+                print("Number of workers must be positive", file=sys.stderr)
                 return 2
 
         if (
@@ -1541,29 +1542,29 @@ def main():
             and args.similarity_threshold is not None
         ):
             if not (0.0 <= args.similarity_threshold <= 1.0):
-                logger.error("Similarity threshold must be between 0.0 and 1.0")
+                print("Similarity threshold must be between 0.0 and 1.0", file=sys.stderr)
                 return 2
 
         # Check file existence
         if hasattr(args, "protein_file") and args.protein_file:
             if not os.path.exists(args.protein_file):
-                logger.error(f"Protein file not found: {args.protein_file}")
+                print(f"Protein file not found: {args.protein_file}", file=sys.stderr)
                 return 2
 
         if hasattr(args, "query") and args.query:
             if not os.path.exists(args.query):
-                logger.error(f"Query file not found: {args.query}")
+                print(f"Query file not found: {args.query}", file=sys.stderr)
                 return 2
             # Validate file type
             try:
                 detect_query_type(args.query)
             except ValueError as e:
-                logger.error(str(e))
+                print(str(e), file=sys.stderr)
                 return 2
 
         if hasattr(args, "ligand_file") and args.ligand_file:
             if not os.path.exists(args.ligand_file):
-                logger.error(f"Ligand file not found: {args.ligand_file}")
+                print(f"Ligand file not found: {args.ligand_file}", file=sys.stderr)
                 return 2
 
         # Set up logging
