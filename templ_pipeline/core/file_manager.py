@@ -26,6 +26,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple, Union
 from dataclasses import dataclass, asdict
 
+# Import scoring function with fallback
+try:
+    from .scoring import generate_properties_for_sdf as _original_generate_properties
+except ImportError:
+    _original_generate_properties = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -391,12 +397,12 @@ class FileManager:
         """
         from rdkit import Chem
         
-        # Import scoring function with fallback
-        try:
-            from .scoring import generate_properties_for_sdf
-        except ImportError:
-            # Fallback for basic property generation
-            def generate_properties_for_sdf(mol, method, score, template_pdb, props):
+        # Create wrapper function
+        def generate_properties_for_sdf(mol, method, score, template_pdb, props):
+            if _original_generate_properties is not None:
+                return _original_generate_properties(mol, method, score, template_pdb, props)
+            else:
+                # Fallback implementation
                 for prop_name, prop_value in props.items():
                     mol.SetProp(prop_name, str(prop_value))
                 mol.SetProp("method", method)
@@ -620,7 +626,7 @@ class FileManager:
         else:
             return "unknown"
 
-    def _calculate_file_checksum(self, file_path: str) -> str:
+    def _calculate_file_checksum(self, file_path: str) -> Optional[str]:
         """Calculate SHA-256 checksum of file."""
         try:
             hash_sha256 = hashlib.sha256()

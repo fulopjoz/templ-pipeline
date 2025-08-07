@@ -21,10 +21,11 @@ import logging
 import hashlib
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple, Any, Union
+from typing import Dict, List, Optional, Set, Tuple, Any, Union, Sequence
 
 import numpy as np
-from Bio.PDB import PDBParser, PPBuilder
+from Bio.PDB.PDBParser import PDBParser
+from Bio.PDB.Polypeptide import PPBuilder
 from Bio.PDB.PDBExceptions import PDBConstructionWarning
 from Bio.PDB.parse_pdb_header import parse_pdb_header
 from sklearn.metrics.pairwise import cosine_similarity
@@ -311,6 +312,10 @@ def get_protein_sequence(
             warnings.simplefilter("ignore", PDBConstructionWarning)
             structure = parser.get_structure("protein", pdb_file)
 
+        if structure is None:
+            logger.warning("Failed to parse structure from PDB file")
+            return None, []
+
         struct_sequences = get_structure_sequence(structure[0])  # Use first model
         if not struct_sequences:
             logger.warning("No structure-based sequences found")
@@ -336,7 +341,7 @@ def get_protein_sequence(
 
         # Sequence selection logic
         final_seq = None
-        used_chains = []
+        used_chains: List[str] = []
 
         # Convert SEQRES sequences to 1-letter code if available
         if seqres_sequences:
@@ -349,7 +354,7 @@ def get_protein_sequence(
             if common_chains:
                 target_chain = (
                     target_chain_id
-                    if target_chain_id in common_chains
+                    if target_chain_id and target_chain_id in common_chains
                     else sorted(common_chains)[0]
                 )
                 seqres_seq = seqres_1letter[target_chain]
@@ -374,7 +379,7 @@ def get_protein_sequence(
         if final_seq is None:
             target_chain = (
                 target_chain_id
-                if target_chain_id in struct_sequences
+                if target_chain_id and target_chain_id in struct_sequences
                 else sorted(struct_sequences.keys())[0]
             )
             final_seq = struct_sequences[target_chain]
@@ -1208,23 +1213,26 @@ class EmbeddingManager:
             reverse=True,
         )
 
+        # Determine final_neighbors based on conditions
         if similarity_threshold is not None:
-            final_neighbors = [
-                (pid, sim)
+            neighbors_with_sim = [
+                (str(pid), float(sim))
                 for pid, sim in neighbor_candidates
                 if sim >= similarity_threshold
             ]
         elif k is not None:
-            final_neighbors = neighbor_candidates[:k]
+            neighbors_with_sim = [(str(pid), float(sim)) for pid, sim in neighbor_candidates[:k]]
         else:  # Default: return all sorted if neither k nor threshold is given
-            final_neighbors = neighbor_candidates
+            neighbors_with_sim = [(str(pid), float(sim)) for pid, sim in neighbor_candidates]
+
+        final_neighbors = neighbors_with_sim  # Type: List[Tuple[str, float]]
 
         logger.info(f"Found {len(final_neighbors)} neighbors for {query_pdb_id}.")
 
         if return_similarities:
-            return final_neighbors
+            return final_neighbors  # type: ignore
         else:
-            return [pid for pid, _ in final_neighbors]
+            return [str(pid) for pid, _ in final_neighbors]
 
     def get_chain_data(self, pdb_id: str) -> Optional[str]:
         """Get chain data for a PDB ID from either pre-computed or on-demand sources."""
@@ -1433,7 +1441,12 @@ def get_embedding(
     # Return embedding with or without chain info
     # The legacy syntax for backward compatibility with older code that expects just the array
     emb, chains_used = embedding_result
-    return emb, chains_used
+    if emb is None:
+        raise ValueError(f"Failed to retrieve embedding for PDB ID {pdb_id}")
+    
+    # Ensure chains_used is a string, not None
+    chains_str = chains_used if chains_used is not None else ""
+    return emb, chains_str
 
 
 def select_templates(
@@ -1804,7 +1817,7 @@ def filter_templates_by_ca_rmsd(
 
 
 def get_templates_with_progressive_fallback(
-    all_templates: List[Any], fallback_thresholds: List[float] = None
+    all_templates: List[Any], fallback_thresholds: Optional[List[float]] = None
 ) -> Tuple[List[Any], float, bool]:
     """Apply progressive CA RMSD fallback with central atom final fallback.
 
