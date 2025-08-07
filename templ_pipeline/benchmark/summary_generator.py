@@ -1109,8 +1109,9 @@ class BenchmarkSummaryGenerator:
                             exclusion_reason = self._parse_exclusion_reason(error_msg)
                             exclusion_reasons[exclusion_reason] += 1
                         else:
-                            # No error message - count as unknown
-                            exclusion_reasons["unknown_error"] += 1
+                            # No error message - check if this is a database_empty case from CLI JSON
+                            exclusion_reason = self._classify_no_templates_case(result)
+                            exclusion_reasons[exclusion_reason] += 1
                     elif result.get("success") and not result.get("rmsd_values"):
                         # Successful CLI execution but no RMSD (0 templates/poses)
                         exclusion_reason = self._classify_no_templates_case(result)

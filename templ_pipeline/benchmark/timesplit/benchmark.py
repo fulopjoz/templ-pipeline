@@ -486,14 +486,21 @@ def main(argv: List[str] = None) -> int:
                             logger.warning(f"Results file not found: {results_file_path}")
                 
                 if individual_results:
-                    summary = generator.generate_unified_summary(individual_results, "timesplit")
+                    # Generate summary with proper parameters
+                    summary = generator.generate_unified_summary(individual_results, "timesplit", "json")
                     
                     # Save to summaries directory
                     results_dir = Path(result["results_file"]).parent
                     summaries_dir = results_dir / "summaries"
                     summaries_dir.mkdir(exist_ok=True)
                     
-                    saved_files = generator.save_summary_files(summary, summaries_dir)
+                    # Save summary files with proper base name and all formats
+                    saved_files = generator.save_summary_files(
+                        summary, 
+                        summaries_dir, 
+                        base_name="timesplit_benchmark_summary",
+                        formats=["json", "csv", "markdown"]
+                    )
                     logger.info("✓ Summary files generated:")
                     for fmt, path in saved_files.items():
                         logger.info(f"  {fmt.upper()}: {path}")
