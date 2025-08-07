@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 
 from rdkit import Chem
+from rdkit.Chem import rdMolDescriptors
 
 log = logging.getLogger(__name__)
 
@@ -124,7 +125,7 @@ class EnhancedOutputManager:
         output_file = self.get_output_path(f"{base_name}_all_poses.sdf")
         from rdkit import Chem
         with Chem.SDWriter(str(output_file)) as writer:
-            for conf_id, scores, pose in ranked_poses:
+            for pose, scores, conf_id in ranked_poses:
                 if pose is not None:
                     enhanced_pose = self._create_enhanced_pose(
                         pose, "combo", scores, template, mcs_details, crystal_mol, pose_rank=conf_id
@@ -143,7 +144,10 @@ class EnhancedOutputManager:
             Path to the saved template SDF file
         """
         import os
-        base_name = os.path.splitext(os.path.basename(self.pdb_id))[0]
+        if self.pdb_id is None:
+            base_name = "template"
+        else:
+            base_name = os.path.splitext(os.path.basename(self.pdb_id))[0]
         output_file = self.get_output_path(f"{base_name}_template.sdf")
         
         with Chem.SDWriter(str(output_file)) as writer:
@@ -164,7 +168,10 @@ class EnhancedOutputManager:
         """
         import json
         import os
-        base_name = os.path.splitext(os.path.basename(self.pdb_id))[0]
+        if self.pdb_id is None:
+            base_name = "pipeline_results"
+        else:
+            base_name = os.path.splitext(os.path.basename(self.pdb_id))[0]
         output_file = self.get_output_path(f"{base_name}_pipeline_results.json")
         
         with open(output_file, 'w') as f:
@@ -302,16 +309,24 @@ class EnhancedOutputManager:
                 return float("nan")
             
             # Additional validation: check if molecules are reasonably similar
-            pose_formula = Chem.rdMolDescriptors.CalcMolFormula(pose_clean)
-            crystal_formula = Chem.rdMolDescriptors.CalcMolFormula(crystal_clean)
+            pose_formula = rdMolDescriptors.CalcMolFormula(pose_clean)
+            crystal_formula = rdMolDescriptors.CalcMolFormula(crystal_clean)
             
             if pose_formula != crystal_formula:
                 log.debug(f"RMSD skipped: molecular formula mismatch (pose: {pose_formula}, crystal: {crystal_formula})")
                 return float("nan")
             
+            # Convert to spyrmsd Molecule objects with None checks
+            pose_mol = Molecule.from_rdkit(pose_clean)
+            crystal_mol = Molecule.from_rdkit(crystal_clean)
+            
+            if pose_mol is None or crystal_mol is None:
+                log.debug("RMSD skipped: failed to convert molecules to spyrmsd format")
+                return float("nan")
+            
             return rmsdwrapper(
-                Molecule.from_rdkit(pose_clean),
-                Molecule.from_rdkit(crystal_clean),
+                pose_mol,
+                crystal_mol,
                 minimize=False, strip=True, symmetry=True
             )[0]
         except Exception as e:

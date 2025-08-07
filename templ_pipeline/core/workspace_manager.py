@@ -92,7 +92,7 @@ class WorkspaceManager:
         run_id: Optional[str] = None,
         config: Optional[WorkspaceConfig] = None,
         base_name: str = "run",
-        create_structure: bool = None
+        create_structure: Optional[bool] = None
     ):
         """
         Initialize workspace manager.
@@ -755,7 +755,7 @@ def register_directory_cleanup(directory: Path, priority: int = 0) -> None:
         WorkspaceManager._cleanup_registered = True
 
 
-def cleanup_test_artifacts(base_path: Path = None) -> int:
+def cleanup_test_artifacts(base_path: Optional[Path] = None) -> int:
     """
     Clean up test artifacts and temporary directories.
     

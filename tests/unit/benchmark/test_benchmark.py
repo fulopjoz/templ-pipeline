@@ -38,7 +38,7 @@ class TestBenchmark(unittest.TestCase):
         self.test_dir = tempfile.mkdtemp()
         
         # Use centralized output structure
-        from templ_pipeline.core.directory_manager import DirectoryManager
+        from templ_pipeline.core.workspace_manager import DirectoryManager
         self._dir_manager = DirectoryManager(
             base_name="benchmark_test",
             auto_cleanup=True,
@@ -276,7 +276,7 @@ class TestBenchmarkErrorHandling(unittest.TestCase):
         self.test_dir = tempfile.mkdtemp()
         
         # Use centralized output structure for error tests
-        from templ_pipeline.core.directory_manager import DirectoryManager
+        from templ_pipeline.core.workspace_manager import DirectoryManager
         self._dir_manager = DirectoryManager(
             base_name="error_test",
             auto_cleanup=True,
@@ -441,7 +441,7 @@ class TestBenchmarkEdgeCases(unittest.TestCase):
         self.test_dir = tempfile.mkdtemp()
         
         # Use centralized output structure for edge case tests
-        from templ_pipeline.core.directory_manager import DirectoryManager
+        from templ_pipeline.core.workspace_manager import DirectoryManager
         self._dir_manager = DirectoryManager(
             base_name="edge_case_test",
             auto_cleanup=True,

@@ -386,7 +386,8 @@ def get_environment_constraints() -> Dict[str, Any]:
         constraints["memory_limited"] = True
     
     # Check for CPU constraints
-    if os.cpu_count() < 4:
+    cpu_count = os.cpu_count()
+    if cpu_count is not None and cpu_count < 4:
         constraints["cpu_limited"] = True
     
     return constraints
