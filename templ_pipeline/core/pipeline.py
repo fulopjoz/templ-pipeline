@@ -1147,8 +1147,8 @@ class TEMPLPipeline:
                 for metric_name, (mol, scores) in all_ranked_poses.items():
                     poses_for_saving.append((mol, scores, 0))  # Add dummy conf_id
             else:
-                # Already in list format
-                poses_for_saving = all_ranked_poses
+                # Already in list format, but need to reorder: (conf_id, scores, mol) -> (mol, scores, conf_id)
+                poses_for_saving = [(mol, scores, conf_id) for conf_id, scores, mol in all_ranked_poses]
             
             all_poses_file = self.output_manager.save_all_poses(
                 poses_for_saving, best_template, mcs_details, crystal_mol
