@@ -819,8 +819,11 @@ class BenchmarkSummaryGenerator:
         successful_results = 0
         results_with_rmsd = 0
         
+        # Process ALL pipeline_attempted results, not just successful ones
+        # This ensures pipeline failures are properly counted in success rate calculations
         for result in split_results:
             if result.get("success") and result.get("rmsd_values"):
+                # Successful result with RMSD values
                 successful_results += 1
                 has_rmsd_values = False
                 
@@ -839,10 +842,24 @@ class BenchmarkSummaryGenerator:
                 
                 if has_rmsd_values:
                     results_with_rmsd += 1
+            else:
+                # CRITICAL FIX: Include pipeline failures in RMSD collection
+                # Pipeline failures (empty RMSD, timeouts, etc.) should count as infinite RMSD
+                # This ensures they contribute 0 to success counts while being included in denominator
+                if result.get("processing_stage") == "pipeline_attempted":
+                    # This is a pipeline failure that was attempted but failed
+                    # Add a very high RMSD value (>100Å) to represent failure
+                    failure_rmsd = 999.0  # Guaranteed to fail both 2Å and 5Å thresholds
+                    
+                    # Add failure RMSD to all metrics to maintain consistency
+                    for metric_key in ["combo", "shape", "color"]:
+                        rmsd_by_metric[metric_key].append(failure_rmsd)
         
         logger.info(f"SUCCESS_RATE_CALC: Timesplit data collection summary:")
         logger.info(f"SUCCESS_RATE_CALC:   Successful results: {successful_results}/{len(split_results)}")
         logger.info(f"SUCCESS_RATE_CALC:   Results with RMSD values: {results_with_rmsd}/{successful_results}")
+        logger.info(f"SUCCESS_RATE_CALC:   Pipeline failures included: {pipeline_attempted_targets - results_with_rmsd}")
+        logger.info(f"SUCCESS_RATE_CALC:   Total RMSD entries (including failures): {len(rmsd_by_metric.get('combo', []))}")
         
         # Log RMSD data by metric
         for metric_key in rmsd_by_metric:
@@ -859,9 +876,16 @@ class BenchmarkSummaryGenerator:
                 count_2A = sum(1 for rmsd in rmsds if rmsd <= 2.0)
                 count_5A = sum(1 for rmsd in rmsds if rmsd <= 5.0)
                 
-                # CRITICAL FIX: Use pipeline_attempted_targets for accurate success rates
+                # SUCCESS RATE CALCULATION: Now correctly includes pipeline failures
+                # count_2A and count_5A are from rmsds array which includes both successes and failures (999.0 RMSD)
+                # pipeline_attempted_targets includes all attempted targets
+                # This ensures pipeline failures contribute 0 to numerator while being counted in denominator
                 rate_2A = count_2A / pipeline_attempted_targets * 100 if pipeline_attempted_targets > 0 else 0
                 rate_5A = count_5A / pipeline_attempted_targets * 100 if pipeline_attempted_targets > 0 else 0
+                
+                # Verify consistency: RMSD array length should match pipeline_attempted_targets
+                if len(rmsds) != pipeline_attempted_targets:
+                    logger.warning(f"RMSD array length ({len(rmsds)}) != pipeline_attempted_targets ({pipeline_attempted_targets})")
                 
                 # Also calculate legacy rates for comparison
                 legacy_rate_2A = count_2A / total_targets * 100 if total_targets > 0 else 0
@@ -886,9 +910,11 @@ class BenchmarkSummaryGenerator:
                 }
                 
                 # Log calculated success rates with stage awareness
-                logger.info(f"SUCCESS_RATE_CALC: Final Timesplit rates for {metric_key} (STAGE-AWARE):")
-                logger.info(f"SUCCESS_RATE_CALC:   2A pipeline success: {rate_2A:.1f}% ({count_2A}/{pipeline_attempted_targets}) [MAIN METRIC]")
-                logger.info(f"SUCCESS_RATE_CALC:   5A pipeline success: {rate_5A:.1f}% ({count_5A}/{pipeline_attempted_targets}) [MAIN METRIC]")
+                pipeline_failures = pipeline_attempted_targets - results_with_rmsd
+                logger.info(f"SUCCESS_RATE_CALC: Final Timesplit rates for {metric_key} (INCLUDING PIPELINE FAILURES):")
+                logger.info(f"SUCCESS_RATE_CALC:   2A pipeline success: {rate_2A:.1f}% ({count_2A}/{pipeline_attempted_targets}) [CORRECTED METRIC]")
+                logger.info(f"SUCCESS_RATE_CALC:   5A pipeline success: {rate_5A:.1f}% ({count_5A}/{pipeline_attempted_targets}) [CORRECTED METRIC]")
+                logger.info(f"SUCCESS_RATE_CALC:   Includes {pipeline_failures} pipeline failures as 0 successes")
                 logger.info(f"SUCCESS_RATE_CALC:   Legacy 2A rate: {legacy_rate_2A:.1f}% ({count_2A}/{total_targets}) [for comparison]")
                 logger.info(f"SUCCESS_RATE_CALC:   Legacy 5A rate: {legacy_rate_5A:.1f}% ({count_5A}/{total_targets}) [for comparison]")
                 logger.info(f"SUCCESS_RATE_CALC:   Mean RMSD: {mean_rmsd:.3f}A")
