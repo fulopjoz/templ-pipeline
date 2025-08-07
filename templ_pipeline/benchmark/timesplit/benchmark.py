@@ -469,8 +469,10 @@ def main(argv: List[str] = None) -> int:
                         # Handle both absolute and relative paths
                         results_file_path = Path(results_file)
                         if not results_file_path.is_absolute():
-                            # For relative paths, resolve against the base directory
-                            results_file_path = results_file_base / results_file_path.name
+                            # For relative paths, resolve against the project root
+                            # The relative paths in results JSON are from project root
+                            project_root = Path(__file__).parents[3]  # Go up from benchmark/timesplit/ to project root
+                            results_file_path = project_root / results_file_path
                         
                         if results_file_path.exists():
                             # Load JSONL results and add split information
