@@ -240,3 +240,6 @@ valid_cod/
 docs/
 
 kubectl
+benchmarks/**
+benchmarks/pdbbind/
+

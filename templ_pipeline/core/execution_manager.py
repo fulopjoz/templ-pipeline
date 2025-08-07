@@ -171,7 +171,10 @@ class ExecutionManager:
                 pass
         
         # Conservative fallback
-        return max(1, os.cpu_count() * 4)
+        cpu_count = os.cpu_count()
+        if cpu_count is None:
+            cpu_count = 1  # Default to 1 if cpu_count is None
+        return max(1, cpu_count * 4)
     
     def start_execution(self) -> None:
         """Mark the start of execution for monitoring."""
@@ -509,7 +512,7 @@ class RobustProcessPoolWrapper:
             # Use pebble's schedule/result pattern like true_mcs.py
             futures = []
             for args in iterable:
-                future = self.pool.schedule(func, args=[args])
+                future = self.pool.schedule(func, args=[args])  # type: ignore
                 futures.append(future)
             
             # Collect results
@@ -530,11 +533,13 @@ class RobustProcessPoolWrapper:
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.pool.close()
         if self.use_pebble:
-            self.pool.join()
+            # Pebble ProcessPool methods
+            self.pool.close()  # type: ignore
+            self.pool.join()  # type: ignore
         else:
-            self.pool.shutdown(wait=True)
+            # ProcessPoolExecutor method
+            self.pool.shutdown(wait=True)  # type: ignore
 
 
 def create_robust_process_pool(max_workers: int, task_type: str = "general") -> RobustProcessPoolWrapper:

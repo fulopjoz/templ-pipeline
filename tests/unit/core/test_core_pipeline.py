@@ -34,7 +34,7 @@ class TestTEMPLPipeline(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         # Use centralized output structure
-        from templ_pipeline.core.directory_manager import DirectoryManager
+        from templ_pipeline.core.workspace_manager import DirectoryManager
         self.test_dir = tempfile.mkdtemp()
         
         # Create centralized directory manager
@@ -296,7 +296,7 @@ class TestTEMPLPipelineErrorHandling(unittest.TestCase):
         self.invalid_embedding_path = os.path.join(self.test_dir, "nonexistent.npz")
         
         # Create centralized directory manager for error tests
-        from templ_pipeline.core.directory_manager import DirectoryManager
+        from templ_pipeline.core.workspace_manager import DirectoryManager
         self._dir_manager = DirectoryManager(
             base_name="error_test",
             auto_cleanup=True,
@@ -546,7 +546,7 @@ class TestTEMPLPipelineEdgeCases(unittest.TestCase):
         self.test_dir = tempfile.mkdtemp()
         
         # Create centralized directory manager for edge case tests
-        from templ_pipeline.core.directory_manager import DirectoryManager
+        from templ_pipeline.core.workspace_manager import DirectoryManager
         self._dir_manager = DirectoryManager(
             base_name="edge_test",
             auto_cleanup=True,

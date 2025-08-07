@@ -229,18 +229,18 @@ def simple_minimize_molecule(mol: Chem.Mol) -> bool:
         if needs_uff_fallback(mol):
             log.debug("Using UFF minimization for organometallic molecule")
             # Use UFF for organometallic molecules
-            AllChem.UFFOptimizeMolecule(mol)
+            AllChem.UFFOptimizeMolecule(mol, maxIters=1000)  # type: ignore
             return True
         else:
             log.debug("Using MMFF minimization for standard molecule")
             # Use MMFF for standard molecules - optimize all conformers
             if mol.GetNumConformers() == 1:
                 # Single conformer optimization
-                result = AllChem.MMFFOptimizeMolecule(mol)
+                result = AllChem.MMFFOptimizeMolecule(mol, maxIters=1000)  # type: ignore
                 return result == 0  # 0 indicates successful convergence
             else:
                 # Multiple conformer optimization
-                results = AllChem.MMFFOptimizeMoleculeConfs(mol)
+                results = AllChem.MMFFOptimizeMoleculeConfs(mol, maxIters=1000)  # type: ignore
                 # Return True if at least one conformer converged successfully
                 return any(result[0] == 0 for result in results)
     
@@ -457,65 +457,7 @@ def needs_uff_fallback(mol: Chem.Mol) -> bool:
     return False
 
 
-def embed_organometallic_with_constraints(mol: Chem.Mol, n_conformers: int, coordMap: dict) -> List[int]:
-    """Organometallic-compatible embedding with constraints."""
-    try:
-        # First try with standard ETKDGv3 + constraints
-        conf_ids = rdDistGeom.EmbedMultipleConfs(
-            mol, 
-            n_conformers, 
-            randomSeed=42,
-            numThreads=1,
-            useRandomCoords=False,
-            enforceChirality=False,
-            maxAttempts=1000,
-            coordMap=coordMap
-        )
-        if conf_ids:
-            log.debug(f"Standard constrained embedding succeeded: {len(conf_ids)} conformers")
-            return conf_ids
-    except Exception as e:
-        log.debug(f"Standard constrained embedding failed: {e}")
-    
-    # Try with UFF-compatible settings
-    try:
-        conf_ids = rdDistGeom.EmbedMultipleConfs(
-            mol, 
-            n_conformers, 
-            randomSeed=42,
-            numThreads=1,
-            useRandomCoords=True,
-            enforceChirality=False,
-            maxAttempts=2000,
-            coordMap=coordMap
-        )
-        if conf_ids:
-            log.debug(f"UFF-compatible constrained embedding succeeded: {len(conf_ids)} conformers")
-            return conf_ids
-    except Exception as e:
-        log.debug(f"UFF-compatible constrained embedding failed: {e}")
-    
-    # Final fallback: unconstrained embedding
-    try:
-        conf_ids = rdDistGeom.EmbedMultipleConfs(
-            mol, 
-            min(n_conformers, 200), 
-            randomSeed=42,
-            numThreads=1,
-            useRandomCoords=True,
-            enforceChirality=False,
-            maxAttempts=500
-        )
-        if conf_ids:
-            log.debug(f"Unconstrained fallback embedding succeeded: {len(conf_ids)} conformers")
-            return conf_ids
-    except Exception as e:
-        log.error(f"All organometallic embedding attempts failed: {e}")
-    
-    return []
-
-
-def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: dict = None, numThreads: int = 0) -> List[int]:
+def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: Optional[dict] = None, numThreads: int = 0) -> List[int]:
     """Embedding function with UFF force field fallback for organometallic molecules.
     
     Args:
@@ -590,7 +532,7 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: dict = N
                 )
             if cids:
                 # Use simple UFF optimization for organogmetallic molecules
-                AllChem.UFFOptimizeMolecule(mol)
+                AllChem.UFFOptimizeMolecule(mol, maxIters=1000)  # type: ignore
                 log.debug(f"UFF fallback succeeded: {len(cids)} conformers")
                 return list(cids)
         
@@ -749,7 +691,7 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
         # Try with relaxed constraints first
         log.info("Attempting embedding with relaxed constraints")
         log_coordinate_map(coordMap, "relaxed_coordinate_map")
-        ps.SetCoordMap(coordMap)
+        ps.SetCoordMap(coordMap)  # type: ignore
         
                 # Enhanced error handling for conformer generation
         try:
@@ -777,7 +719,7 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
                 log.info(f"Progressive embedding attempt {lrm + 1}: using {len(cmap)} constraints")
                 log_coordinate_map(cmap, f"progressive_attempt_{lrm + 1}")
                 
-                ps.SetCoordMap(cmap)
+                ps.SetCoordMap(cmap)  # type: ignore
                 r = rdDistGeom.EmbedMultipleConfs(target_h, n_conformers, ps)
                 
                 if r == -1:
