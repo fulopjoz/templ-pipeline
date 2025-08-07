@@ -10,7 +10,7 @@ and metrics across different benchmark types.
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Union, Tuple, TYPE_CHECKING
+from typing import Dict, List, Optional, Any, Union, Tuple
 from datetime import datetime
 from collections import defaultdict
 
@@ -23,10 +23,6 @@ try:
 except ImportError:
     PANDAS_AVAILABLE = False
     pd = None
-
-# Type checking imports
-if TYPE_CHECKING:
-    from pandas import DataFrame
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +62,7 @@ class BenchmarkSummaryGenerator:
         results_data: Union[Dict, List[Dict]], 
         benchmark_type: Optional[str] = None,
         output_format: str = "pandas"
-    ) -> Union[Dict, "DataFrame"]:
+    ) -> Union[Dict, "pd.DataFrame"]:
         """Generate unified summary from benchmark results.
         
         Args:
@@ -86,22 +82,14 @@ class BenchmarkSummaryGenerator:
         logger.info(f"Generating summary for {benchmark_type} benchmark")
         
         if benchmark_type == "polaris":
-            if isinstance(results_data, dict):
-                return self._generate_polaris_summary(results_data, output_format)
-            else:
-                logger.warning("Polaris benchmark expects dict format, converting list to dict")
-                return self._generate_polaris_summary({"results": results_data}, output_format)
+            return self._generate_polaris_summary(results_data, output_format)
         elif benchmark_type == "timesplit":
             return self._generate_timesplit_summary(results_data, output_format)
         else:
             logger.warning(f"Unknown benchmark type: {benchmark_type}")
-            if isinstance(results_data, dict):
-                return self._generate_generic_summary(results_data, output_format)
-            else:
-                logger.warning("Generic summary expects dict format, converting list to dict")
-                return self._generate_generic_summary({"results": results_data}, output_format)
+            return self._generate_generic_summary(results_data, output_format)
     
-    def _generate_polaris_summary(self, results_data: Dict, output_format: str) -> Union[Dict, "DataFrame"]:
+    def _generate_polaris_summary(self, results_data: Dict, output_format: str) -> Union[Dict, "pd.DataFrame"]:
         """Generate summary for Polaris benchmark results."""
         table_data = []
         
@@ -165,7 +153,7 @@ class BenchmarkSummaryGenerator:
         
         return self._format_output(table_data, output_format)
     
-    def _generate_timesplit_summary(self, results_data: Union[Dict, List[Dict]], output_format: str) -> Union[Dict, "DataFrame"]:
+    def _generate_timesplit_summary(self, results_data: Union[Dict, List[Dict]], output_format: str) -> Union[Dict, "pd.DataFrame"]:
         """Generate summary for Timesplit benchmark results using stage-aware metrics."""
         logger.info("Generating timesplit summary with stage-aware metrics...")
         
@@ -781,7 +769,7 @@ class BenchmarkSummaryGenerator:
         
         return metrics, exclusion_stats
 
-    def _calculate_timesplit_metrics(self, split_results: List[Dict], total_targets: int, all_results: Optional[List[Dict]] = None) -> Dict:
+    def _calculate_timesplit_metrics(self, split_results: List[Dict], total_targets: int, all_results: List[Dict] = None) -> Dict:
         """Calculate metrics for Timesplit benchmark results with stage-aware success rates."""
         metrics = {}
         
@@ -1044,7 +1032,7 @@ class BenchmarkSummaryGenerator:
         
         return validation_report
 
-    def _generate_timesplit_summary_fixed(self, results_data: Union[Dict, List[Dict]], output_format: str) -> Union[Dict, "DataFrame"]:
+    def _generate_timesplit_summary_fixed(self, results_data: Union[Dict, List[Dict]], output_format: str) -> Union[Dict, "pd.DataFrame"]:
         """
         Fixed version of timesplit summary generation using stage-aware metrics.
         
@@ -1083,7 +1071,7 @@ class BenchmarkSummaryGenerator:
         
         # Use stage-aware metrics calculation
         total_targets = len(results_data)
-        successful_results = [r for r in results_data if r.get("success") and r.get("rmsd_values") and len(r.get("rmsd_values", {})) > 0]
+        successful_results = [r for r in results_data if r.get("success") and r.get("rmsd_values")]
         
         # Calculate stage-aware metrics using existing processing_stage field
         stage_counts = {"pre_pipeline_excluded": 0, "pipeline_filtered": 0, "pipeline_attempted": 0}
@@ -1097,10 +1085,10 @@ class BenchmarkSummaryGenerator:
                 stage_counts[processing_stage] += 1
             else:
                 # Fallback for unknown processing stages - classify based on result content
-                if result.get("success") and result.get("rmsd_values") and len(result.get("rmsd_values", {})) > 0:
+                if result.get("success") and result.get("rmsd_values"):
                     # Successful results with RMSD are always pipeline_attempted
                     stage_counts["pipeline_attempted"] += 1
-                elif result.get("success") and (not result.get("rmsd_values") or len(result.get("rmsd_values", {})) == 0):
+                elif result.get("success") and not result.get("rmsd_values"):
                     # Successful CLI execution but no RMSD (0 templates/poses)
                     # Analyze CLI JSON output to distinguish data issues from filtering
                     exclusion_reason = self._classify_no_templates_case(result)
@@ -1159,7 +1147,7 @@ class BenchmarkSummaryGenerator:
                             # No error message - check if this is a database_empty case from CLI JSON
                             exclusion_reason = self._classify_no_templates_case(result)
                             exclusion_reasons[exclusion_reason] += 1
-                    elif result.get("success") and (not result.get("rmsd_values") or len(result.get("rmsd_values", {})) == 0):
+                    elif result.get("success") and not result.get("rmsd_values"):
                         # Successful CLI execution but no RMSD (0 templates/poses)
                         exclusion_reason = self._classify_no_templates_case(result)
                         exclusion_reasons[exclusion_reason] += 1
@@ -1224,7 +1212,7 @@ class BenchmarkSummaryGenerator:
             total_templates = sum(template_counts.values()) if template_counts else 0
             return str(total_templates)
     
-    def _generate_generic_summary(self, results_data: Dict, output_format: str) -> Union[Dict, "DataFrame"]:
+    def _generate_generic_summary(self, results_data: Dict, output_format: str) -> Union[Dict, "pd.DataFrame"]:
         """Generate generic summary for unknown benchmark types."""
         logger.warning("Using generic summary generation for unknown benchmark type")
         
@@ -1244,9 +1232,9 @@ class BenchmarkSummaryGenerator:
         
         return self._format_output(table_data, output_format)
     
-    def _format_output(self, table_data: List[Dict], output_format: str) -> Union[Dict, "DataFrame", List[Dict], str]:
+    def _format_output(self, table_data: List[Dict], output_format: str) -> Union[Dict, "pd.DataFrame"]:
         """Format output data according to requested format."""
-        if output_format == "pandas" and PANDAS_AVAILABLE and pd is not None:
+        if output_format == "pandas" and PANDAS_AVAILABLE:
             return pd.DataFrame(table_data)
         elif output_format == "dict":
             return {"summary_data": table_data}

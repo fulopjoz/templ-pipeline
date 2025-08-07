@@ -14,20 +14,20 @@ The main classes and functions:
 - select_templates: Find similar templates for a target protein
 """
 
+import hashlib
+import logging
 import os
+import tempfile
 import time
 import warnings
-import logging
-import hashlib
-import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple, Any, Union, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 import numpy as np
-from Bio.PDB.PDBParser import PDBParser
-from Bio.PDB.Polypeptide import PPBuilder
 from Bio.PDB.PDBExceptions import PDBConstructionWarning
 from Bio.PDB.parse_pdb_header import parse_pdb_header
+from Bio.PDB.PDBParser import PDBParser
+from Bio.PDB.Polypeptide import PPBuilder
 from sklearn.metrics.pairwise import cosine_similarity
 
 # Initialize global variables for ESM model components (lazy-loaded)
@@ -36,7 +36,7 @@ _esm_components = None
 # Check if ESM dependencies are available
 try:
     import torch
-    # Fix torch.classes compatibility issue  
+    # Fix torch.classes compatibility issue
     torch.classes.__path__ = []
     from transformers import EsmModel, EsmTokenizer
     ESM_AVAILABLE = True
@@ -94,10 +94,16 @@ def _get_gpu_info() -> Dict[str, Any]:
             "device": "cuda",
             "device_count": torch.cuda.device_count(),
             "device_name": torch.cuda.get_device_name(0),
-            "memory_total": torch.cuda.get_device_properties(0).total_memory / 1e9,
+            "memory_total": (
+                torch.cuda.get_device_properties(0).total_memory / 1e9
+            ),
         }
     except Exception:
-        return {"available": False, "device": "cpu", "error": "Failed to get GPU info"}
+        return {
+            "available": False,
+            "device": "cpu",
+            "error": "Failed to get GPU info"
+        }
 
 
 # Configure logging - prevent duplicate handlers
@@ -118,7 +124,9 @@ try:
         get_default_embedding_path,
     )
 except ImportError:
-    logger.warning("Could not import utility functions from templ_pipeline.core.utils")
+    logger.warning(
+        "Could not import utility functions from templ_pipeline.core.utils"
+    )
     find_pdbbind_paths = None
     get_default_embedding_path = None
 
@@ -131,7 +139,7 @@ CA_RMSD_FALLBACK_THRESHOLDS = [10.0, 15.0, 20.0]  # Progressive fallback thresho
 def _get_standard_embedding_paths() -> List[Path]:
     """Get standard embedding paths, using new centralized path management first."""
     potential_paths = []
-    
+
     # First, try the new centralized path management system
     if get_default_embedding_path:
         current_dir = Path(__file__).parent.absolute()
@@ -144,7 +152,7 @@ def _get_standard_embedding_paths() -> List[Path]:
             embedding_path = get_default_embedding_path(str(base_dir))
             if embedding_path:
                 potential_paths.append(Path(embedding_path))
-    
+
     # Standard path resolution for the correct embedding file
     current_dir = Path(__file__).parent.absolute()
     root_dir_candidate1 = current_dir.parent.parent  # e.g., 'mcs' or 'project_root'
@@ -177,7 +185,7 @@ def _get_standard_embedding_paths() -> List[Path]:
         # Standard ZENODO path
         root_dir / "data" / "embeddings" / "templ_protein_embeddings_v1.0.0.npz",
     ]
-    
+
     potential_paths.extend(standard_paths)
 
     # Return unique, resolved paths
@@ -365,7 +373,8 @@ def get_protein_sequence(
                     final_seq = seqres_seq
                     used_chains = [target_chain]
                     logger.debug(
-                        f"Using SEQRES sequence for chain {target_chain} (length: {len(final_seq)})"
+                        f"Using SEQRES sequence for chain {target_chain} "
+                        f"(length: {len(final_seq)})"
                     )
                 else:
                     logger.warning(
@@ -385,7 +394,8 @@ def get_protein_sequence(
             final_seq = struct_sequences[target_chain]
             used_chains = [target_chain]
             logger.debug(
-                f"Using structure-based sequence for chain {target_chain} (length: {len(final_seq)})"
+                f"Using structure-based sequence for chain {target_chain} "
+                f"(length: {len(final_seq)})"
             )
 
         # Final validation
@@ -394,7 +404,9 @@ def get_protein_sequence(
             return None, []
 
         if "X" in final_seq:
-            logger.warning(f"Sequence contains {final_seq.count('X')} unknown residues")
+            logger.warning(
+                f"Sequence contains {final_seq.count('X')} unknown residues"
+            )
 
         return final_seq, used_chains
 
@@ -420,11 +432,14 @@ def initialize_esm_model():
 
             if gpu_info["available"]:
                 logger.info(
-                    f"GPU detected: {gpu_info['device_name']} ({gpu_info['memory_total']:.1f}GB)"
+                    f"GPU detected: {gpu_info['device_name']} "
+                    f"({gpu_info['memory_total']:.1f}GB)"
                 )
                 logger.info(f"Initializing ESM model on GPU")
             else:
-                logger.info(f"No GPU available, using CPU for embedding generation")
+                logger.info(
+                    f"No GPU available, using CPU for embedding generation"
+                )
 
             # Configure model with optimizations
             config = AutoConfig.from_pretrained(model_id)
@@ -470,22 +485,28 @@ def initialize_esm_model():
 def calculate_embedding_single(sequence: str, esm_components):
     """Calculate embedding for a single protein sequence."""
     if not ESM_AVAILABLE:
-        logger.error("ESM model not available - torch and transformers not installed")
+        logger.error(
+            "ESM model not available - torch and transformers not installed"
+        )
         return None
-        
+
     import torch
-    
+
     tokenizer, model = esm_components["tokenizer"], esm_components["model"]
-    inputs = tokenizer(sequence, return_tensors="pt", truncation=True, max_length=ESM_MAX_SEQUENCE_LENGTH)
-    
+    inputs = tokenizer(
+        sequence, return_tensors="pt", truncation=True, max_length=ESM_MAX_SEQUENCE_LENGTH
+    )
+
     # Move inputs to the same device as the model
     device = next(model.parameters()).device
     inputs = {k: v.to(device) for k, v in inputs.items()}
-    
+
     with torch.no_grad():
-        with torch.autocast(device_type=device.type, enabled=torch.cuda.is_available()):
+        with torch.autocast(
+            device_type=device.type, enabled=torch.cuda.is_available()
+        ):
             outputs = model(**inputs)
-        
+
     # Mean pool over sequence length dimension to get fixed-size vector
     # This matches the approach in create_embeddings_base.py
     return outputs.last_hidden_state.mean(dim=1).squeeze().cpu().numpy()
@@ -511,17 +532,20 @@ def calculate_embedding(sequence: str) -> Optional[np.ndarray]:
     try:
         # Use the single embedding function with proper error handling
         emb = calculate_embedding_single(sequence, esm_components)
-        
+
         if emb is not None:
             # Ensure correct dtype
             emb = emb.astype(np.float32)
-            
+
         elapsed = time.time() - start_time
         if emb is not None:
-            logger.info(f"Embedding generated successfully in {elapsed:.2f}s, shape: {emb.shape}")
+            logger.info(
+                f"Embedding generated successfully in {elapsed:.2f}s, "
+                f"shape: {emb.shape}"
+            )
         else:
             logger.error(f"Failed to generate embedding after {elapsed:.2f}s")
-            
+
         return emb
 
     except Exception as e:
@@ -555,7 +579,9 @@ def get_protein_embedding(
 
     # Log embedding generation start with device info
     gpu_info = _get_gpu_info()
-    device_info = f"GPU ({gpu_info['device_name']})" if gpu_info["available"] else "CPU"
+    device_info = (
+        f"GPU ({gpu_info['device_name']})" if gpu_info["available"] else "CPU"
+    )
     logger.info(f"Generating embedding for protein {pdb_id} using {device_info}")
 
     try:
@@ -575,7 +601,8 @@ def get_protein_embedding(
             )
 
         logger.info(
-            f"Extracted sequence of length {len(seq)} from chain(s): {', '.join(chains)}"
+            f"Extracted sequence of length {len(seq)} from chain(s): "
+            f"{', '.join(chains)}"
         )
 
         # Generate embedding with progress indication
@@ -598,7 +625,8 @@ def get_protein_embedding(
     except Exception as e:
         elapsed = time.time() - start_time
         logger.error(
-            f"Failed to calculate embedding for {pdb_file} after {elapsed:.2f}s: {str(e)}"
+            f"Failed to calculate embedding for {pdb_file} after {elapsed:.2f}s: "
+            f"{str(e)}"
         )
         import traceback
 
@@ -682,10 +710,10 @@ class EmbeddingManager:
     4. Maintaining chain information for protein alignment
     5. Caching on-demand embeddings to disk to avoid regeneration
     """
-    
+
     _instance = None
     _initialized = False
-    
+
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
             cls._instance = super(EmbeddingManager, cls).__new__(cls)
@@ -704,7 +732,7 @@ class EmbeddingManager:
         if self._initialized:
             logger.debug("EmbeddingManager already initialized, skipping")
             return
-            
+
         resolved_path = _resolve_embedding_path(embedding_path)
         self.embedding_path = resolved_path if resolved_path else ""
 
@@ -729,7 +757,9 @@ class EmbeddingManager:
             # Ensure the base cache directory exists
             Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
             # Create model-specific subdirectory
-            model_dir_name = "esm2_t33_650M_UR50D"  # Should ideally come from model config or constant
+            model_dir_name = (
+                "esm2_t33_650M_UR50D"  # Should ideally come from model config or constant
+            )
             model_specific_cache_dir = Path(self.cache_dir) / model_dir_name
             model_specific_cache_dir.mkdir(parents=True, exist_ok=True)
             self.cache_dir = str(
@@ -742,7 +772,7 @@ class EmbeddingManager:
         self._batch_queue = []
 
         self._load_embeddings()
-        
+
         # Mark as initialized
         self._initialized = True
 
@@ -754,16 +784,17 @@ class EmbeddingManager:
 
     def _load_embeddings(self) -> bool:
         """Load pre-computed embeddings from NPZ file."""
-        
+
         # Check if embeddings are already loaded to prevent repeated loading
         if self.embedding_db:
             logger.debug("Embeddings already loaded, skipping reload")
             return True
-        
+
         # Load from NPZ file
         if not self.embedding_path or not os.path.exists(self.embedding_path):
             logger.warning(
-                f"Embedding file not found or path is invalid: '{self.embedding_path}'"
+                f"Embedding file not found or path is invalid: "
+                f"'{self.embedding_path}'"
             )
             return False
 
@@ -786,7 +817,8 @@ class EmbeddingManager:
                     )
 
             logger.info(
-                f"Loaded {len(self.embedding_db)} embeddings from {self.embedding_path}"
+                f"Loaded {len(self.embedding_db)} embeddings from "
+                f"{self.embedding_path}"
             )
             return True
         except Exception as e:
@@ -848,7 +880,9 @@ class EmbeddingManager:
             logger.debug(f"Saved embedding to cache: {cache_path}")
             return True
         except Exception as e:
-            logger.error(f"Failed to save embedding to cache for {pdb_id}: {str(e)}")
+            logger.error(
+                f"Failed to save embedding to cache for {pdb_id}: {str(e)}"
+            )
             return False
 
     def _load_from_cache(
@@ -864,7 +898,8 @@ class EmbeddingManager:
             if os.path.exists(cache_path_specific_chain):
                 data = np.load(cache_path_specific_chain, allow_pickle=True)
                 logger.debug(
-                    f"Loaded embedding from cache (specific chain key {target_chain_id}): {cache_path_specific_chain}"
+                    f"Loaded embedding from cache (specific chain key {target_chain_id}): "
+                    f"{cache_path_specific_chain}"
                 )
                 return data["embedding"], (
                     str(data["chain_ids"]) if "chain_ids" in data else ""
@@ -885,7 +920,9 @@ class EmbeddingManager:
 
             return None, None
         except Exception as e:
-            logger.error(f"Failed to load embedding from cache for {pdb_id}: {str(e)}")
+            logger.error(
+                f"Failed to load embedding from cache for {pdb_id}: {str(e)}"
+            )
             return None, None
 
     def is_in_cache(self, pdb_id: str, target_chain_id: Optional[str] = None) -> bool:
@@ -909,7 +946,8 @@ class EmbeddingManager:
                 or not os.path.exists(self.cache_dir)
             ):
                 logger.info(
-                    "Cache not used or cache directory does not exist. Nothing to clear."
+                    "Cache not used or cache directory does not exist. "
+                    "Nothing to clear."
                 )
                 return False
 
@@ -995,7 +1033,8 @@ class EmbeddingManager:
             and os.path.exists(self.embedding_path)
         ):
             logger.warning(
-                f"Embedding DB seems empty. Trying to reload from {self.embedding_path}"
+                f"Embedding DB seems empty. Trying to reload from "
+                f"{self.embedding_path}"
             )
             self._load_embeddings()
             # Check again after reloading
@@ -1024,17 +1063,25 @@ class EmbeddingManager:
         # 0. Normalize pdb_id (e.g. PDB:1abc -> 1abc)
         original_pdb_id = pdb_id
         pdb_id = pdb_id.upper().split(":")[-1]
-        
-        logger.debug(f"Embedding lookup for PDB ID '{pdb_id}' (original: '{original_pdb_id}')")
+
+        logger.debug(
+            f"Embedding lookup for PDB ID '{pdb_id}' (original: '{original_pdb_id}')"
+        )
 
         # 1. Check in-memory pre-computed database
         if pdb_id in self.embedding_db:
-            logger.debug(f"Found embedding for {pdb_id} in pre-computed database ({len(self.embedding_db)} total embeddings)")
+            logger.debug(
+                f"Found embedding for {pdb_id} in pre-computed database "
+                f"({len(self.embedding_db)} total embeddings)"
+            )
             return self.embedding_db[pdb_id], self.embedding_chain_data.get(pdb_id, "")
 
         # 2. Check in-memory on-demand generated embeddings
         if pdb_id in self.on_demand_embeddings:
-            logger.debug(f"Found embedding for {pdb_id} in on-demand memory cache ({len(self.on_demand_embeddings)} cached)")
+            logger.debug(
+                f"Found embedding for {pdb_id} in on-demand memory cache "
+                f"({len(self.on_demand_embeddings)} cached)"
+            )
             return self.on_demand_embeddings[pdb_id], self.on_demand_chain_data.get(
                 pdb_id, ""
             )
@@ -1055,8 +1102,10 @@ class EmbeddingManager:
             logger.debug(f"Disk cache disabled for {pdb_id}")
 
         # 4. Generate embedding on-demand if PDB file path is provided
-        logger.info(f"No existing embedding found for {pdb_id}, attempting on-demand generation")
-        
+        logger.info(
+            f"No existing embedding found for {pdb_id}, attempting on-demand generation"
+        )
+
         # Ensure pdb_file is valid if we need to generate
         actual_pdb_file_to_use = pdb_file
         if (
@@ -1066,7 +1115,8 @@ class EmbeddingManager:
         ):
             # If only PDB ID is given and not found in DB/cache, we can't generate without a file.
             logger.error(
-                f"Cannot generate embedding for {pdb_id}: No PDB file provided and not found in database/cache"
+                f"Cannot generate embedding for {pdb_id}: No PDB file provided "
+                f"and not found in database/cache"
             )
             return None, None
         elif pdb_id.endswith(".pdb") and os.path.exists(
@@ -1081,11 +1131,15 @@ class EmbeddingManager:
             if pdb_id.startswith("TEMP_"):
                 extracted_id = extract_pdb_id_from_file(actual_pdb_file_to_use)
                 if extracted_id and not extracted_id.startswith("TEMP_"):
-                    logger.info(f"Updated PDB ID from '{pdb_id}' to '{extracted_id}' based on file header")
+                    logger.info(
+                        f"Updated PDB ID from '{pdb_id}' to '{extracted_id}' "
+                        f"based on file header"
+                    )
                     pdb_id = extracted_id
 
             logger.info(
-                f"Generating on-demand embedding for {pdb_id} from file {actual_pdb_file_to_use}"
+                f"Generating on-demand embedding for {pdb_id} from file "
+                f"{actual_pdb_file_to_use}"
             )
 
             seq, chains_list = get_protein_sequence(
@@ -1093,7 +1147,8 @@ class EmbeddingManager:
             )
             if not seq or not chains_list:
                 logger.error(
-                    f"Failed to extract sequence from {actual_pdb_file_to_use} for {pdb_id}"
+                    f"Failed to extract sequence from {actual_pdb_file_to_use} "
+                    f"for {pdb_id}"
                 )
                 return None, None
 
@@ -1110,15 +1165,20 @@ class EmbeddingManager:
                     )  # Save with list of chains
 
                 logger.info(
-                    f"Successfully generated and cached on-demand embedding for {pdb_id} (shape: {embedding.shape})"
+                    f"Successfully generated and cached on-demand embedding for "
+                    f"{pdb_id} (shape: {embedding.shape})"
                 )
                 return embedding, chains_str
             else:
                 logger.error(f"Failed to calculate on-demand embedding for {pdb_id}")
         else:
-            logger.error(f"PDB file not found or invalid: {actual_pdb_file_to_use}")
+            logger.error(
+                f"PDB file not found or invalid: {actual_pdb_file_to_use}"
+            )
 
-        logger.error(f"Embedding for {pdb_id} could not be found or generated from any source")
+        logger.error(
+            f"Embedding for {pdb_id} could not be found or generated from any source"
+        )
         return None, None
 
     def find_neighbors(
