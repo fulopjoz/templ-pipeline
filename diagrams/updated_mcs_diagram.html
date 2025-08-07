@@ -359,7 +359,7 @@ flowchart TD
                         <h3>Utility Functions</h3>
                         <ul>
                             <li><strong>safe_name()</strong>: Converts molecule names or strings to filesystem-safe versions. Extracts names from molecule properties or uses provided strings, then replaces problematic characters with underscores. Removes multiple underscores and trims leading/trailing underscores.</li>
-                            <li><strong>N_CONFS = 50</strong>: Default number of conformers to generate during embedding. Can be overridden by function parameters and is adaptively reduced for large molecules or fallback scenarios.</li>
+                            <li><strong>N_CONFS = 200</strong>: Default number of conformers to generate during embedding. Can be overridden by function parameters and is adaptively reduced for large molecules or fallback scenarios.</li>
                             <li><strong>MAX_MOLECULE_SIZE = 150</strong>: Maximum molecule size for constrained embedding. Molecules larger than this threshold automatically use central atom fallback to prevent computational issues.</li>
                             <li><strong>MIN_MCS_SIZE = 3</strong>: Minimum acceptable MCS size for constrained embedding. MCS matches with fewer than 3 atoms fall back to central atom positioning.</li>
                         </ul>
