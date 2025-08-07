@@ -821,7 +821,8 @@ class BenchmarkSummaryGenerator:
         
         # Process ALL pipeline_attempted results, not just successful ones
         # This ensures pipeline failures are properly counted in success rate calculations
-        for result in split_results:
+        results_to_process = all_results if all_results else split_results
+        for result in results_to_process:
             if result.get("success") and result.get("rmsd_values"):
                 # Successful result with RMSD values
                 successful_results += 1
