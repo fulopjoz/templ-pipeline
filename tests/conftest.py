@@ -443,7 +443,7 @@ def centralized_output_dir(tmp_path):
     Returns:
         Path to centralized test output directory
     """
-    from templ_pipeline.core.directory_manager import DirectoryManager
+    from templ_pipeline.core.workspace_manager import DirectoryManager
     
     # Create centralized output structure for tests
     output_root = tmp_path / "output" 
@@ -471,7 +471,7 @@ def test_directory_manager(tmp_path):
     Returns:
         DirectoryManager configured for testing
     """
-    from templ_pipeline.core.directory_manager import DirectoryManager
+    from templ_pipeline.core.workspace_manager import DirectoryManager
     
     return DirectoryManager(
         base_name="test",

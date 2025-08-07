@@ -7,10 +7,10 @@ This module provides utilities for handling dataset splits and filtering:
 3. Supporting benchmarking with time-based train/test separation
 """
 
-import os
 import logging
+import os
 from pathlib import Path
-from typing import Set, List, Dict, Optional, Union
+from typing import Dict, List, Optional, Set, Union
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,9 @@ class DatasetSplits:
                     break
 
             if splits_dir is None:
-                logger.warning("Could not find splits directory. Using default path.")
+                logger.warning(
+                    "Could not find splits directory. Using default path."
+                )
                 splits_dir = os.path.join(os.getcwd(), "data", "splits")
 
         self.splits_dir = splits_dir
@@ -111,7 +113,8 @@ class DatasetSplits:
             return self.test_pdbs
         else:
             raise ValueError(
-                f"Unknown split name: {split_name}. " f"Use 'train', 'val', or 'test'."
+                f"Unknown split name: {split_name}. "
+                f"Use 'train', 'val', or 'test'."
             )
 
     def is_in_split(self, pdb_id: str, split_name: str) -> bool:
@@ -126,19 +129,6 @@ class DatasetSplits:
         """
         return pdb_id.lower() in self.get_split(split_name)
 
-    def filter_by_split(self, pdb_ids: List[str], split_name: str) -> List[str]:
-        """Filter a list of PDB IDs to only include those in a specific split.
-
-        Args:
-            pdb_ids: List of PDB IDs to filter
-            split_name: Name of the split to filter by
-
-        Returns:
-            Filtered list of PDB IDs
-        """
-        split_pdbs = self.get_split(split_name)
-        return [pdb_id for pdb_id in pdb_ids if pdb_id.lower() in split_pdbs]
-
     def get_statistics(self) -> Dict[str, int]:
         """Get statistics about the dataset splits.
 
@@ -149,13 +139,7 @@ class DatasetSplits:
             "train": len(self.train_pdbs),
             "val": len(self.val_pdbs),
             "test": len(self.test_pdbs),
-            "total": len(self.train_pdbs) + len(self.val_pdbs) + len(self.test_pdbs),
+            "total": (
+                len(self.train_pdbs) + len(self.val_pdbs) + len(self.test_pdbs)
+            ),
         }
-
-    def get_all_pdbs(self) -> Set[str]:
-        """Get all PDB IDs across all splits.
-
-        Returns:
-            Set of all PDB IDs
-        """
-        return self.train_pdbs.union(self.val_pdbs).union(self.test_pdbs)
