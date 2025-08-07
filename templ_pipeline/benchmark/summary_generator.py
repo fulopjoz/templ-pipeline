@@ -779,19 +779,27 @@ class BenchmarkSummaryGenerator:
         pipeline_filtered = 0
         
         if all_results:
-            # Analyze all results to determine processing stages
+            # Analyze all results using existing processing_stage field
             stage_counts = {"pre_pipeline_excluded": 0, "pipeline_filtered": 0, "pipeline_attempted": 0}
             
             for result in all_results:
-                if result.get("success") and result.get("rmsd_values"):
-                    # Successful results are always pipeline_attempted
-                    stage_counts["pipeline_attempted"] += 1
-                else:
-                    # Analyze failed results to determine stage
-                    error_msg = result.get("error", "")
-                    exclusion_reason = self._parse_exclusion_reason(error_msg)
-                    processing_stage = self._classify_exclusion_processing_stage(exclusion_reason)
+                # Use the existing processing_stage field set by simple_runner.py
+                processing_stage = result.get("processing_stage", "unknown")
+                
+                if processing_stage in stage_counts:
+                    # Use the pre-calculated processing stage
                     stage_counts[processing_stage] += 1
+                else:
+                    # Fallback for unknown processing stages
+                    if result.get("success") and result.get("rmsd_values"):
+                        # Successful results are always pipeline_attempted
+                        stage_counts["pipeline_attempted"] += 1
+                    else:
+                        # Analyze failed results to determine stage
+                        error_msg = result.get("error", "")
+                        exclusion_reason = self._parse_exclusion_reason(error_msg)
+                        fallback_stage = self._classify_exclusion_processing_stage(exclusion_reason)
+                        stage_counts[fallback_stage] += 1
             
             pre_pipeline_excluded = stage_counts["pre_pipeline_excluded"]
             pipeline_filtered = stage_counts["pipeline_filtered"] 

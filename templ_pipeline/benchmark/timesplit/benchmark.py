@@ -452,8 +452,14 @@ def main(argv: List[str] = None) -> int:
         try:
             from templ_pipeline.benchmark.summary_generator import BenchmarkSummaryGenerator
             
+            logger.info("Starting summary file generation...")
+            logger.info(f"Result keys: {list(result.keys()) if isinstance(result, dict) else 'not a dict'}")
+            logger.info(f"Results file: {result.get('results_file')}")
+            logger.info(f"Results file exists: {Path(result['results_file']).exists() if result.get('results_file') else 'N/A'}")
+            
             if result.get("results_file") and Path(result["results_file"]).exists():
                 generator = BenchmarkSummaryGenerator()
+                logger.info(f"Loading benchmark results from {result['results_file']}")
                 
                 # Load results for summary generation
                 with open(result["results_file"], 'r') as f:
@@ -488,8 +494,13 @@ def main(argv: List[str] = None) -> int:
                             logger.warning(f"Results file not found: {results_file_path}")
                 
                 if individual_results:
+                    logger.info(f"Found {len(individual_results)} individual results for summary generation")
                     # Generate summary with proper parameters
-                    summary = generator.generate_unified_summary(individual_results, "timesplit", "json")
+                    summary = generator.generate_unified_summary(
+                        results_data=individual_results, 
+                        benchmark_type="timesplit", 
+                        output_format="pandas"
+                    )
                     
                     # Save to summaries directory
                     results_dir = Path(result["results_file"]).parent
@@ -506,6 +517,8 @@ def main(argv: List[str] = None) -> int:
                     logger.info("✓ Summary files generated:")
                     for fmt, path in saved_files.items():
                         logger.info(f"  {fmt.upper()}: {path}")
+                else:
+                    logger.warning("No individual results found for summary generation")
         
         except Exception as e:
             logger.warning(f"Failed to generate summary files: {e}")
