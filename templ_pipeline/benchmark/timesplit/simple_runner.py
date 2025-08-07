@@ -16,7 +16,7 @@ import subprocess
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 from tqdm import tqdm
 
@@ -82,11 +82,16 @@ class SimpleTimeSplitRunner:
         from datetime import datetime
         self.benchmark_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
+        # Initialize sophisticated error and skip tracking systems
+        self._initialize_tracking_systems()
+        
         logger.info(f"Simple TimeSplit runner initialized:")
         logger.info(f"  Data directory: {self.data_dir}")
         logger.info(f"  Results directory: {self.results_dir}")
         logger.info(f"  Memory efficient: {memory_efficient}")
         logger.info(f"  Enhanced shared data: {use_shared_data}")
+        logger.info(f"  Error tracking: {'✓' if self.error_tracker else '✗'}")
+        logger.info(f"  Skip tracking: {'✓' if self.skip_tracker else '✗'}")
 
     def _setup_shared_data(self):
         """Set up shared data for memory-efficient benchmarking."""
@@ -111,6 +116,33 @@ class SimpleTimeSplitRunner:
         except Exception as e:
             logger.warning(f"Failed to setup shared data: {e}")
             self.shared_embedding_cache = None
+
+    def _initialize_tracking_systems(self):
+        """Initialize sophisticated error and skip tracking systems."""
+        try:
+            # Initialize error tracking system
+            from templ_pipeline.benchmark.error_tracking import BenchmarkErrorTracker
+            self.error_tracker = BenchmarkErrorTracker(self.results_dir)
+            logger.info("✓ Error tracking system initialized")
+        except ImportError:
+            logger.warning("Error tracking module not available - using basic error handling")
+            self.error_tracker = None
+        except Exception as e:
+            logger.warning(f"Failed to initialize error tracking: {e}")
+            self.error_tracker = None
+        
+        try:
+            # Initialize skip tracking system
+            from templ_pipeline.benchmark.skip_tracker import BenchmarkSkipTracker
+            self.skip_tracker = BenchmarkSkipTracker(self.results_dir)
+            self.skip_tracker.load_existing_skips()  # Load any existing skip records
+            logger.info("✓ Skip tracking system initialized")
+        except ImportError:
+            logger.warning("Skip tracking module not available - using basic skip handling")
+            self.skip_tracker = None
+        except Exception as e:
+            logger.warning(f"Failed to initialize skip tracking: {e}")
+            self.skip_tracker = None
 
     def _find_data_directory(self) -> Path:
         """Find the data directory with timesplit files."""
@@ -271,6 +303,155 @@ class SimpleTimeSplitRunner:
             logger.error(f"CLI command validation failed: {e}")
             return False
 
+    def classify_processing_stage(self, error_msg: str, success: bool = False) -> Tuple[str, bool]:
+        """
+        Classify error into processing stage and determine if it affects success rate.
+        
+        Processing Stages:
+        1. pre_pipeline_excluded: Data availability issues (missing files, invalid data)
+        2. pipeline_filtered: Molecule validation/quality filters (large peptides, etc.)
+        3. pipeline_attempted: Actual algorithm processing (timeouts, pose failures, etc.)
+        
+        Args:
+            error_msg: Error message to classify
+            success: Whether the processing was successful
+            
+        Returns:
+            Tuple of (processing_stage, affects_pipeline_success_rate)
+        """
+        if success:
+            return "pipeline_attempted", True
+            
+        if not error_msg:
+            return "pipeline_attempted", True
+            
+        error_msg_lower = error_msg.lower()
+        
+        # Pre-pipeline exclusions (data availability/quality issues)
+        # These should NOT affect pipeline success rates
+        pre_pipeline_indicators = [
+            "could not load ligand smiles",
+            "ligand data not found",
+            "ligand smiles data not found",
+            "protein file not found",
+            "pdb file not found",
+            "file not found",
+            "embedding file not found",
+            "template file not found",
+            "crystal structure missing",
+            "crystal ligand not found",
+            "invalid smiles",
+            "invalid molecule structure",
+            "cli command validation failed",
+            "command validation failed"
+        ]
+        
+        for indicator in pre_pipeline_indicators:
+            if indicator in error_msg_lower:
+                return "pre_pipeline_excluded", False
+                
+        # Pipeline filtering exclusions (validation rules, quality filters)  
+        # These should NOT affect pipeline success rates
+        pipeline_filter_indicators = [
+            "large peptide",
+            "rhenium complex",
+            "complex polysaccharide", 
+            "validation failed",
+            "molecule validation failed",
+            "sanitization failed",
+            "molecule sanitization failed",
+            "invalid molecule",
+            "poor quality crystal",
+            "skipped"
+        ]
+        
+        for indicator in pipeline_filter_indicators:
+            if indicator in error_msg_lower:
+                return "pipeline_filtered", False
+                
+        # Pipeline execution failures (algorithm processing issues)
+        # These SHOULD affect pipeline success rates
+        pipeline_execution_indicators = [
+            "timeout",
+            "pose generation failed", 
+            "rmsd calculation failed",
+            "conformer generation failed",
+            "alignment failed",
+            "molecular alignment failed",
+            "mcs calculation failed",
+            "mcs failed",
+            "embedding failed",
+            "template processing failed",
+            "cli returned",
+            "subprocess failed",
+            "pipeline error",
+            "no poses generated",
+            "memory error",
+            "force field failed",
+            "optimization failed",
+            "geometry validation failed",
+            "connectivity failed"
+        ]
+        
+        for indicator in pipeline_execution_indicators:
+            if indicator in error_msg_lower:
+                return "pipeline_attempted", True
+                
+        # Default: treat unknown errors as pipeline execution failures
+        # This ensures we don't accidentally exclude real algorithm failures
+        logger.warning(f"Unknown error type for stage classification: {error_msg[:100]}...")
+        return "pipeline_attempted", True
+
+    def _analyze_cli_success(self, stdout: str, target_pdb: str) -> Tuple[str, bool]:
+        """
+        Analyze CLI success cases to distinguish database_empty from actual success.
+        
+        CLI exits with code 0 even when no templates are available (database_empty),
+        but internally reports success=false. We need to parse the CLI JSON output
+        to determine the actual processing stage.
+        
+        Args:
+            stdout: CLI stdout output
+            target_pdb: Target PDB ID for logging
+            
+        Returns:
+            Tuple of (processing_stage, affects_pipeline_success_rate)
+        """
+        try:
+            # Extract CLI JSON result from stdout
+            json_start = stdout.find("TEMPL_JSON_RESULT:")
+            if json_start != -1:
+                json_start += len("TEMPL_JSON_RESULT:")
+                json_end = stdout.find("\n", json_start)
+                if json_end == -1:
+                    json_end = len(stdout)
+                
+                json_str = stdout[json_start:json_end].strip()
+                cli_result = json.loads(json_str)
+                
+                # Check CLI internal success flag
+                cli_success = cli_result.get("success", False)
+                total_templates_in_db = cli_result.get("total_templates_in_database", 0)
+                
+                if not cli_success and total_templates_in_db == 0:
+                    # Database is empty - data availability issue
+                    logger.debug(f"{target_pdb}: CLI reports database_empty (0 templates)")
+                    return "pre_pipeline_excluded", False
+                elif not cli_success:
+                    # CLI failed for other reasons - algorithm issue  
+                    logger.debug(f"{target_pdb}: CLI reports failure with {total_templates_in_db} templates")
+                    return "pipeline_attempted", True
+                else:
+                    # CLI succeeded - normal pipeline processing
+                    logger.debug(f"{target_pdb}: CLI succeeded with {total_templates_in_db} templates")
+                    return "pipeline_attempted", True
+                    
+        except (ValueError, KeyError, AttributeError, json.JSONDecodeError) as e:
+            logger.debug(f"Failed to parse CLI JSON output for {target_pdb}: {e}")
+        
+        # Fallback: assume successful pipeline processing
+        return "pipeline_attempted", True
+
     def run_single_target_subprocess(self, 
                                    target_pdb: str,
                                    allowed_templates: Set[str],
@@ -294,10 +475,30 @@ class SimpleTimeSplitRunner:
             # Load ligand SMILES for this PDB
             ligand_smiles, _ = self.molecule_loader.get_ligand_data(target_pdb)
             if not ligand_smiles:
+                error_msg = f"Could not load ligand SMILES for {target_pdb}"
+                processing_stage, affects_success_rate = self.classify_processing_stage(error_msg, False)
+                
+                # Use sophisticated tracking systems if available
+                if self.error_tracker:
+                    self.error_tracker.record_target_failure(target_pdb, error_msg, {
+                        "processing_stage": processing_stage,
+                        "affects_success_rate": affects_success_rate,
+                        "component": "ligand_loading"
+                    })
+                
+                if self.skip_tracker and processing_stage in ["pre_pipeline_excluded", "pipeline_filtered"]:
+                    self.skip_tracker.track_skip(
+                        target_pdb, 
+                        "ligand_data_missing",
+                        error_msg
+                    )
+                
                 return {
                     "success": False,
                     "target_pdb": target_pdb,
-                    "error": f"Could not load ligand SMILES for {target_pdb}",
+                    "error": error_msg,
+                    "processing_stage": processing_stage,
+                    "affects_pipeline_success_rate": affects_success_rate,
                     "runtime_total": time.time() - start_time,
                     "rmsd_values": {},  # Empty RMSD values for SMILES loading error
                 }
@@ -319,10 +520,23 @@ class SimpleTimeSplitRunner:
             
             # Validate CLI command structure
             if not self.validate_cli_command(cmd):
+                error_msg = f"CLI command validation failed for {target_pdb}"
+                processing_stage, affects_success_rate = self.classify_processing_stage(error_msg, False)
+                
+                # Use sophisticated tracking systems if available
+                if self.error_tracker:
+                    self.error_tracker.record_target_failure(target_pdb, error_msg, {
+                        "processing_stage": processing_stage,
+                        "affects_success_rate": affects_success_rate,
+                        "component": "cli_validation"
+                    })
+                
                 return {
                     "success": False,
                     "target_pdb": target_pdb,
-                    "error": f"CLI command validation failed for {target_pdb}",
+                    "error": error_msg,
+                    "processing_stage": processing_stage,
+                    "affects_pipeline_success_rate": affects_success_rate,
                     "runtime_total": time.time() - start_time,
                     "rmsd_values": {},  # Empty RMSD values for validation error
                 }
@@ -354,37 +568,110 @@ class SimpleTimeSplitRunner:
                 except Exception as e:
                     logger.debug(f"Failed to parse JSON output for {target_pdb}: {e}")
                 
+                # Analyze CLI JSON output to determine processing stage
+                # CLI exits with code 0 even for database_empty cases
+                processing_stage, affects_success_rate = self._analyze_cli_success(result.stdout, target_pdb)
+                
+                # Record successful processing in tracking systems
+                if self.error_tracker:
+                    self.error_tracker.record_target_success(target_pdb)
+                
                 return {
                     "success": True,
                     "target_pdb": target_pdb,
+                    "processing_stage": processing_stage,
+                    "affects_pipeline_success_rate": affects_success_rate,
                     "allowed_templates_count": len(allowed_templates),
                     "runtime_total": runtime_total,
                     "stdout": result.stdout,
                     "rmsd_values": rmsd_values,  # Add RMSD data for summary generation
                 }
             else:
+                # CLI execution failed - analyze stderr to determine processing stage
+                error_msg = f"CLI returned {result.returncode}"
+                if result.stderr:
+                    error_msg += f": {result.stderr.strip()}"
+                
+                processing_stage, affects_success_rate = self.classify_processing_stage(error_msg, False)
+                
+                # Use sophisticated tracking systems if available
+                if self.error_tracker:
+                    self.error_tracker.record_target_failure(target_pdb, error_msg, {
+                        "processing_stage": processing_stage,
+                        "affects_success_rate": affects_success_rate,
+                        "component": "cli_execution",
+                        "return_code": result.returncode,
+                        "stderr": result.stderr[:200] if result.stderr else None  # Truncate for storage
+                    })
+                
+                if self.skip_tracker and processing_stage in ["pre_pipeline_excluded", "pipeline_filtered"]:
+                    self.skip_tracker.track_skip(
+                        target_pdb,
+                        "cli_execution_failed",
+                        error_msg
+                    )
+                
                 return {
                     "success": False,
                     "target_pdb": target_pdb,
-                    "error": f"CLI returned {result.returncode}",
+                    "error": error_msg,
+                    "processing_stage": processing_stage,
+                    "affects_pipeline_success_rate": affects_success_rate,
                     "stderr": result.stderr,
                     "runtime_total": runtime_total,
                     "rmsd_values": {},  # Empty RMSD values for failed runs
                 }
                 
         except subprocess.TimeoutExpired:
+            # Timeout is a pipeline execution failure - should affect success rate
+            error_msg = f"Timeout after {timeout}s"
+            processing_stage, affects_success_rate = self.classify_processing_stage(error_msg, False)
+            
+            # Use sophisticated tracking systems for timeout tracking
+            if self.error_tracker:
+                self.error_tracker.record_target_failure(target_pdb, error_msg, {
+                    "processing_stage": processing_stage,
+                    "affects_success_rate": affects_success_rate,
+                    "component": "subprocess_timeout",
+                    "timeout_duration": timeout
+                })
+            
             return {
                 "success": False,
                 "target_pdb": target_pdb,
-                "error": f"Timeout after {timeout}s",
+                "error": error_msg,
+                "processing_stage": processing_stage,
+                "affects_pipeline_success_rate": affects_success_rate,
                 "runtime_total": time.time() - start_time,
                 "rmsd_values": {},  # Empty RMSD values for timeout
             }
         except Exception as e:
+            # Generic exception - classify based on error message
+            error_msg = str(e)
+            processing_stage, affects_success_rate = self.classify_processing_stage(error_msg, False)
+            
+            # Use sophisticated tracking systems for generic exceptions
+            if self.error_tracker:
+                self.error_tracker.record_target_failure(target_pdb, error_msg, {
+                    "processing_stage": processing_stage,
+                    "affects_success_rate": affects_success_rate,
+                    "component": "generic_exception",
+                    "exception_type": type(e).__name__
+                })
+            
+            if self.skip_tracker and processing_stage in ["pre_pipeline_excluded", "pipeline_filtered"]:
+                self.skip_tracker.track_skip(
+                    target_pdb,
+                    "pipeline_error",
+                    error_msg
+                )
+            
             return {
                 "success": False,
                 "target_pdb": target_pdb,
-                "error": str(e),
+                "error": error_msg,
+                "processing_stage": processing_stage,
+                "affects_pipeline_success_rate": affects_success_rate,
                 "runtime_total": time.time() - start_time,
                 "rmsd_values": {},  # Empty RMSD values for exceptions
             }
@@ -421,10 +708,16 @@ class SimpleTimeSplitRunner:
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         output_jsonl = self.results_dir / f"results_{split_name}_{timestamp}.jsonl"
         
-        # Initialize result tracking
+        # Initialize result tracking with processing stage awareness
         processed_count = 0
         success_count = 0
         failed_count = 0
+        
+        # Stage-aware tracking for correct success rate calculation
+        pre_pipeline_excluded_count = 0
+        pipeline_filtered_count = 0
+        pipeline_attempted_count = 0
+        pipeline_success_count = 0
         
         # Process targets in batches to avoid memory accumulation
         batch_size = min(100, len(target_pdbs))  # Process in batches of 100 or less
@@ -475,8 +768,23 @@ class SimpleTimeSplitRunner:
                             json.dump(result, f)
                             f.write('\n')
                         
-                        # Update counters
+                        # Update counters with processing stage awareness
                         processed_count += 1
+                        
+                        # Track processing stage for correct success rate calculation
+                        processing_stage = result.get("processing_stage", "pipeline_attempted")
+                        affects_success_rate = result.get("affects_pipeline_success_rate", True)
+                        
+                        if processing_stage == "pre_pipeline_excluded":
+                            pre_pipeline_excluded_count += 1
+                        elif processing_stage == "pipeline_filtered":
+                            pipeline_filtered_count += 1
+                        elif processing_stage == "pipeline_attempted":
+                            pipeline_attempted_count += 1
+                            if result.get("success"):
+                                pipeline_success_count += 1
+                        
+                        # Legacy counters for compatibility
                         if result.get("success"):
                             success_count += 1
                         else:
@@ -484,23 +792,40 @@ class SimpleTimeSplitRunner:
                             
                     except Exception as e:
                         logger.error(f"Future failed for {target_pdb}: {e}")
+                        # Future execution failure - classify as pipeline execution failure
+                        error_msg = f"Future execution failed: {str(e)}"
+                        processing_stage, affects_success_rate = self.classify_processing_stage(error_msg, False)
                         error_result = {
                             "success": False,
                             "target_pdb": target_pdb,
-                            "error": f"Future execution failed: {str(e)}",
+                            "error": error_msg,
+                            "processing_stage": processing_stage,
+                            "affects_pipeline_success_rate": affects_success_rate,
                         }
                         
                         with open(output_jsonl, 'a') as f:
                             json.dump(error_result, f)
                             f.write('\n')
                         
+                        # Update counters for error result with processing stage awareness
                         processed_count += 1
                         failed_count += 1
+                        
+                        # Track processing stage for error result
+                        processing_stage = error_result.get("processing_stage", "pipeline_attempted")
+                        if processing_stage == "pre_pipeline_excluded":
+                            pre_pipeline_excluded_count += 1
+                        elif processing_stage == "pipeline_filtered":
+                            pipeline_filtered_count += 1
+                        elif processing_stage == "pipeline_attempted":
+                            pipeline_attempted_count += 1
                     
-                    # Update progress
-                    success_rate = (success_count / processed_count * 100) if processed_count > 0 else 0
+                    # Update progress with pipeline success rate (main metric)
+                    pipeline_success_rate = (pipeline_success_count / pipeline_attempted_count * 100) if pipeline_attempted_count > 0 else 0
+                    overall_success_rate = (success_count / processed_count * 100) if processed_count > 0 else 0
                     progress_bar.set_postfix({
-                        "success": f"{success_rate:.1f}%",
+                        "pipeline": f"{pipeline_success_rate:.1f}%",
+                        "overall": f"{overall_success_rate:.1f}%",
                         "errors": failed_count
                     })
                     progress_bar.update(1)
@@ -516,14 +841,41 @@ class SimpleTimeSplitRunner:
                 
                 logger.info(f"Batch {batch_idx + 1} completed. Total progress: {processed_count}/{len(target_pdbs)}")
         
-        # Generate summary
+        # Calculate stage-aware success rates
+        pipeline_success_rate = (pipeline_success_count / pipeline_attempted_count * 100) if pipeline_attempted_count > 0 else 0
+        data_completeness_rate = ((processed_count - pre_pipeline_excluded_count) / processed_count * 100) if processed_count > 0 else 0
+        molecule_acceptance_rate = (pipeline_attempted_count / (processed_count - pre_pipeline_excluded_count) * 100) if (processed_count - pre_pipeline_excluded_count) > 0 else 0
+        overall_completion_rate = (success_count / processed_count * 100) if processed_count > 0 else 0
+        
+        # Generate enhanced summary with stage-aware metrics
         summary = {
             "split": split_name,
             "total_targets": len(target_pdbs),
             "processed": processed_count,
             "successful": success_count,
             "failed": failed_count,
-            "success_rate": (success_count / processed_count * 100) if processed_count > 0 else 0,
+            
+            # Multi-tier success rate metrics (MAIN IMPROVEMENT)
+            "success_rates": {
+                "pipeline_success_rate": pipeline_success_rate,      # Main metric: algorithm performance
+                "data_completeness_rate": data_completeness_rate,    # Data quality metric
+                "molecule_acceptance_rate": molecule_acceptance_rate, # Filtering effectiveness
+                "overall_completion_rate": overall_completion_rate   # End-to-end rate
+            },
+            
+            # Processing stage breakdown
+            "processing_breakdown": {
+                "total_targets": len(target_pdbs),
+                "pre_pipeline_excluded": pre_pipeline_excluded_count,   # Missing files, data issues
+                "pipeline_filtered": pipeline_filtered_count,           # Validation rules, quality filters
+                "pipeline_attempted": pipeline_attempted_count,         # Actually processed by algorithm
+                "pipeline_successful": pipeline_success_count,         # Completed with RMSD values
+                "pipeline_failed": pipeline_attempted_count - pipeline_success_count  # Timeouts, pose failures
+            },
+            
+            # Legacy fields for backward compatibility
+            "success_rate": pipeline_success_rate,  # Now shows pipeline success rate (main metric)
+            
             "results_file": str(output_jsonl),
             "timestamp": timestamp,
             "benchmark_info": {
@@ -533,6 +885,7 @@ class SimpleTimeSplitRunner:
                 "n_workers": n_workers,
                 "timeout": timeout,
                 "enhanced_shared_data_used": self.use_shared_data,
+                "stage_aware_reporting": True  # Flag indicating enhanced reporting
             }
         }
         
@@ -542,11 +895,49 @@ class SimpleTimeSplitRunner:
             json.dump(summary, f, indent=2)
         
         logger.info(f"Split {split_name} completed:")
-        logger.info(f"  Processed: {processed_count}/{len(target_pdbs)}")
-        logger.info(f"  Success rate: {summary['success_rate']:.1f}%")
+        logger.info(f"  Total targets: {len(target_pdbs)}")
+        logger.info(f"  Processing breakdown:")
+        logger.info(f"    Pre-pipeline excluded: {pre_pipeline_excluded_count}")
+        logger.info(f"    Pipeline filtered: {pipeline_filtered_count}")
+        logger.info(f"    Pipeline attempted: {pipeline_attempted_count}")
+        logger.info(f"    Pipeline successful: {pipeline_success_count}")
+        logger.info(f"  Success rates:")
+        logger.info(f"    Pipeline success rate: {pipeline_success_rate:.1f}% (main metric)")
+        logger.info(f"    Data completeness rate: {data_completeness_rate:.1f}%")
+        logger.info(f"    Overall completion rate: {overall_completion_rate:.1f}%")
         logger.info(f"  Results: {output_jsonl}")
         
+        # Generate tracking system summaries if available
+        self._generate_tracking_summaries(split_name)
+        
         return summary
+    
+    def _generate_tracking_summaries(self, split_name: str):
+        """Generate and save tracking system summaries."""
+        try:
+            if self.error_tracker:
+                error_summary = self.error_tracker.get_summary()
+                logger.info(f"Error tracking summary:")
+                logger.info(f"  Total errors recorded: {error_summary['total_errors']}")
+                if error_summary['error_breakdown']:
+                    logger.info(f"  Error breakdown:")
+                    for error_type, count in error_summary['error_breakdown'].items():
+                        logger.info(f"    {error_type}: {count}")
+            
+            if self.skip_tracker:
+                skip_stats = self.skip_tracker.get_formatted_skip_statistics()
+                if skip_stats['total_skipped'] > 0:
+                    logger.info(f"Skip tracking summary:")
+                    logger.info(f"  {skip_stats['formatted_summary']}")
+                    
+                    # Generate and save detailed skip summary
+                    skip_summary_file = self.skip_tracker.save_summary(f"skip_summary_{split_name}_{self.benchmark_timestamp}.json")
+                    logger.info(f"  Detailed skip summary: {skip_summary_file}")
+                else:
+                    logger.info("Skip tracking: No molecules were skipped")
+                    
+        except Exception as e:
+            logger.warning(f"Failed to generate tracking summaries: {e}")
     
     def cleanup(self):
         """Clean up enhanced shared data and temporary files."""

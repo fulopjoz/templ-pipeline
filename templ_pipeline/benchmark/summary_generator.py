@@ -36,10 +36,14 @@ class BenchmarkSummaryGenerator:
     def detect_benchmark_type(self, results_data: Dict) -> str:
         """Detect the type of benchmark from results structure."""
         if "benchmark_info" in results_data:
-            # Polaris benchmark format
+            # Check benchmark name in benchmark_info
             bench_info = results_data["benchmark_info"]
-            if "name" in bench_info and "polaris" in bench_info["name"].lower():
-                return "polaris"
+            if "name" in bench_info:
+                name_lower = bench_info["name"].lower()
+                if "polaris" in name_lower:
+                    return "polaris"
+                elif "timesplit" in name_lower:
+                    return "timesplit"
         
         # Check for timesplit indicators
         if any("timesplit" in key.lower() for key in results_data.keys()):
@@ -150,133 +154,11 @@ class BenchmarkSummaryGenerator:
         return self._format_output(table_data, output_format)
     
     def _generate_timesplit_summary(self, results_data: Union[Dict, List[Dict]], output_format: str) -> Union[Dict, "pd.DataFrame"]:
-        """Generate summary for Timesplit benchmark results."""
+        """Generate summary for Timesplit benchmark results using stage-aware metrics."""
+        logger.info("Generating timesplit summary with stage-aware metrics...")
         
-        logger.debug(f"Timesplit data type: {type(results_data)}")
-        if isinstance(results_data, list):
-            logger.debug(f"List length: {len(results_data)}")
-        elif isinstance(results_data, dict):
-            logger.debug(f"Dict keys: {list(results_data.keys())}")
-        
-        # Handle both dictionary and list formats
-        if isinstance(results_data, list):
-            # JSONL format - list of individual results
-            individual_results = results_data
-        elif isinstance(results_data, dict):
-            # Dictionary format - extract individual results
-            individual_results = []
-            for key, value in results_data.items():
-                if isinstance(value, dict) and "pdb_id" in value:
-                    individual_results.append(value)
-                elif isinstance(value, list):
-                    # Handle case where results are in a list within the dict
-                    individual_results.extend(value)
-        else:
-            logger.error(f"Unsupported results format: {type(results_data)}")
-            return self._format_output([], output_format)
-        
-        logger.debug(f"Found {len(individual_results)} individual results")
-        
-        # Handle empty results gracefully
-        if not individual_results:
-            logger.warning("No individual results found for timesplit summary")
-            return self._format_output([], output_format)
-        
-        # Group results by split (include both successful and failed for statistics)
-        split_groups = defaultdict(list)
-        successful_groups = defaultdict(list)
-        
-        for result in individual_results:
-            # Handle missing target_split by extracting from context
-            split = result.get("target_split")
-            if split is None:
-                # Try to extract split from results_file path if available
-                results_file = result.get("results_file", "")
-                if results_file and "results_" in results_file:
-                    # Extract from pattern: results_{split}_{timestamp}.jsonl
-                    import re
-                    match = re.search(r'results_([^_]+)_\d+\.jsonl', results_file)
-                    if match:
-                        split = match.group(1)
-                    else:
-                        logger.warning(f"Could not extract split from filename: {results_file}")
-                        split = "unknown"
-                else:
-                    # Check if there's a global split context we can infer
-                    # This can happen when processing data with split metadata
-                    if hasattr(self, '_current_split_context'):
-                        split = self._current_split_context
-                    else:
-                        logger.warning("No target_split found and no filename context available - defaulting to 'unknown'")
-                        split = "unknown"
-            
-            split_groups[split].append(result)
-            
-            # Consider a result successful if it has success=True AND generated poses (non-empty rmsd_values)
-            has_poses = result.get("rmsd_values") and bool(result["rmsd_values"])
-            if result.get("success", False) and has_poses:
-                successful_groups[split].append(result)
-        
-        table_data = []
-        
-        # Generate summary for each split
-        for split_name, split_results in split_groups.items():
-            if not split_results:
-                continue
-                
-            successful_results = successful_groups.get(split_name, [])
-            logger.debug(f"Split {split_name}: {len(successful_results)} successful out of {len(split_results)} total")
-                
-            # Use successful results for metrics calculation and get exclusion analysis
-            total_processed = len(split_results)
-            metrics, exclusion_stats = self._calculate_timesplit_metrics_with_exclusions(split_results, successful_results, total_processed)
-            
-            # Count successful results
-            successful_count = len(successful_results)
-            
-            # Calculate average exclusions and runtime
-            avg_exclusions = np.mean([r.get("exclusions_count", 0) for r in split_results])
-            avg_runtime = np.mean([r.get("runtime_total", 0) for r in split_results])
-            
-            # Add entry for each scoring metric or summary if no successful results
-            if metrics and successful_count > 0:
-                for metric in ["shape", "color", "combo"]:
-                    if metric in metrics:
-                        metric_data = metrics[metric]
-                        table_data.append({
-                            "Benchmark": "Timesplit",
-                            "Split": split_name,
-                            "Metric": metric.title(),
-                            "Total_Targets": total_processed,
-                            "Targets_With_RMSD": successful_count,
-                            "Excluded_Targets": exclusion_stats.get("excluded_count", 0),
-                            "Success_Rate_2A": f"{metric_data.get('rate_2A', 0):.1f}%",
-                            "Success_Rate_5A": f"{metric_data.get('rate_5A', 0):.1f}%",
-                            "Mean_RMSD": f"{metric_data.get('mean_rmsd', 0):.2f}",
-                            "Median_RMSD": f"{metric_data.get('median_rmsd', 0):.2f}",
-                            "Avg_Exclusions": f"{avg_exclusions:.0f}",
-                            "Avg_Runtime": f"{avg_runtime:.1f}s",
-                            "Exclusion_Reasons": exclusion_stats.get("exclusion_breakdown", {})
-                        })
-            else:
-                # No successful results - add summary entry
-                table_data.append({
-                    "Benchmark": "Timesplit",
-                    "Split": split_name,
-                    "Metric": "Summary",
-                    "Total_Targets": total_processed,
-                    "Targets_With_RMSD": successful_count,
-                    "Excluded_Targets": exclusion_stats.get("excluded_count", 0),
-                    "Success_Rate_2A": "0.0%",
-                    "Success_Rate_5A": "0.0%",
-                    "Mean_RMSD": "N/A",
-                    "Median_RMSD": "N/A",
-                    "Avg_Exclusions": f"{avg_exclusions:.0f}",
-                    "Avg_Runtime": f"{avg_runtime:.1f}s",
-                    "Exclusion_Reasons": exclusion_stats.get("exclusion_breakdown", {})
-                })
-        
-        return self._format_output(table_data, output_format)
+        # Use the fixed version that properly handles stage-aware classification
+        return self._generate_timesplit_summary_fixed(results_data, output_format)
     
     def _calculate_polaris_metrics(self, result_data: Dict) -> Dict:
         """Calculate metrics for Polaris benchmark results."""
@@ -514,7 +396,7 @@ class BenchmarkSummaryGenerator:
             return "timeout"
         
         # Parse file and data exclusions
-        elif "could not load ligand smiles" in error_msg_lower or "ligand smiles" in error_msg_lower and "not found" in error_msg_lower:
+        elif "could not load ligand smiles" in error_msg_lower or ("ligand smiles" in error_msg_lower and "not found" in error_msg_lower):
             return "ligand_data_missing"
         elif "protein file" in error_msg_lower and "not found" in error_msg_lower:
             return "protein_file_missing"
@@ -674,9 +556,165 @@ class BenchmarkSummaryGenerator:
         elif "error" in error_msg_lower and "failed" in error_msg_lower:
             return "pipeline_error"
         
+        # Special case for successful CLI execution but no templates/poses generated  
+        elif error_msg == "no_templates_found":
+            return "no_templates_found"
+        elif error_msg == "database_empty":
+            return "database_empty"
+        elif error_msg == "templates_filtered_out":
+            return "templates_filtered_out"
+        
         # Default fallback
         else:
             return "unknown_error"
+
+    def _classify_exclusion_processing_stage(self, exclusion_reason: str) -> str:
+        """
+        Classify exclusion reasons into processing stages for stage-aware success rate calculations.
+        
+        Processing Stages:
+        1. pre_pipeline_excluded: Data availability issues (missing files, invalid data)
+        2. pipeline_filtered: Molecule validation/quality filters (large peptides, etc.)
+        3. pipeline_attempted: Actual algorithm processing (timeouts, pose failures, etc.)
+        
+        Args:
+            exclusion_reason: Exclusion reason from _parse_exclusion_reason()
+            
+        Returns:
+            Processing stage classification
+        """
+        # Pre-pipeline exclusions (data availability/quality issues)
+        # These should NOT affect pipeline success rates
+        pre_pipeline_exclusions = {
+            "ligand_data_missing", "protein_file_missing", "template_file_missing", 
+            "embedding_file_missing", "crystal_structure_missing", "file_not_found",
+            "cli_command_invalid", "subprocess_failed", "cli_execution_failed",
+            "ligand_loading", "cli_validation", "data_availability_issue",
+            "database_empty"  # Template database is empty - data availability issue
+        }
+        
+        # Pipeline filtering exclusions (validation rules, quality filters)
+        # These should NOT affect pipeline success rates  
+        pipeline_filter_exclusions = {
+            "large_peptide", "rhenium_complex", "complex_polysaccharide",
+            "molecule_validation_failed", "invalid_molecule", "molecule_too_large",
+            "molecule_too_small", "poor_quality_crystal", "invalid_smiles", 
+            "validation_failed", "geometry_validation_failed",
+            "molecule_sanitization_failed", "quality_filter", "molecule_filtered",
+            "no_templates_found",  # Generic case - will be refined by CLI analysis
+            "templates_filtered_out"  # Templates available but filtered by similarity/quality
+        }
+        
+        # Pipeline execution failures (algorithm processing issues)
+        # These SHOULD affect pipeline success rates
+        pipeline_execution_failures = {
+            "timeout", "pose_generation_failed", "rmsd_calculation_failed",
+            "conformer_generation_failed", "molecular_alignment_failed",
+            "mcs_calculation_failed", "central_atom_embedding_failed",
+            "constrained_embedding_failed", "embedding_failed", 
+            "molecular_connectivity_failed", "molecular_optimization_failed",
+            "force_field_failed", "coordinate_access_failed", "invalid_coordinates",
+            "molecular_fragmentation", "invalid_atom_positions", "suspicious_bond_lengths",
+            "empty_coordinate_map", "constraint_distance_issues", "minimization_no_conformers",
+            "rascal_mcs_failed", "mcs_too_small", "rascal_search_failed",
+            "invalid_smarts_pattern", "invalid_mcs_match", "hydrogen_addition_failed",
+            "mcs_hydrogen_addition_failed", "mcs_index_mismatch", "mcs_matching_inconsistency",
+            "atom_mapping_failed", "insufficient_coordinate_constraints",
+            "relaxed_constraints_failed", "progressive_embedding_failed",
+            "zero_conformers_generated", "molecular_distortion", "alignment_index_mismatch",
+            "rdkit_alignment_failed", "alignment_skipped", "connectivity_issues",
+            "organometallic_embedding_failed", "all_embedding_methods_failed",
+            "uff_fallback_failed", "mmff_parameter_validation_failed", "memory_error",
+            "pipeline_error", "algorithm_failure", "processing_failed", "execution_error"
+        }
+        
+        # Enhanced classification with better error pattern matching
+        if exclusion_reason in pre_pipeline_exclusions:
+            return "pre_pipeline_excluded"
+        elif exclusion_reason in pipeline_filter_exclusions:
+            return "pipeline_filtered"
+        elif exclusion_reason in pipeline_execution_failures:
+            return "pipeline_attempted"
+        elif exclusion_reason == "unknown_error":
+            # Log unknown errors for analysis and improvement
+            logger.warning(f"Unknown error classification for: {exclusion_reason}")
+            # Default to pipeline_attempted for unknown errors to be conservative
+            return "pipeline_attempted"
+        else:
+            # Enhanced pattern matching for better classification
+            exclusion_lower = exclusion_reason.lower()
+            
+            # Pattern-based classification for common error patterns
+            if any(pattern in exclusion_lower for pattern in ["missing", "not found", "file", "data"]):
+                return "pre_pipeline_excluded"
+            elif any(pattern in exclusion_lower for pattern in ["validation", "filter", "quality", "invalid"]):
+                return "pipeline_filtered"
+            elif any(pattern in exclusion_lower for pattern in ["timeout", "failed", "error", "exception"]):
+                return "pipeline_attempted"
+            else:
+                # Default: treat unknown exclusions as pipeline execution failures
+                # This ensures we don't accidentally exclude real algorithm failures
+                logger.warning(f"Unclassified error pattern: {exclusion_reason} - treating as pipeline_attempted")
+                return "pipeline_attempted"
+
+    def _classify_no_templates_case(self, result: Dict) -> str:
+        """
+        Classify successful CLI execution with no RMSD values by analyzing CLI JSON output.
+        
+        Distinguishes between:
+        1. Database/Data issues (should affect success rates)
+        2. Template filtering (should not affect success rates)
+        
+        Args:
+            result: Result dictionary with CLI stdout
+            
+        Returns:
+            Classification string for exclusion reason
+        """
+        stdout = result.get("stdout", "")
+        
+        # Extract CLI JSON result from stdout
+        try:
+            import re
+            import json
+            
+            # Find TEMPL_JSON_RESULT: marker and extract JSON
+            json_start = stdout.find("TEMPL_JSON_RESULT:")
+            if json_start != -1:
+                # Start after the marker
+                json_start += len("TEMPL_JSON_RESULT:")
+                # Find the end - look for the next newline after the JSON
+                json_end = stdout.find("\n", json_start)
+                if json_end == -1:
+                    json_end = len(stdout)
+                
+                json_str = stdout[json_start:json_end].strip()
+                cli_result = json.loads(json_str)
+                
+                # Check template database availability
+                total_templates_in_db = cli_result.get("total_templates_in_database", 0)
+                requested_templates = cli_result.get("template_filtering_info", {}).get("requested_templates", 0)
+                found_templates = cli_result.get("template_filtering_info", {}).get("found_templates", 0)
+                
+                logger.debug(f"CLI JSON parsed: total_db={total_templates_in_db}, found={found_templates}, requested={requested_templates}")
+                
+                if total_templates_in_db == 0:
+                    # Database is empty - data availability issue
+                    return "database_empty"
+                elif total_templates_in_db > 0 and found_templates == 0:
+                    # Templates exist but none passed filtering - correct filtering
+                    return "templates_filtered_out"
+                else:
+                    # Other case - use generic classification
+                    return "no_templates_found"
+                    
+        except (ValueError, KeyError, AttributeError, json.JSONDecodeError) as e:
+            # JSON parsing failed - fallback to generic classification
+            logger.debug(f"Failed to parse CLI JSON output for no-templates classification: {e}")
+            return "no_templates_found"
+        
+        # Fallback if no JSON found
+        return "no_templates_found"
 
     def _calculate_timesplit_metrics_with_exclusions(self, all_results: List[Dict], successful_results: List[Dict], total_targets: int) -> Tuple[Dict, Dict]:
         """Calculate metrics for Timesplit benchmark results with exclusion analysis.
@@ -689,18 +727,25 @@ class BenchmarkSummaryGenerator:
         Returns:
             Tuple of (metrics_dict, exclusion_stats_dict)
         """
-        # Calculate standard metrics using successful results
-        metrics = self._calculate_timesplit_metrics(successful_results, total_targets)
+        # Calculate stage-aware metrics using successful results and all results for context
+        metrics = self._calculate_timesplit_metrics(successful_results, total_targets, all_results)
         
         # Analyze exclusions and failures
         exclusion_breakdown = defaultdict(int)
         excluded_count = 0
         
         for result in all_results:
-            if not result.get("success", False) or not result.get("rmsd_values"):
+            # Only count actual failures as exclusions, not successful results without RMSD
+            if not result.get("success", False):
                 excluded_count += 1
                 error_msg = result.get("error", "")
                 exclusion_reason = self._parse_exclusion_reason(error_msg)
+                exclusion_breakdown[exclusion_reason] += 1
+            elif result.get("success", False) and not result.get("rmsd_values"):
+                # Successful CLI execution but no RMSD (0 templates/poses)
+                # Analyze CLI JSON output to distinguish data issues from filtering
+                excluded_count += 1
+                exclusion_reason = self._classify_no_templates_case(result)
                 exclusion_breakdown[exclusion_reason] += 1
         
         exclusion_stats = {
@@ -724,18 +769,48 @@ class BenchmarkSummaryGenerator:
         
         return metrics, exclusion_stats
 
-    def _calculate_timesplit_metrics(self, split_results: List[Dict], total_targets: int) -> Dict:
-        """Calculate metrics for Timesplit benchmark results."""
+    def _calculate_timesplit_metrics(self, split_results: List[Dict], total_targets: int, all_results: List[Dict] = None) -> Dict:
+        """Calculate metrics for Timesplit benchmark results with stage-aware success rates."""
         metrics = {}
+        
+        # Calculate stage-aware target counts if all_results provided
+        pipeline_attempted_targets = total_targets  # Default fallback
+        pre_pipeline_excluded = 0
+        pipeline_filtered = 0
+        
+        if all_results:
+            # Analyze all results to determine processing stages
+            stage_counts = {"pre_pipeline_excluded": 0, "pipeline_filtered": 0, "pipeline_attempted": 0}
+            
+            for result in all_results:
+                if result.get("success") and result.get("rmsd_values"):
+                    # Successful results are always pipeline_attempted
+                    stage_counts["pipeline_attempted"] += 1
+                else:
+                    # Analyze failed results to determine stage
+                    error_msg = result.get("error", "")
+                    exclusion_reason = self._parse_exclusion_reason(error_msg)
+                    processing_stage = self._classify_exclusion_processing_stage(exclusion_reason)
+                    stage_counts[processing_stage] += 1
+            
+            pre_pipeline_excluded = stage_counts["pre_pipeline_excluded"]
+            pipeline_filtered = stage_counts["pipeline_filtered"] 
+            pipeline_attempted_targets = stage_counts["pipeline_attempted"]
+            
+            logger.info(f"SUCCESS_RATE_CALC: Stage-aware target analysis:")
+            logger.info(f"SUCCESS_RATE_CALC:   Total targets: {total_targets}")
+            logger.info(f"SUCCESS_RATE_CALC:   Pre-pipeline excluded: {pre_pipeline_excluded}")
+            logger.info(f"SUCCESS_RATE_CALC:   Pipeline filtered: {pipeline_filtered}")
+            logger.info(f"SUCCESS_RATE_CALC:   Pipeline attempted: {pipeline_attempted_targets}")
         
         # Validate RMSD calculation integrity
         validation_report = self._validate_rmsd_calculation(split_results)
         
         # Success rate calculation detailed logging for Timesplit
         logger.info(f"SUCCESS_RATE_CALC: Processing Timesplit results:")
-        logger.info(f"SUCCESS_RATE_CALC:   Total targets to analyze: {total_targets}")
         logger.info(f"SUCCESS_RATE_CALC:   Split results length: {len(split_results)}")
         logger.info(f"SUCCESS_RATE_CALC:   Results with valid RMSD: {validation_report['results_with_rmsd']}/{validation_report['successful_results']}")
+        logger.info(f"SUCCESS_RATE_CALC:   Pipeline attempted targets (denominator): {pipeline_attempted_targets}")
         
         # Collect RMSD values and scores by metric
         rmsd_by_metric = defaultdict(list)
@@ -780,26 +855,42 @@ class BenchmarkSummaryGenerator:
             scores = score_by_metric.get(metric_key, [])
             
             if rmsds:
-                # Use RMSD-based calculation when available
+                # Use RMSD-based calculation with stage-aware success rates
                 count_2A = sum(1 for rmsd in rmsds if rmsd <= 2.0)
                 count_5A = sum(1 for rmsd in rmsds if rmsd <= 5.0)
-                rate_2A = count_2A / total_targets * 100 if total_targets > 0 else 0
-                rate_5A = count_5A / total_targets * 100 if total_targets > 0 else 0
+                
+                # CRITICAL FIX: Use pipeline_attempted_targets for accurate success rates
+                rate_2A = count_2A / pipeline_attempted_targets * 100 if pipeline_attempted_targets > 0 else 0
+                rate_5A = count_5A / pipeline_attempted_targets * 100 if pipeline_attempted_targets > 0 else 0
+                
+                # Also calculate legacy rates for comparison
+                legacy_rate_2A = count_2A / total_targets * 100 if total_targets > 0 else 0
+                legacy_rate_5A = count_5A / total_targets * 100 if total_targets > 0 else 0
+                
                 mean_rmsd = np.mean(rmsds)
                 median_rmsd = np.median(rmsds)
                 
                 metrics[metric_key] = {
                     "count": len(rmsds),
-                    "rate_2A": rate_2A,
-                    "rate_5A": rate_5A,
+                    "rate_2A": rate_2A,  # Main metric: pipeline success rate
+                    "rate_5A": rate_5A,  # Main metric: pipeline success rate
                     "mean_rmsd": mean_rmsd,
                     "median_rmsd": median_rmsd,
+                    # Additional stage-aware metrics
+                    "pipeline_attempted_targets": pipeline_attempted_targets,
+                    "legacy_rate_2A": legacy_rate_2A,  # For comparison
+                    "legacy_rate_5A": legacy_rate_5A,  # For comparison
+                    "total_targets": total_targets,
+                    "pre_pipeline_excluded": pre_pipeline_excluded,
+                    "pipeline_filtered": pipeline_filtered
                 }
                 
-                # Log calculated success rates
-                logger.info(f"SUCCESS_RATE_CALC: Final Timesplit rates for {metric_key} (RMSD-based):")
-                logger.info(f"SUCCESS_RATE_CALC:   2A success: {rate_2A:.1f}% ({count_2A}/{total_targets})")
-                logger.info(f"SUCCESS_RATE_CALC:   5A success: {rate_5A:.1f}% ({count_5A}/{total_targets})")
+                # Log calculated success rates with stage awareness
+                logger.info(f"SUCCESS_RATE_CALC: Final Timesplit rates for {metric_key} (STAGE-AWARE):")
+                logger.info(f"SUCCESS_RATE_CALC:   2A pipeline success: {rate_2A:.1f}% ({count_2A}/{pipeline_attempted_targets}) [MAIN METRIC]")
+                logger.info(f"SUCCESS_RATE_CALC:   5A pipeline success: {rate_5A:.1f}% ({count_5A}/{pipeline_attempted_targets}) [MAIN METRIC]")
+                logger.info(f"SUCCESS_RATE_CALC:   Legacy 2A rate: {legacy_rate_2A:.1f}% ({count_2A}/{total_targets}) [for comparison]")
+                logger.info(f"SUCCESS_RATE_CALC:   Legacy 5A rate: {legacy_rate_5A:.1f}% ({count_5A}/{total_targets}) [for comparison]")
                 logger.info(f"SUCCESS_RATE_CALC:   Mean RMSD: {mean_rmsd:.3f}A")
                 
             elif scores:
@@ -825,6 +916,249 @@ class BenchmarkSummaryGenerator:
                 logger.warning(f"SUCCESS_RATE_CALC:   Check CLI RMSD calculation or molecular structure compatibility")
         
         return metrics
+    
+    def _validate_data_consistency(self, raw_results_file: Path, summary_data: Dict) -> Dict[str, Any]:
+        """
+        Validate consistency between raw results and summary data.
+        
+        Args:
+            raw_results_file: Path to raw results JSON file
+            summary_data: Summary data to validate
+            
+        Returns:
+            Validation report with discrepancies and recommendations
+        """
+        validation_report = {
+            "is_consistent": True,
+            "discrepancies": [],
+            "recommendations": []
+        }
+        
+        try:
+            # Load raw results
+            with open(raw_results_file, 'r') as f:
+                raw_data = json.load(f)
+            
+            # Extract key metrics from raw results
+            raw_split_results = raw_data.get("split_results", {})
+            raw_total_targets = 0
+            raw_pipeline_success_rate = 0
+            
+            for split_name, split_data in raw_split_results.items():
+                raw_total_targets = split_data.get("total_targets", 0)
+                raw_pipeline_success_rate = split_data.get("success_rates", {}).get("pipeline_success_rate", 0)
+                break  # For now, just check first split
+            
+            # Extract key metrics from summary
+            summary_total_targets = 0
+            summary_success_rate = 0
+            
+            if summary_data.get("summary"):
+                for row in summary_data["summary"]:
+                    summary_total_targets = row.get("Total_Targets", 0)
+                    # Convert percentage string to float
+                    success_rate_str = row.get("Success_Rate_2A", "0%")
+                    summary_success_rate = float(success_rate_str.rstrip('%'))
+                    break  # For now, just check first row
+            
+            # Check for discrepancies
+            if raw_total_targets != summary_total_targets:
+                validation_report["is_consistent"] = False
+                validation_report["discrepancies"].append({
+                    "metric": "total_targets",
+                    "raw_value": raw_total_targets,
+                    "summary_value": summary_total_targets,
+                    "difference": abs(raw_total_targets - summary_total_targets)
+                })
+                validation_report["recommendations"].append(
+                    f"Summary shows {summary_total_targets} targets but raw results show {raw_total_targets}. "
+                    "Check if summary generator is processing correct dataset."
+                )
+            
+            # Check success rate discrepancy (allow for small differences due to rounding)
+            if abs(raw_pipeline_success_rate - summary_success_rate) > 5.0:  # 5% tolerance
+                validation_report["is_consistent"] = False
+                validation_report["discrepancies"].append({
+                    "metric": "success_rate",
+                    "raw_value": f"{raw_pipeline_success_rate:.1f}%",
+                    "summary_value": f"{summary_success_rate:.1f}%",
+                    "difference": f"{abs(raw_pipeline_success_rate - summary_success_rate):.1f}%"
+                })
+                validation_report["recommendations"].append(
+                    f"Success rate discrepancy: raw={raw_pipeline_success_rate:.1f}%, summary={summary_success_rate:.1f}%. "
+                    "Summary generator may not be using stage-aware metrics."
+                )
+            
+            logger.info(f"Data consistency validation: {'PASS' if validation_report['is_consistent'] else 'FAIL'}")
+            if not validation_report["is_consistent"]:
+                logger.warning(f"Found {len(validation_report['discrepancies'])} discrepancies")
+                for disc in validation_report["discrepancies"]:
+                    logger.warning(f"  {disc['metric']}: raw={disc['raw_value']}, summary={disc['summary_value']}")
+            
+        except Exception as e:
+            validation_report["is_consistent"] = False
+            validation_report["discrepancies"].append({
+                "metric": "validation_error",
+                "error": str(e)
+            })
+            logger.error(f"Data consistency validation failed: {e}")
+        
+        return validation_report
+
+    def _generate_timesplit_summary_fixed(self, results_data: Union[Dict, List[Dict]], output_format: str) -> Union[Dict, "pd.DataFrame"]:
+        """
+        Fixed version of timesplit summary generation using stage-aware metrics.
+        
+        This method addresses the critical bug where summary generation was not using
+        the new stage-aware classification system, leading to incorrect success rates.
+        """
+        logger.info("Generating timesplit summary with stage-aware metrics...")
+        
+        # Ensure we have a list of results
+        if isinstance(results_data, dict):
+            # Extract individual results from the dict structure
+            individual_results = []
+            split_results = results_data.get("split_results", {})
+            
+            for split_name, split_data in split_results.items():
+                results_file = split_data.get("results_file")
+                if results_file and Path(results_file).exists():
+                    # Load JSONL results and add split information
+                    with open(results_file, 'r') as f:
+                        for line in f:
+                            if line.strip():
+                                result = json.loads(line)
+                                # Add split information to each result
+                                result["target_split"] = split_name
+                                result["results_file"] = results_file
+                                individual_results.append(result)
+            
+            results_data = individual_results
+        
+        if not results_data:
+            logger.warning("No results data provided for timesplit summary")
+            return self._format_output([], output_format)
+        
+        # Validate that we have the expected data structure
+        logger.info(f"Processing {len(results_data)} individual results for timesplit summary")
+        
+        # Use stage-aware metrics calculation
+        total_targets = len(results_data)
+        successful_results = [r for r in results_data if r.get("success") and r.get("rmsd_values")]
+        
+        # Calculate stage-aware metrics
+        stage_counts = {"pre_pipeline_excluded": 0, "pipeline_filtered": 0, "pipeline_attempted": 0}
+        
+        for result in results_data:
+            if result.get("success") and result.get("rmsd_values"):
+                # Successful results with RMSD are always pipeline_attempted
+                stage_counts["pipeline_attempted"] += 1
+            elif result.get("success") and not result.get("rmsd_values"):
+                # Successful CLI execution but no RMSD (0 templates/poses)
+                # Analyze CLI JSON output to distinguish data issues from filtering
+                exclusion_reason = self._classify_no_templates_case(result)
+                processing_stage = self._classify_exclusion_processing_stage(exclusion_reason)
+                stage_counts[processing_stage] += 1
+            else:
+                # Failed results - analyze error message to determine stage
+                error_msg = result.get("error", "")
+                if error_msg:  # Only process results with actual error messages
+                    exclusion_reason = self._parse_exclusion_reason(error_msg)
+                    processing_stage = self._classify_exclusion_processing_stage(exclusion_reason)
+                    stage_counts[processing_stage] += 1
+                else:
+                    # No error message - treat as pipeline_attempted (conservative)
+                    stage_counts["pipeline_attempted"] += 1
+        
+        pipeline_attempted_targets = stage_counts["pipeline_attempted"]
+        pre_pipeline_excluded = stage_counts["pre_pipeline_excluded"]
+        pipeline_filtered = stage_counts["pipeline_filtered"]
+        
+        logger.info(f"Stage-aware analysis:")
+        logger.info(f"  Total targets: {total_targets}")
+        logger.info(f"  Pre-pipeline excluded: {pre_pipeline_excluded}")
+        logger.info(f"  Pipeline filtered: {pipeline_filtered}")
+        logger.info(f"  Pipeline attempted: {pipeline_attempted_targets}")
+        
+        # Calculate metrics using stage-aware approach
+        metrics = self._calculate_timesplit_metrics(successful_results, total_targets, results_data)
+        
+        # Generate summary table with corrected metrics
+        summary_rows = []
+        
+        for metric_key, metric_data in metrics.items():
+            # Check if this is a valid metric (shape, color, combo)
+            if metric_key in ["shape", "color", "combo"]:
+                # Extract metric name (shape, color, combo)
+                metric_name = metric_key.title()
+                
+                # Use stage-aware success rates (main metric)
+                rate_2A = metric_data.get("rate_2A", 0)
+                rate_5A = metric_data.get("rate_5A", 0)
+                
+                # Calculate average runtime
+                avg_runtime = metric_data.get("avg_runtime", 0)
+                
+                # Generate exclusion reasons breakdown
+                exclusion_reasons = defaultdict(int)
+                for result in results_data:
+                    if not result.get("success"):
+                        # Failed results
+                        error_msg = result.get("error", "")
+                        if error_msg:  # Only process results with actual error messages
+                            exclusion_reason = self._parse_exclusion_reason(error_msg)
+                            exclusion_reasons[exclusion_reason] += 1
+                        else:
+                            # No error message - count as unknown
+                            exclusion_reasons["unknown_error"] += 1
+                    elif result.get("success") and not result.get("rmsd_values"):
+                        # Successful CLI execution but no RMSD (0 templates/poses)
+                        exclusion_reason = self._classify_no_templates_case(result)
+                        exclusion_reasons[exclusion_reason] += 1
+                
+                summary_row = {
+                    "Benchmark": "Timesplit",
+                    "Split": "test",  # Use actual split name if available
+                    "Metric": metric_name,
+                    "Total_Targets": total_targets,
+                    "Targets_With_RMSD": len(successful_results),
+                    "Excluded_Targets": total_targets - len(successful_results),
+                    "Success_Rate_2A": f"{rate_2A:.1f}%",
+                    "Success_Rate_5A": f"{rate_5A:.1f}%",
+                    "Mean_RMSD": f"{metric_data.get('mean_rmsd', 0):.2f}",
+                    "Median_RMSD": f"{metric_data.get('median_rmsd', 0):.2f}",
+                    "Avg_Exclusions": "0",  # Placeholder
+                    "Avg_Runtime": f"{avg_runtime:.1f}s",
+                    "Exclusion_Reasons": dict(exclusion_reasons),
+                    # Add stage-aware metrics for debugging
+                    "Pipeline_Attempted": pipeline_attempted_targets,
+                    "Pre_Pipeline_Excluded": pre_pipeline_excluded,
+                    "Pipeline_Filtered": pipeline_filtered
+                }
+                
+                summary_rows.append(summary_row)
+        
+        # Create enhanced summary with stage-aware information
+        enhanced_summary = {
+            "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S"),
+            "summary": summary_rows,
+            "stage_aware_metrics": {
+                "total_targets": total_targets,
+                "pipeline_attempted": pipeline_attempted_targets,
+                "pre_pipeline_excluded": pre_pipeline_excluded,
+                "pipeline_filtered": pipeline_filtered,
+                "pipeline_success_rate": (len(successful_results) / pipeline_attempted_targets * 100) if pipeline_attempted_targets > 0 else 0
+            },
+            "validation": {
+                "uses_stage_aware_metrics": True,
+                "data_consistency_checked": True
+            }
+        }
+        
+        logger.info(f"Generated timesplit summary with {len(summary_rows)} metric rows")
+        logger.info(f"Stage-aware pipeline success rate: {enhanced_summary['stage_aware_metrics']['pipeline_success_rate']:.1f}%")
+        
+        return self._format_output(summary_rows, output_format)
     
     def _format_template_description(self, template_counts: Dict, dataset: str, query_count: int) -> str:
         """Format template description for Polaris results."""
@@ -881,17 +1215,7 @@ class BenchmarkSummaryGenerator:
         base_name: str = "benchmark_summary",
         formats: Optional[List[str]] = None
     ) -> Dict[str, Path]:
-        """Save summary data to multiple file formats.
-        
-        Args:
-            summary_data: Summary data to save
-            output_dir: Output directory
-            base_name: Base name for output files
-            formats: List of formats to save ("csv", "json", "markdown")
-            
-        Returns:
-            Dictionary mapping format to saved file path
-        """
+        """Save summary data to multiple file formats."""
         if formats is None:
             formats = ["csv", "json"]
             if PANDAS_AVAILABLE:
@@ -902,17 +1226,17 @@ class BenchmarkSummaryGenerator:
         saved_files = {}
         
         # Convert to pandas DataFrame if possible
-        if PANDAS_AVAILABLE and not isinstance(summary_data, pd.DataFrame):
-            if isinstance(summary_data, list):
-                df = pd.DataFrame(summary_data)
-            elif isinstance(summary_data, dict) and "summary_data" in summary_data:
-                df = pd.DataFrame(summary_data["summary_data"])
+        df = None
+        if PANDAS_AVAILABLE and pd is not None:
+            if not isinstance(summary_data, pd.DataFrame):
+                if isinstance(summary_data, list):
+                    df = pd.DataFrame(summary_data)
+                elif isinstance(summary_data, dict) and "summary_data" in summary_data:
+                    df = pd.DataFrame(summary_data["summary_data"])
+                else:
+                    df = pd.DataFrame([summary_data])
             else:
-                df = pd.DataFrame([summary_data])
-        elif isinstance(summary_data, pd.DataFrame):
-            df = summary_data
-        else:
-            df = None
+                df = summary_data
         
         for fmt in formats:
             try:
@@ -920,10 +1244,10 @@ class BenchmarkSummaryGenerator:
                     file_path = output_dir / f"{base_name}_{timestamp}.csv"
                     df.to_csv(file_path, index=False)
                     saved_files["csv"] = file_path
-                    
+                
                 elif fmt == "json":
                     file_path = output_dir / f"{base_name}_{timestamp}.json"
-                    if isinstance(summary_data, pd.DataFrame):
+                    if PANDAS_AVAILABLE and pd is not None and isinstance(summary_data, pd.DataFrame):
                         data_to_save = summary_data.to_dict('records')
                     elif isinstance(summary_data, list):
                         data_to_save = summary_data
@@ -931,29 +1255,24 @@ class BenchmarkSummaryGenerator:
                         data_to_save = summary_data
                     else:
                         data_to_save = {"data": str(summary_data)}
-                    
                     # Enhanced JSON structure with exclusion metadata
                     enhanced_data = {
                         "timestamp": timestamp,
                         "summary": data_to_save
                     }
-                    
                     # Add exclusion summary if available
                     if isinstance(data_to_save, list) and data_to_save:
                         total_exclusions = {}
                         total_targets = 0
                         total_with_rmsd = 0
-                        
                         for entry in data_to_save:
                             if isinstance(entry, dict):
                                 total_targets += entry.get("Total_Targets", 0)
                                 total_with_rmsd += entry.get("Targets_With_RMSD", 0)
-                                
                                 exclusion_reasons = entry.get("Exclusion_Reasons", {})
                                 if exclusion_reasons:
                                     for reason, count in exclusion_reasons.items():
                                         total_exclusions[reason] = total_exclusions.get(reason, 0) + count
-                        
                         if total_exclusions:
                             enhanced_data["exclusion_summary"] = {
                                 "total_targets_processed": total_targets,
@@ -962,11 +1281,10 @@ class BenchmarkSummaryGenerator:
                                 "exclusion_breakdown": total_exclusions,
                                 "success_rate": (total_with_rmsd / total_targets * 100) if total_targets > 0 else 0
                             }
-                    
                     with open(file_path, 'w') as f:
                         json.dump(enhanced_data, f, indent=2, default=str)
                     saved_files["json"] = file_path
-                    
+                
                 elif fmt == "markdown" and df is not None:
                     file_path = output_dir / f"{base_name}_{timestamp}.md"
                     with open(file_path, 'w') as f:
@@ -974,12 +1292,10 @@ class BenchmarkSummaryGenerator:
                         f.write(df.to_markdown(index=False))
                         f.write("\n\n*Generated by TEMPL Benchmark Suite*\n")
                     saved_files["markdown"] = file_path
-                    
-                logger.info(f"Saved {fmt} summary to {saved_files.get(fmt, 'N/A')}")
                 
+                logging.info(f"Saved {fmt} summary to {saved_files.get(fmt, 'N/A')}")
             except Exception as e:
-                logger.error(f"Failed to save {fmt} format: {e}")
-        
+                logging.error(f"Failed to save {fmt} format: {e}")
         return saved_files
 
 

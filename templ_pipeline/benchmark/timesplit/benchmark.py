@@ -461,18 +461,29 @@ def main(argv: List[str] = None) -> int:
                 
                 # Extract individual results for summary processing
                 individual_results = []
+                results_file_base = Path(result["results_file"]).parent  # Get base directory for resolving relative paths
+                
                 for split_name, split_data in results_data.get("split_results", {}).items():
                     results_file = split_data.get("results_file")
-                    if results_file and Path(results_file).exists():
-                        # Load JSONL results and add split information
-                        with open(results_file, 'r') as f:
-                            for line in f:
-                                if line.strip():
-                                    result = json.loads(line)
-                                    # Add split information to each result
-                                    result["target_split"] = split_name
-                                    result["results_file"] = results_file
-                                    individual_results.append(result)
+                    if results_file:
+                        # Handle both absolute and relative paths
+                        results_file_path = Path(results_file)
+                        if not results_file_path.is_absolute():
+                            # For relative paths, resolve against the base directory
+                            results_file_path = results_file_base / results_file_path.name
+                        
+                        if results_file_path.exists():
+                            # Load JSONL results and add split information
+                            with open(results_file_path, 'r') as f:
+                                for line in f:
+                                    if line.strip():
+                                        result = json.loads(line)
+                                        # Add split information to each result
+                                        result["target_split"] = split_name
+                                        result["results_file"] = str(results_file_path)
+                                        individual_results.append(result)
+                        else:
+                            logger.warning(f"Results file not found: {results_file_path}")
                 
                 if individual_results:
                     summary = generator.generate_unified_summary(individual_results, "timesplit")
