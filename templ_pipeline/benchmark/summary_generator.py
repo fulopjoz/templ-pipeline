@@ -1073,29 +1073,37 @@ class BenchmarkSummaryGenerator:
         total_targets = len(results_data)
         successful_results = [r for r in results_data if r.get("success") and r.get("rmsd_values")]
         
-        # Calculate stage-aware metrics
+        # Calculate stage-aware metrics using existing processing_stage field
         stage_counts = {"pre_pipeline_excluded": 0, "pipeline_filtered": 0, "pipeline_attempted": 0}
         
         for result in results_data:
-            if result.get("success") and result.get("rmsd_values"):
-                # Successful results with RMSD are always pipeline_attempted
-                stage_counts["pipeline_attempted"] += 1
-            elif result.get("success") and not result.get("rmsd_values"):
-                # Successful CLI execution but no RMSD (0 templates/poses)
-                # Analyze CLI JSON output to distinguish data issues from filtering
-                exclusion_reason = self._classify_no_templates_case(result)
-                processing_stage = self._classify_exclusion_processing_stage(exclusion_reason)
+            # Use the existing processing_stage field set by simple_runner.py
+            processing_stage = result.get("processing_stage", "unknown")
+            
+            if processing_stage in stage_counts:
+                # Use the pre-calculated processing stage
                 stage_counts[processing_stage] += 1
             else:
-                # Failed results - analyze error message to determine stage
-                error_msg = result.get("error", "")
-                if error_msg:  # Only process results with actual error messages
-                    exclusion_reason = self._parse_exclusion_reason(error_msg)
-                    processing_stage = self._classify_exclusion_processing_stage(exclusion_reason)
-                    stage_counts[processing_stage] += 1
-                else:
-                    # No error message - treat as pipeline_attempted (conservative)
+                # Fallback for unknown processing stages - classify based on result content
+                if result.get("success") and result.get("rmsd_values"):
+                    # Successful results with RMSD are always pipeline_attempted
                     stage_counts["pipeline_attempted"] += 1
+                elif result.get("success") and not result.get("rmsd_values"):
+                    # Successful CLI execution but no RMSD (0 templates/poses)
+                    # Analyze CLI JSON output to distinguish data issues from filtering
+                    exclusion_reason = self._classify_no_templates_case(result)
+                    fallback_stage = self._classify_exclusion_processing_stage(exclusion_reason)
+                    stage_counts[fallback_stage] += 1
+                else:
+                    # Failed results - analyze error message to determine stage
+                    error_msg = result.get("error", "")
+                    if error_msg:  # Only process results with actual error messages
+                        exclusion_reason = self._parse_exclusion_reason(error_msg)
+                        fallback_stage = self._classify_exclusion_processing_stage(exclusion_reason)
+                        stage_counts[fallback_stage] += 1
+                    else:
+                        # No error message - treat as pipeline_attempted (conservative)
+                        stage_counts["pipeline_attempted"] += 1
         
         pipeline_attempted_targets = stage_counts["pipeline_attempted"]
         pre_pipeline_excluded = stage_counts["pre_pipeline_excluded"]
