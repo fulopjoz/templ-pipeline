@@ -118,7 +118,7 @@ class PipelineConfig:
 class TEMPLPipeline:
     """Main TEMPL pipeline for template-based pose prediction."""
     
-    def __init__(self, embedding_path: str = None, output_dir: str = "output", run_id: str = None, shared_embedding_cache: str = None):
+    def __init__(self, embedding_path: Optional[str] = None, output_dir: str = "output", run_id: Optional[str] = None, shared_embedding_cache: Optional[str] = None):
         """Initialize the pipeline with CLI interface."""
         # Use default embedding path if none provided
         if embedding_path is None:
@@ -262,7 +262,10 @@ class TEMPLPipeline:
                 log.info(f"Created target molecule from SMILES: {target_smiles}")
                 
                 # Try to load crystal molecule for RMSD calculation
-                self.crystal_mol = self._load_crystal_molecule(target_pdb_id)
+                if target_pdb_id is not None:
+                    self.crystal_mol = self._load_crystal_molecule(target_pdb_id)
+                else:
+                    self.crystal_mol = None
                 
                 # Validate target molecule for peptides and other issues
                 # Ensure pdb_id is never None by using multiple fallback strategies
@@ -421,7 +424,7 @@ class TEMPLPipeline:
             log.error(f"Failed to load templates: {e}")
             return False
     
-    def get_protein_embedding(self, pdb_id: str, pdb_file: str = None) -> Tuple[Optional[np.ndarray], Optional[List[str]]]:
+    def get_protein_embedding(self, pdb_id: str, pdb_file: Optional[str] = None) -> Tuple[Optional[np.ndarray], Optional[List[str]]]:
         """Get protein embedding for PDB ID and the chains used.
 
         When a PDB file is provided, this function will first extract the PDB ID, check for
@@ -480,7 +483,7 @@ class TEMPLPipeline:
             log.error(f"Failed to get protein embedding for {pdb_id}: {e}", exc_info=True)
             return None, None
 
-    def find_similar_templates(self, query_pdb_id: str, query_embedding: np.ndarray, k: int = 100, exclude_pdb_ids: set = None, allowed_pdb_ids: set = None) -> Tuple[List[str], Dict[str, float]]:
+    def find_similar_templates(self, query_pdb_id: str, query_embedding: np.ndarray, k: int = 100, exclude_pdb_ids: Optional[set] = None, allowed_pdb_ids: Optional[set] = None) -> Tuple[List[str], Dict[str, float]]:
         """Find similar templates using embedding similarity.
         
         Returns:
@@ -528,7 +531,7 @@ class TEMPLPipeline:
             log.error(f"Failed to find similar templates: {e}")
             return [], {}
     
-    def process_templates(self, template_pdb_ids: List[str], ref_chains: List[str], embedding_similarities: Dict[str, float] = None) -> List[Chem.Mol]:
+    def process_templates(self, template_pdb_ids: List[str], ref_chains: List[str], embedding_similarities: Optional[Dict[str, float]] = None) -> List[Chem.Mol]:
         """Process and transform template molecules."""
         processed_templates = []
         failed_templates = []
@@ -686,7 +689,7 @@ class TEMPLPipeline:
             log.error(f"Failed to generate conformers: {e}", exc_info=True)
             return None
     
-    def score_conformers(self, conformers: Chem.Mol, template_mol: Chem.Mol) -> Dict[str, Tuple[Chem.Mol, Dict[str, float]]]:
+    def score_conformers(self, conformers: Chem.Mol, template_mol: Chem.Mol) -> Union[Dict[str, Tuple[Chem.Mol, Dict[str, float]]], List[Tuple[Chem.Mol, Dict[str, float], int]]]:
         """Score conformers against template."""
         try:
             if conformers is None or template_mol is None:
@@ -753,12 +756,12 @@ class TEMPLPipeline:
             log.error(f"Failed to save consolidated results: {e}")
             return ""
     
-    def run_full_pipeline(self, protein_file: str = None, protein_pdb_id: str = None, 
-                         ligand_smiles: str = None, ligand_file: str = None,
+    def run_full_pipeline(self, protein_file: Optional[str] = None, protein_pdb_id: Optional[str] = None, 
+                         ligand_smiles: Optional[str] = None, ligand_file: Optional[str] = None,
                          num_templates: int = 100, num_conformers: int = 200,
                          n_workers: int = 4, similarity_threshold: float = 0.9,
-                         exclude_pdb_ids: set = None, allowed_pdb_ids: set = None,
-                         output_dir: str = None, no_realign: bool = False, 
+                         exclude_pdb_ids: Optional[set] = None, allowed_pdb_ids: Optional[set] = None,
+                         output_dir: Optional[str] = None, no_realign: bool = False, 
                          enable_optimization: bool = False, unconstrained: bool = False, 
                          align_metric: str = "combo") -> dict:
         """Run the full pipeline with CLI interface."""
@@ -856,6 +859,9 @@ class TEMPLPipeline:
                 return False
 
             # Setup enhanced output folder structure
+            if query_pdb_id is None:
+                log.error("No valid PDB ID available for output folder setup")
+                return False
             self.output_manager.setup_output_folder(query_pdb_id)
 
             # Get target embedding and chains
@@ -877,12 +883,16 @@ class TEMPLPipeline:
                         return False
                 else:
                     # Attempt to get chain data from the embedding manager as a last resort
-                    chains_str = self.embedding_manager.get_chain_data(query_pdb_id)
-                    if chains_str:
-                        ref_chains = chains_str.split(',')
-                        log.info(f"Successfully retrieved chains from embedding metadata: {ref_chains}")
+                    if self.embedding_manager is not None:
+                        chains_str = self.embedding_manager.get_chain_data(query_pdb_id)
+                        if chains_str:
+                            ref_chains = chains_str.split(',')
+                            log.info(f"Successfully retrieved chains from embedding metadata: {ref_chains}")
+                        else:
+                            log.error(f"No PDB file available and no chain data in embedding for {query_pdb_id}")
+                            return False
                     else:
-                        log.error(f"No PDB file available and no chain data in embedding for {query_pdb_id}")
+                        log.error(f"Embedding manager is None and no PDB file available for {query_pdb_id}")
                         return False
 
             num_templates = getattr(self.config, 'num_templates', 100)
@@ -1035,7 +1045,12 @@ class TEMPLPipeline:
                 "post_rmsd_filtering": post_rmsd_filtering_count
             }
 
-            best_template_idx, mcs_smarts, mcs_details = find_mcs(self.target_mol, all_transformed_ligands, return_details=True)
+            find_mcs_result = find_mcs(self.target_mol, all_transformed_ligands, return_details=True)
+            if len(find_mcs_result) == 3:
+                best_template_idx, mcs_smarts, mcs_details = find_mcs_result
+            else:
+                best_template_idx, mcs_smarts = find_mcs_result
+                mcs_details = {}
             best_template = all_transformed_ligands[best_template_idx]
             log.info(f"Best template found: {best_template.GetProp('template_pid')} with MCS: {mcs_smarts}")
 
@@ -1076,10 +1091,17 @@ class TEMPLPipeline:
                 best_pose = None
                 best_score = -1
                 
-                for conf_id, scores, mol in all_ranked_poses:
-                    if metric in scores and scores[metric] > best_score:
-                        best_score = scores[metric]
-                        best_pose = (mol, scores)
+                if isinstance(all_ranked_poses, list):
+                    for conf_id, scores, mol in all_ranked_poses:
+                        if metric in scores and scores[metric] > best_score:
+                            best_score = scores[metric]
+                            best_pose = (mol, scores)
+                else:
+                    # Handle case where all_ranked_poses is a dict
+                    for metric_name, (mol, scores) in all_ranked_poses.items():
+                        if metric_name == metric and metric in scores and scores[metric] > best_score:
+                            best_score = scores[metric]
+                            best_pose = (mol, scores)
                 
                 if best_pose:
                     top_poses[metric] = best_pose
@@ -1118,8 +1140,18 @@ class TEMPLPipeline:
                 top_poses, best_template, mcs_details, crystal_mol
             )
             
+            # Convert dict to list format if needed for save_all_poses
+            poses_for_saving: List[Tuple[Chem.Mol, Dict[str, float], int]] = []
+            if isinstance(all_ranked_poses, dict):
+                # Convert dict format to list format
+                for metric_name, (mol, scores) in all_ranked_poses.items():
+                    poses_for_saving.append((mol, scores, 0))  # Add dummy conf_id
+            else:
+                # Already in list format
+                poses_for_saving = all_ranked_poses
+            
             all_poses_file = self.output_manager.save_all_poses(
-                all_ranked_poses, best_template, mcs_details, crystal_mol
+                poses_for_saving, best_template, mcs_details, crystal_mol
             )
             
             template_file = self.output_manager.save_template(best_template)

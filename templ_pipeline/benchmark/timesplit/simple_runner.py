@@ -967,12 +967,17 @@ class SimpleTimeSplitRunner:
                 import multiprocessing.resource_tracker as rt
                 
                 # Force cleanup of any remaining shared memory objects
-                if hasattr(rt, '_CLEANUP_CALLBACKS'):
-                    for callback in rt._CLEANUP_CALLBACKS:
-                        try:
-                            callback()
-                        except Exception:
-                            pass
+                try:
+                    cleanup_callbacks = getattr(rt, '_CLEANUP_CALLBACKS', None)
+                    if cleanup_callbacks:
+                        for callback in cleanup_callbacks:
+                            try:
+                                callback()
+                            except Exception:
+                                pass
+                except (AttributeError, TypeError):
+                    # _CLEANUP_CALLBACKS may not exist or be accessible in all Python versions
+                    pass
                             
             except Exception as e:
                 logger.debug(f"Additional shared memory cleanup failed: {e}")

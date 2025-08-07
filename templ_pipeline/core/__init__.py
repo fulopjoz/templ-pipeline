@@ -15,7 +15,113 @@ Uses lazy loading to avoid slow imports during help display.
 """
 
 import importlib
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+# Type checking imports for better IDE support
+if TYPE_CHECKING:
+    from .embedding import (
+        get_protein_sequence,
+        get_protein_embedding,
+        initialize_esm_model,
+        calculate_embedding,
+        calculate_embedding_single,
+        EmbeddingManager,
+        select_templates,
+    )
+    from .mcs import (
+        find_mcs,
+        find_best_ca_rmsd_template,
+        constrained_embed,
+        central_atom_embed,
+        safe_name,
+        get_central_atom,
+        needs_uff_fallback,
+        embed_with_uff_fallback,
+        validate_molecular_connectivity,
+        validate_molecular_geometry,
+        simple_minimize_molecule,
+        validate_mmff_parameters,
+        log_coordinate_map,
+        relax_close_constraints,
+    )
+    from .scoring import (
+        score_and_align,
+        select_best,
+        rmsd_raw,
+        generate_properties_for_sdf,
+        FixedMolecularProcessor,
+        ScoringFixer,
+        CoordinateMapper,
+    )
+    from .chemistry import (
+        detect_and_substitute_organometallic,
+        has_rhenium_complex,
+        is_large_peptide,
+        validate_target_molecule,
+    )
+    from .templates import (
+        load_reference_protein,
+        load_target_data,
+        transform_ligand,
+        filter_templates_by_ca_rmsd,
+        get_templates_with_progressive_fallback,
+        pdb_path,
+        ligand_path,
+    )
+    from .pipeline import (
+        TEMPLPipeline,
+        PipelineConfig,
+        run_pipeline,
+        run_pipeline_from_args,
+        run_from_pdb_and_smiles,
+    )
+    from .workspace_manager import (
+        WorkspaceManager,
+        WorkspaceConfig,
+        DirectoryManager,
+        TempDirectoryManager,
+        create_workspace_manager,
+        emergency_cleanup,
+    )
+    from .file_manager import (
+        FileManager,
+        AdaptiveFileNamingEngine,
+        PredictionContext,
+        FileMetadata,
+        create_file_manager,
+        generate_adaptive_filename,
+    )
+    from .execution_manager import (
+        ExecutionManager,
+        SkipReason,
+        MoleculeSkipException,
+        get_safe_worker_count,
+        skip_molecule,
+        record_successful_processing,
+        get_execution_summary,
+    )
+    from .hardware import (
+        HardwareInfo,
+        get_basic_hardware_info,
+        get_hardware_info,
+        get_optimized_worker_config,
+        get_suggested_worker_config,
+        detect_optimal_configuration,
+    )
+    from .data import (
+        DatasetSplits,
+        DatasetManager,
+        load_benchmark_pdbs,
+        validate_dataset_integrity,
+    )
+    from .validation import (
+        SplitDataValidator,
+        DatabaseValidator,
+        MolecularValidationFramework,
+        validate_pipeline_components,
+        quick_validation_check,
+    )
+
 
 # Define what should be available for import
 __all__ = [
@@ -55,18 +161,12 @@ __all__ = [
     "has_rhenium_complex",
     "is_large_peptide",
     "validate_target_molecule",
-    "standardize_molecule",
-    "remove_small_fragments",
-    "neutralize_charges",
     # Templates
     "load_reference_protein",
     "load_target_data",
     "transform_ligand", 
     "filter_templates_by_ca_rmsd",
     "get_templates_with_progressive_fallback",
-    "validate_template_molecule",
-    "extract_template_metadata",
-    "rank_templates_by_quality",
     "pdb_path",
     "ligand_path",
     # Pipeline
@@ -155,18 +255,12 @@ _MODULE_MAP = {
     "has_rhenium_complex": "chemistry",
     "is_large_peptide": "chemistry",
     "validate_target_molecule": "chemistry",
-    "standardize_molecule": "chemistry",
-    "remove_small_fragments": "chemistry",
-    "neutralize_charges": "chemistry",
     # Templates
     "load_reference_protein": "templates",
     "load_target_data": "templates",
     "transform_ligand": "templates",
     "filter_templates_by_ca_rmsd": "templates",
     "get_templates_with_progressive_fallback": "templates",
-    "validate_template_molecule": "templates",
-    "extract_template_metadata": "templates",
-    "rank_templates_by_quality": "templates",
     "pdb_path": "templates",
     "ligand_path": "templates",
     # Pipeline
@@ -221,7 +315,7 @@ _MODULE_MAP = {
 _loaded_modules = {}
 
 
-def __getattr__(name: str) -> Any:
+def __getattr__(name: str) -> Any:  # type: ignore[misc]
     """Lazy loading of core functions and classes."""
     if name in _MODULE_MAP:
         module_name = _MODULE_MAP[name]
