@@ -1,0 +1,4 @@
+Benchmark,Split,Metric,Total_Targets,Targets_With_RMSD,Excluded_Targets,Success_Rate_2A,Success_Rate_5A,Mean_RMSD,Median_RMSD,Avg_Exclusions,Avg_Runtime,Exclusion_Reasons,Pipeline_Attempted,Pre_Pipeline_Excluded,Pipeline_Filtered
+Timesplit,test,Combo,20,20,0,25.0%,50.0%,10.75,4.46,0,0.0s,{},20,0,0
+Timesplit,test,Color,20,20,0,25.0%,50.0%,10.56,4.24,0,0.0s,{},20,0,0
+Timesplit,test,Shape,20,20,0,25.0%,50.0%,10.74,4.46,0,0.0s,{},20,0,0

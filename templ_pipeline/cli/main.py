@@ -1166,10 +1166,23 @@ def _generate_unified_summary(workspace_dir, benchmark_type):
             return
         
         # Generate summary
-        if len(all_results) == 1:
-            results_data = list(all_results.values())[0]
+        # Flatten individual results for timesplit benchmarks
+        if benchmark_type == "timesplit":
+            individual_results = []
+            for file_stem, file_data in all_results.items():
+                if file_stem.startswith("results_") and isinstance(file_data, list):
+                    # This is a JSONL file with individual results
+                    individual_results.extend(file_data)
+            
+            if individual_results:
+                logger.info(f"Using {len(individual_results)} individual results for timesplit summary")
+                results_data = individual_results
+            else:
+                logger.info("No individual results found, using complete results data")
+                results_data = list(all_results.values())[0] if len(all_results) == 1 else all_results
         else:
-            results_data = all_results
+            # For other benchmark types, use original logic
+            results_data = list(all_results.values())[0] if len(all_results) == 1 else all_results
             
         summary = generator.generate_unified_summary(results_data, benchmark_type)
         
