@@ -44,6 +44,7 @@ from .chemistry import (
     validate_target_molecule,
     detect_and_substitute_organometallic,
     needs_uff_fallback,
+    is_large_peptide_or_polysaccharide,
 )
 from .output_manager import EnhancedOutputManager
 
@@ -289,13 +290,24 @@ class TEMPLPipeline:
                         from ..benchmark.skip_tracker import create_molecule_info
                         mol_info = create_molecule_info(self.target_mol, target_smiles)
                         
-                        # Determine skip reason from validation message
+                        # Determine skip reason and add clear filtering prefix
                         if "peptide" in validation_msg.lower():
                             skip_reason = "large_peptide"
+                            # Ensure message has filtering prefix for proper CLI classification
+                            if not validation_msg.lower().startswith("filtered:"):
+                                validation_msg = f"FILTERED: {validation_msg}"
+                        elif "polysaccharide" in validation_msg.lower():
+                            skip_reason = "large_polysaccharide"
+                            if not validation_msg.lower().startswith("filtered:"):
+                                validation_msg = f"FILTERED: {validation_msg}"
                         elif "rhenium" in validation_msg.lower():
                             skip_reason = "rhenium_complex"
+                            if not validation_msg.lower().startswith("filtered:"):
+                                validation_msg = f"FILTERED: {validation_msg}"
                         else:
                             skip_reason = "validation_failed"
+                            if not validation_msg.lower().startswith("filtered:"):
+                                validation_msg = f"FILTERED: {validation_msg}"
                         
                         log.warning(f"Molecule validation failed for {pdb_id}: {validation_msg}")
                         
@@ -309,6 +321,9 @@ class TEMPLPipeline:
                         
                     except ImportError:
                         # Skip tracker not available, just log and fail
+                        # Add filtering prefix for proper CLI classification
+                        if not validation_msg.lower().startswith("filtered:"):
+                            validation_msg = f"FILTERED: {validation_msg}"
                         log.error(f"Target molecule validation failed: {validation_msg}")
                         return False
             elif ligand_file:
@@ -388,7 +403,7 @@ class TEMPLPipeline:
             return None
     
     def load_templates(self) -> bool:
-        """Load template molecules from SDF file."""
+        """Load and filter template molecules from SDF file."""
         try:
             # Use default data directory structure
             ligands_sdf_gz = "data/ligands/templ_processed_ligands_v1.0.0.sdf.gz"
@@ -398,6 +413,11 @@ class TEMPLPipeline:
                 return False
                 
             log.info(f"Loading templates from {ligands_sdf_gz}")
+            
+            # Initialize filtering statistics
+            original_count = 0
+            filtered_peptides = 0
+            filtered_polysaccharides = 0
             
             # Load templates from compressed SDF
             # Create temporary uncompressed file for RDKit to read
@@ -412,12 +432,38 @@ class TEMPLPipeline:
                 
                 for mol in supplier:
                     if mol is not None:
+                        original_count += 1
+                        
+                        # Apply same filtering as targets - filter out peptides and polysaccharides
+                        is_filtered, msg = is_large_peptide_or_polysaccharide(
+                            mol, residue_threshold=8, sugar_ring_threshold=3
+                        )
+                        
+                        if is_filtered:
+                            if "peptide" in msg.lower():
+                                filtered_peptides += 1
+                            elif "polysaccharide" in msg.lower():
+                                filtered_polysaccharides += 1
+                            continue  # Skip this template
+                            
                         self.templates.append(mol)
             finally:
                 # Clean up temporary file
                 os.unlink(tmp_sdf_path)
-                        
-            log.info(f"Loaded {len(self.templates)} template molecules")
+            
+            # Store filtering statistics for CLI output
+            self.template_filtering_stats = {
+                "original_templates": original_count,
+                "final_templates": len(self.templates),
+                "peptides_filtered": filtered_peptides,
+                "polysaccharides_filtered": filtered_polysaccharides
+            }
+            
+            # Log filtering results
+            total_filtered = filtered_peptides + filtered_polysaccharides
+            log.info(f"Template filtering: {original_count} → {len(self.templates)} templates")
+            log.info(f"Filtered out: {filtered_peptides} peptides, {filtered_polysaccharides} polysaccharides ({total_filtered} total)")
+            
             return len(self.templates) > 0
             
         except Exception as e:
@@ -837,6 +883,9 @@ class TEMPLPipeline:
         """
         try:
             log.info("Starting TEMPL pipeline with new methodology")
+            
+            # Initialize MCS stage tracking
+            self.made_it_to_mcs = False
 
             if not self.load_target_data():
                 return False
@@ -1044,6 +1093,11 @@ class TEMPLPipeline:
                 "pre_rmsd_filtering": pre_rmsd_filtering_count,
                 "post_rmsd_filtering": post_rmsd_filtering_count
             }
+
+            # Mark that we successfully reached the MCS stage 
+            # (passed target validation, template loading, similarity search, etc.)
+            self.made_it_to_mcs = True
+            log.info("Reached MCS processing stage")
 
             find_mcs_result = find_mcs(self.target_mol, all_transformed_ligands, return_details=True)
             if len(find_mcs_result) == 3:

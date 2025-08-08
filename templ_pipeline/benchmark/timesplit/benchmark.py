@@ -20,8 +20,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
-# Import the runner and infrastructure
-from .timesplit_runner import TimeSplitBenchmarkRunner
+# Import the runner and infrastructure  
+from .simple_runner import SimpleTimeSplitRunner
 from templ_pipeline.core.hardware import get_suggested_worker_config
 
 logger = logging.getLogger(__name__)
@@ -123,7 +123,6 @@ def run_timesplit_benchmark(
     logger.info(f"  Results: {results_path}")
     
     # Initialize simplified benchmark runner
-    from templ_pipeline.benchmark.timesplit.simple_runner import SimpleTimeSplitRunner
     logger.info("Creating SimpleTimeSplitRunner with enhanced shared data...")
     runner = SimpleTimeSplitRunner(
         data_dir=data_dir,
