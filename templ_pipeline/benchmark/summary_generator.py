@@ -1274,7 +1274,8 @@ class BenchmarkSummaryGenerator:
                     
                     # FILTERING BREAKDOWN
                     "Peptide_Polysaccharide_Filtered": self._count_peptide_filtering(results_data),
-                    "Template_Database_Filtering": self._extract_template_filtering_stats(results_data),
+                    "Template_Database_Filtering": self._format_template_stats_for_display(self._extract_template_filtering_stats(results_data)),
+                    "Template_Database_Filtering_Details": self._extract_template_filtering_stats(results_data),
                     
                     # LEGACY COMPATIBILITY
                     "Avg_Exclusions": "0",  # Placeholder
@@ -1344,13 +1345,11 @@ class BenchmarkSummaryGenerator:
             results: List of benchmark result dictionaries
             
         Returns:
-            Dictionary with template filtering statistics
+            Dictionary with template filtering statistics (statistical summary format)
         """
-        template_stats = {
-            "total_templates_in_database": [],
-            "templates_used_for_poses": [],
-            "template_filtering_applied": 0
-        }
+        total_templates_values = []
+        used_templates_values = []
+        filtering_applied_count = 0
         
         for result in results:
             stdout = result.get("stdout", "")
@@ -1369,26 +1368,84 @@ class BenchmarkSummaryGenerator:
                     used_templates = cli_result.get("templates_used_for_poses", 0)
                     
                     if total_templates > 0:
-                        template_stats["total_templates_in_database"].append(total_templates)
-                        template_stats["templates_used_for_poses"].append(used_templates)
+                        total_templates_values.append(total_templates)
+                        used_templates_values.append(used_templates)
                         
                         # Check if filtering was applied
                         template_db_stats = cli_result.get("template_database_stats", {})
                         if template_db_stats.get("filtered_peptides", 0) > 0 or template_db_stats.get("filtered_polysaccharides", 0) > 0:
-                            template_stats["template_filtering_applied"] += 1
+                            filtering_applied_count += 1
                             
                 except (json.JSONDecodeError, ValueError, KeyError):
                     continue
         
-        # Calculate averages
-        if template_stats["total_templates_in_database"]:
-            template_stats["avg_total_templates"] = sum(template_stats["total_templates_in_database"]) / len(template_stats["total_templates_in_database"])
-            template_stats["avg_used_templates"] = sum(template_stats["templates_used_for_poses"]) / len(template_stats["templates_used_for_poses"])
+        # Create statistical summary instead of raw arrays
+        if total_templates_values:
+            import statistics
+            
+            template_stats = {
+                "database_size": {
+                    "unique_values": list(set(total_templates_values)),
+                    "count": len(total_templates_values), 
+                    "avg": sum(total_templates_values) / len(total_templates_values)
+                },
+                "templates_used_stats": {
+                    "min": min(used_templates_values),
+                    "max": max(used_templates_values),
+                    "avg": sum(used_templates_values) / len(used_templates_values),
+                    "median": statistics.median(used_templates_values),
+                    "count": len(used_templates_values)
+                },
+                "template_filtering_applied": filtering_applied_count,
+                "targets_processed": len(used_templates_values)
+            }
+            
+            # Backward compatibility - keep these for existing code
+            template_stats["avg_total_templates"] = template_stats["database_size"]["avg"]
+            template_stats["avg_used_templates"] = template_stats["templates_used_stats"]["avg"]
         else:
-            template_stats["avg_total_templates"] = 0
-            template_stats["avg_used_templates"] = 0
+            template_stats = {
+                "database_size": {"unique_values": [], "count": 0, "avg": 0},
+                "templates_used_stats": {"min": 0, "max": 0, "avg": 0, "median": 0, "count": 0},
+                "template_filtering_applied": 0,
+                "targets_processed": 0,
+                "avg_total_templates": 0,
+                "avg_used_templates": 0
+            }
             
         return template_stats
+    
+    def _format_template_stats_for_display(self, template_stats: Dict) -> str:
+        """
+        Format template database filtering statistics for readable display in MD/CSV.
+        
+        Args:
+            template_stats: Dictionary from _extract_template_filtering_stats()
+            
+        Returns:
+            Human-readable string summarizing template statistics
+        """
+        if not template_stats or template_stats.get("targets_processed", 0) == 0:
+            return "No template data available"
+            
+        db_size = template_stats.get("database_size", {})
+        used_stats = template_stats.get("templates_used_stats", {})
+        
+        # Format database size
+        unique_vals = db_size.get("unique_values", [])
+        if len(unique_vals) == 1:
+            db_info = f"DB: {unique_vals[0]}"
+        else:
+            db_info = f"DB: {db_size.get('avg', 0):.0f} avg"
+            
+        # Format usage statistics
+        usage_info = f"Used: {used_stats.get('min', 0)}-{used_stats.get('max', 0)} (avg: {used_stats.get('avg', 0):.1f})"
+        
+        # Format targets processed
+        targets_info = f"Targets: {template_stats.get('targets_processed', 0)}"
+        
+        # Combine information
+        return f"{db_info}, {usage_info}, {targets_info}"
     
     def _format_template_description(self, template_counts: Dict, dataset: str, query_count: int) -> str:
         """Format template description for Polaris results."""
@@ -1426,11 +1483,30 @@ class BenchmarkSummaryGenerator:
         
         return self._format_output(table_data, output_format)
     
+    def _clean_data_for_display(self, table_data: List[Dict]) -> List[Dict]:
+        """
+        Clean table data for MD/CSV display by removing overly verbose fields.
+        Keep detailed data for JSON output.
+        """
+        cleaned_data = []
+        for row in table_data:
+            cleaned_row = row.copy()
+            # Remove the detailed template filtering data for display formats
+            if "Template_Database_Filtering_Details" in cleaned_row:
+                del cleaned_row["Template_Database_Filtering_Details"]
+            cleaned_data.append(cleaned_row)
+        return cleaned_data
+    
     def _format_output(self, table_data: List[Dict], output_format: str) -> Union[Dict, "pd.DataFrame"]:
         """Format output data according to requested format."""
+        # Store original data for JSON output
+        self._original_data_for_json = table_data
+        
         if output_format == "pandas" and PANDAS_AVAILABLE:
-            return pd.DataFrame(table_data)
+            # Use cleaned data for pandas (which feeds MD/CSV outputs)
+            return pd.DataFrame(self._clean_data_for_display(table_data))
         elif output_format == "dict":
+            # Keep detailed data for dict output
             return {"summary_data": table_data}
         elif output_format == "json":
             return json.dumps(table_data, indent=2)
@@ -1477,7 +1553,11 @@ class BenchmarkSummaryGenerator:
                 
                 elif fmt == "json":
                     file_path = output_dir / f"{base_name}_{timestamp}.json"
-                    if PANDAS_AVAILABLE and pd is not None and isinstance(summary_data, pd.DataFrame):
+                    # For JSON, we want to preserve the detailed data
+                    if hasattr(self, '_original_data_for_json'):
+                        # Use the original detailed data for JSON
+                        data_to_save = self._original_data_for_json
+                    elif PANDAS_AVAILABLE and pd is not None and isinstance(summary_data, pd.DataFrame):
                         data_to_save = summary_data.to_dict('records')
                     elif isinstance(summary_data, list):
                         data_to_save = summary_data
