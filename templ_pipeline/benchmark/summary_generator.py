@@ -1273,8 +1273,8 @@ class BenchmarkSummaryGenerator:
                     "Pipeline_Filtered": pipeline_filtered,
                     
                     # FILTERING BREAKDOWN
-                    "Peptide_Polysaccharide_Filtered": self._count_peptide_filtering(all_results),
-                    "Template_Database_Filtering": self._extract_template_filtering_stats(all_results),
+                    "Peptide_Polysaccharide_Filtered": self._count_peptide_filtering(results_data),
+                    "Template_Database_Filtering": self._extract_template_filtering_stats(results_data),
                     
                     # LEGACY COMPATIBILITY
                     "Avg_Exclusions": "0",  # Placeholder
