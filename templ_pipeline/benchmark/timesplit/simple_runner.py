@@ -21,6 +21,7 @@ from typing import Dict, List, Optional, Set, Tuple
 from tqdm import tqdm
 
 from templ_pipeline.benchmark.runner import LazyMoleculeLoader
+from templ_pipeline.benchmark.summary_generator import BenchmarkSummaryGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -404,11 +405,10 @@ class SimpleTimeSplitRunner:
 
     def _analyze_cli_success(self, stdout: str, target_pdb: str) -> Tuple[str, bool]:
         """
-        Analyze CLI success cases to distinguish database_empty from actual success.
+        Analyze CLI success cases to determine the actual processing stage.
         
-        CLI exits with code 0 even when no templates are available (database_empty),
-        but internally reports success=false. We need to parse the CLI JSON output
-        to determine the actual processing stage.
+        Uses the enhanced CLI JSON output with pipeline_stage field to accurately
+        classify processing stages, ensuring correct success rate calculations.
         
         Args:
             stdout: CLI stdout output
@@ -429,21 +429,31 @@ class SimpleTimeSplitRunner:
                 json_str = stdout[json_start:json_end].strip()
                 cli_result = json.loads(json_str)
                 
-                # Check CLI internal success flag
+                # PRIORITY 1: Use new pipeline_stage field if available (preferred)
+                pipeline_stage = cli_result.get("pipeline_stage")
+                made_it_to_mcs = cli_result.get("made_it_to_mcs", False)
+                
+                if pipeline_stage:
+                    # Use the accurate pipeline stage from enhanced CLI
+                    affects_success_rate = (pipeline_stage == "pipeline_attempted")
+                    logger.debug(f"{target_pdb}: CLI reports pipeline_stage='{pipeline_stage}', made_it_to_mcs={made_it_to_mcs}")
+                    return pipeline_stage, affects_success_rate
+                
+                # FALLBACK: Legacy logic for older CLI versions
                 cli_success = cli_result.get("success", False)
                 total_templates_in_db = cli_result.get("total_templates_in_database", 0)
                 
                 if not cli_success and total_templates_in_db == 0:
                     # Database is empty - data availability issue
-                    logger.debug(f"{target_pdb}: CLI reports database_empty (0 templates)")
+                    logger.debug(f"{target_pdb}: CLI reports database_empty (0 templates) [LEGACY LOGIC]")
                     return "pre_pipeline_excluded", False
                 elif not cli_success:
                     # CLI failed for other reasons - algorithm issue  
-                    logger.debug(f"{target_pdb}: CLI reports failure with {total_templates_in_db} templates")
+                    logger.debug(f"{target_pdb}: CLI reports failure with {total_templates_in_db} templates [LEGACY LOGIC]")
                     return "pipeline_attempted", True
                 else:
                     # CLI succeeded - normal pipeline processing
-                    logger.debug(f"{target_pdb}: CLI succeeded with {total_templates_in_db} templates")
+                    logger.debug(f"{target_pdb}: CLI succeeded with {total_templates_in_db} templates [LEGACY LOGIC]")
                     return "pipeline_attempted", True
                     
         except (ValueError, KeyError, AttributeError, json.JSONDecodeError) as e:
@@ -910,6 +920,9 @@ class SimpleTimeSplitRunner:
         # Generate tracking system summaries if available
         self._generate_tracking_summaries(split_name)
         
+        # Generate detailed 2A/5A success rate summaries using BenchmarkSummaryGenerator
+        self._generate_detailed_summaries(output_jsonl, split_name, timestamp)
+        
         return summary
     
     def _generate_tracking_summaries(self, split_name: str):
@@ -938,6 +951,73 @@ class SimpleTimeSplitRunner:
                     
         except Exception as e:
             logger.warning(f"Failed to generate tracking summaries: {e}")
+    
+    def _generate_detailed_summaries(self, results_jsonl: Path, split_name: str, timestamp: str):
+        """Generate detailed 2A/5A success rate summaries using BenchmarkSummaryGenerator."""
+        try:
+            logger.info(f"Generating detailed 2A/5A success rate summaries for {split_name} split...")
+            
+            # Load JSONL results
+            results_data = []
+            with open(results_jsonl, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        results_data.append(json.loads(line))
+            
+            if not results_data:
+                logger.warning(f"No results data found in {results_jsonl}")
+                return
+            
+            # Initialize BenchmarkSummaryGenerator
+            summary_generator = BenchmarkSummaryGenerator()
+            
+            # Generate unified summary with 2A/5A success rates
+            unified_summary = summary_generator.generate_unified_summary(
+                results_data=results_data, 
+                benchmark_type="timesplit",
+                output_format="dict"
+            )
+            
+            # Create summaries directory if it doesn't exist
+            summaries_dir = self.results_dir / "summaries"
+            summaries_dir.mkdir(exist_ok=True)
+            
+            # Save detailed JSON summary with 2A/5A success rates
+            detailed_summary_file = summaries_dir / f"detailed_summary_{split_name}_{timestamp}.json"
+            with open(detailed_summary_file, 'w') as f:
+                json.dump(unified_summary, f, indent=2, default=str)
+            
+            # Generate and save CSV summary if pandas is available
+            try:
+                csv_summary = summary_generator.generate_unified_summary(
+                    results_data=results_data, 
+                    benchmark_type="timesplit",
+                    output_format="pandas"
+                )
+                if csv_summary is not None and hasattr(csv_summary, 'to_csv'):
+                    csv_file = summaries_dir / f"benchmark_summary_{split_name}_{timestamp}.csv"
+                    csv_summary.to_csv(csv_file, index=False)
+                    logger.info(f"✓ CSV summary saved: {csv_file}")
+            except Exception as e:
+                logger.warning(f"Could not generate CSV summary: {e}")
+            
+            # Log success rates from the detailed summary
+            if isinstance(unified_summary, dict) and "summary" in unified_summary:
+                for row in unified_summary["summary"]:
+                    success_rate_2A = row.get("Success_Rate_2A", "N/A")
+                    success_rate_5A = row.get("Success_Rate_5A", "N/A") 
+                    pipeline_attempted = row.get("Pipeline_Attempted", "N/A")
+                    logger.info(f"✓ 2A Success Rate: {success_rate_2A} (from {pipeline_attempted} attempted)")
+                    logger.info(f"✓ 5A Success Rate: {success_rate_5A} (from {pipeline_attempted} attempted)")
+            
+            logger.info(f"✓ Detailed summaries with 2A/5A success rates saved to: {summaries_dir}")
+            logger.info(f"  - JSON summary: {detailed_summary_file}")
+            
+        except Exception as e:
+            logger.error(f"Failed to generate detailed summaries: {e}")
+            import traceback
+            traceback.print_exc()
     
     def cleanup(self):
         """Clean up enhanced shared data and temporary files."""

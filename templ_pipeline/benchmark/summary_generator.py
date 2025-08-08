@@ -779,27 +779,37 @@ class BenchmarkSummaryGenerator:
         pipeline_filtered = 0
         
         if all_results:
-            # Analyze all results using existing processing_stage field
+            # Analyze all results using the new pipeline_stage and made_it_to_mcs fields
             stage_counts = {"pre_pipeline_excluded": 0, "pipeline_filtered": 0, "pipeline_attempted": 0}
             
             for result in all_results:
-                # Use the existing processing_stage field set by simple_runner.py
-                processing_stage = result.get("processing_stage", "unknown")
+                # First try the new pipeline_stage field from CLI JSON output
+                pipeline_stage = result.get("pipeline_stage", None)
+                made_it_to_mcs = result.get("made_it_to_mcs", False)
                 
-                if processing_stage in stage_counts:
-                    # Use the pre-calculated processing stage
-                    stage_counts[processing_stage] += 1
+                if pipeline_stage in stage_counts:
+                    # Use the new pipeline_stage field
+                    stage_counts[pipeline_stage] += 1
+                elif made_it_to_mcs:
+                    # If made_it_to_mcs is True, definitely count as pipeline_attempted
+                    stage_counts["pipeline_attempted"] += 1
                 else:
-                    # Fallback for unknown processing stages
-                    if result.get("success") and result.get("rmsd_values"):
-                        # Successful results are always pipeline_attempted
-                        stage_counts["pipeline_attempted"] += 1
+                    # Fallback to legacy processing_stage field or error analysis
+                    processing_stage = result.get("processing_stage", "unknown")
+                    
+                    if processing_stage in stage_counts:
+                        stage_counts[processing_stage] += 1
                     else:
-                        # Analyze failed results to determine stage
-                        error_msg = result.get("error", "")
-                        exclusion_reason = self._parse_exclusion_reason(error_msg)
-                        fallback_stage = self._classify_exclusion_processing_stage(exclusion_reason)
-                        stage_counts[fallback_stage] += 1
+                        # Final fallback: analyze by success and error
+                        if result.get("success") and result.get("rmsd_values"):
+                            # Successful results are always pipeline_attempted
+                            stage_counts["pipeline_attempted"] += 1
+                        else:
+                            # Analyze failed results to determine stage
+                            error_msg = result.get("error", "")
+                            exclusion_reason = self._parse_exclusion_reason(error_msg)
+                            fallback_stage = self._classify_exclusion_processing_stage(exclusion_reason)
+                            stage_counts[fallback_stage] += 1
             
             pre_pipeline_excluded = stage_counts["pre_pipeline_excluded"]
             pipeline_filtered = stage_counts["pipeline_filtered"] 
@@ -831,6 +841,23 @@ class BenchmarkSummaryGenerator:
         # This ensures pipeline failures are properly counted in success rate calculations
         results_to_process = all_results if all_results else split_results
         for result in results_to_process:
+            # First check pipeline stage using new CLI fields
+            pipeline_stage = result.get("pipeline_stage", None)
+            made_it_to_mcs = result.get("made_it_to_mcs", False)
+            
+            # Determine if this result reached the pipeline attempted stage
+            reached_pipeline_attempted = False
+            if pipeline_stage == "pipeline_attempted":
+                reached_pipeline_attempted = True
+            elif made_it_to_mcs:
+                reached_pipeline_attempted = True
+            elif result.get("processing_stage") == "pipeline_attempted":
+                # Fallback to legacy processing_stage field
+                reached_pipeline_attempted = True
+            elif result.get("success") and result.get("rmsd_values"):
+                # Successful results with RMSD always reached pipeline attempted
+                reached_pipeline_attempted = True
+                
             if result.get("success") and result.get("rmsd_values"):
                 # Successful result with RMSD values
                 successful_results += 1
@@ -851,24 +878,34 @@ class BenchmarkSummaryGenerator:
                 
                 if has_rmsd_values:
                     results_with_rmsd += 1
-            else:
+            elif reached_pipeline_attempted:
                 # CRITICAL FIX: Include pipeline failures in RMSD collection
                 # Pipeline failures (empty RMSD, timeouts, etc.) should count as infinite RMSD
                 # This ensures they contribute 0 to success counts while being included in denominator
-                if result.get("processing_stage") == "pipeline_attempted":
-                    # This is a pipeline failure that was attempted but failed
-                    # Add a very high RMSD value (>100Å) to represent failure
-                    failure_rmsd = 999.0  # Guaranteed to fail both 2Å and 5Å thresholds
-                    
-                    # Add failure RMSD to all metrics to maintain consistency
-                    for metric_key in ["combo", "shape", "color"]:
-                        rmsd_by_metric[metric_key].append(failure_rmsd)
+                failure_rmsd = 999.0  # Guaranteed to fail both 2Å and 5Å thresholds
+                
+                # Log the type of pipeline failure for debugging
+                error_msg = result.get("error", "unknown_pipeline_failure")
+                logger.info(f"SUCCESS_RATE_CALC: Including pipeline failure as 999.0Å RMSD: {error_msg[:100]}...")
+                
+                # Add failure RMSD to all metrics to maintain consistency
+                for metric_key in ["combo", "shape", "color"]:
+                    rmsd_by_metric[metric_key].append(failure_rmsd)
         
         logger.info(f"SUCCESS_RATE_CALC: Timesplit data collection summary:")
         logger.info(f"SUCCESS_RATE_CALC:   Successful results: {successful_results}/{len(split_results)}")
         logger.info(f"SUCCESS_RATE_CALC:   Results with RMSD values: {results_with_rmsd}/{successful_results}")
         logger.info(f"SUCCESS_RATE_CALC:   Pipeline failures included: {pipeline_attempted_targets - results_with_rmsd}")
         logger.info(f"SUCCESS_RATE_CALC:   Total RMSD entries (including failures): {len(rmsd_by_metric.get('combo', []))}")
+        
+        # CRITICAL DATASET SIZE REPORTING
+        logger.info(f"DATASET_SIZE_REPORTING: *** FINAL DATASET NUMBERS FOR PUBLICATION ***")
+        logger.info(f"DATASET_SIZE_REPORTING:   Total input molecules: {total_targets}")
+        logger.info(f"DATASET_SIZE_REPORTING:   Pre-pipeline excluded: {pre_pipeline_excluded} (missing files, invalid data)")
+        logger.info(f"DATASET_SIZE_REPORTING:   Pipeline filtered: {pipeline_filtered} (peptides, validation failures)")
+        logger.info(f"DATASET_SIZE_REPORTING:   Pipeline attempted (XYZ number): {pipeline_attempted_targets}")
+        logger.info(f"DATASET_SIZE_REPORTING:   ^^^ USE THIS NUMBER FOR TRAIN/VAL/TEST DATASET SIZES IN PAPERS ^^^")
+        logger.info(f"DATASET_SIZE_REPORTING:   Success breakdown: {results_with_rmsd} successful, {pipeline_attempted_targets - results_with_rmsd} failed")
         
         # Log RMSD data by metric
         for metric_key in rmsd_by_metric:
@@ -892,9 +929,13 @@ class BenchmarkSummaryGenerator:
                 rate_2A = count_2A / pipeline_attempted_targets * 100 if pipeline_attempted_targets > 0 else 0
                 rate_5A = count_5A / pipeline_attempted_targets * 100 if pipeline_attempted_targets > 0 else 0
                 
-                # Verify consistency: RMSD array length should match pipeline_attempted_targets
+                # CRITICAL VALIDATION: RMSD array length MUST match pipeline_attempted_targets
                 if len(rmsds) != pipeline_attempted_targets:
-                    logger.warning(f"RMSD array length ({len(rmsds)}) != pipeline_attempted_targets ({pipeline_attempted_targets})")
+                    logger.error(f"CRITICAL ERROR: RMSD array length ({len(rmsds)}) != pipeline_attempted_targets ({pipeline_attempted_targets})")
+                    logger.error(f"This indicates a bug in success rate calculation - some molecules are not being counted correctly")
+                    logger.error(f"Success rates will be INCORRECT until this is fixed")
+                else:
+                    logger.info(f"SUCCESS_RATE_CALC: VALIDATION PASSED - RMSD array matches pipeline_attempted_targets ({len(rmsds)})")
                 
                 # Also calculate legacy rates for comparison
                 legacy_rate_2A = count_2A / total_targets * 100 if total_targets > 0 else 0
@@ -920,13 +961,14 @@ class BenchmarkSummaryGenerator:
                 
                 # Log calculated success rates with stage awareness
                 pipeline_failures = pipeline_attempted_targets - results_with_rmsd
-                logger.info(f"SUCCESS_RATE_CALC: Final Timesplit rates for {metric_key} (INCLUDING PIPELINE FAILURES):")
-                logger.info(f"SUCCESS_RATE_CALC:   2A pipeline success: {rate_2A:.1f}% ({count_2A}/{pipeline_attempted_targets}) [CORRECTED METRIC]")
-                logger.info(f"SUCCESS_RATE_CALC:   5A pipeline success: {rate_5A:.1f}% ({count_5A}/{pipeline_attempted_targets}) [CORRECTED METRIC]")
-                logger.info(f"SUCCESS_RATE_CALC:   Includes {pipeline_failures} pipeline failures as 0 successes")
-                logger.info(f"SUCCESS_RATE_CALC:   Legacy 2A rate: {legacy_rate_2A:.1f}% ({count_2A}/{total_targets}) [for comparison]")
-                logger.info(f"SUCCESS_RATE_CALC:   Legacy 5A rate: {legacy_rate_5A:.1f}% ({count_5A}/{total_targets}) [for comparison]")
-                logger.info(f"SUCCESS_RATE_CALC:   Mean RMSD: {mean_rmsd:.3f}A")
+                logger.info(f"SUCCESS_RATE_CALC: *** FINAL SUCCESS RATES FOR {metric_key.upper()} ***")
+                logger.info(f"SUCCESS_RATE_CALC:   2A pipeline success: {rate_2A:.1f}% ({count_2A}/{pipeline_attempted_targets}) [CORRECTED - USE FOR PAPERS]")
+                logger.info(f"SUCCESS_RATE_CALC:   5A pipeline success: {rate_5A:.1f}% ({count_5A}/{pipeline_attempted_targets}) [CORRECTED - USE FOR PAPERS]")
+                logger.info(f"SUCCESS_RATE_CALC:   Includes {pipeline_failures} pipeline failures as 0 successes (timeouts, MCS failures, etc.)")
+                logger.info(f"SUCCESS_RATE_CALC:   Legacy 2A rate: {legacy_rate_2A:.1f}% ({count_2A}/{total_targets}) [BIASED - DON'T USE]")
+                logger.info(f"SUCCESS_RATE_CALC:   Legacy 5A rate: {legacy_rate_5A:.1f}% ({count_5A}/{total_targets}) [BIASED - DON'T USE]")
+                logger.info(f"SUCCESS_RATE_CALC:   Mean RMSD (including failures): {mean_rmsd:.3f}A")
+                logger.info(f"SUCCESS_RATE_CALC:   Bias correction factor: {rate_2A/legacy_rate_2A:.2f}x (corrected/legacy)")
                 
             elif scores:
                 # CRITICAL ERROR: RMSD data unavailable - cannot calculate meaningful success rates
@@ -1098,10 +1140,18 @@ class BenchmarkSummaryGenerator:
                     stage_counts["pipeline_attempted"] += 1
                 elif result.get("success") and not result.get("rmsd_values"):
                     # Successful CLI execution but no RMSD (0 templates/poses)
-                    # Analyze CLI JSON output to distinguish data issues from filtering
-                    exclusion_reason = self._classify_no_templates_case(result)
-                    fallback_stage = self._classify_exclusion_processing_stage(exclusion_reason)
-                    stage_counts[fallback_stage] += 1
+                    # Check if this result has pipeline stage info first
+                    pipeline_stage = result.get("pipeline_stage", None)
+                    made_it_to_mcs = result.get("made_it_to_mcs", False)
+                    
+                    if pipeline_stage == "pipeline_attempted" or made_it_to_mcs:
+                        # This reached MCS stage but failed to generate RMSD - count as pipeline_attempted
+                        stage_counts["pipeline_attempted"] += 1
+                    else:
+                        # Analyze CLI JSON output to distinguish data issues from filtering
+                        exclusion_reason = self._classify_no_templates_case(result)
+                        fallback_stage = self._classify_exclusion_processing_stage(exclusion_reason)
+                        stage_counts[fallback_stage] += 1
                 else:
                     # Failed results - analyze error message to determine stage
                     error_msg = result.get("error", "")
@@ -1157,8 +1207,29 @@ class BenchmarkSummaryGenerator:
                             exclusion_reasons[exclusion_reason] += 1
                     elif result.get("success") and not result.get("rmsd_values"):
                         # Successful CLI execution but no RMSD (0 templates/poses)
-                        exclusion_reason = self._classify_no_templates_case(result)
-                        exclusion_reasons[exclusion_reason] += 1
+                        # Check if this result has pipeline stage info first
+                        pipeline_stage = result.get("pipeline_stage", None)
+                        made_it_to_mcs = result.get("made_it_to_mcs", False)
+                        
+                        if pipeline_stage == "pipeline_attempted" or made_it_to_mcs:
+                            # This reached MCS stage but failed to generate RMSD - count as pipeline failure
+                            exclusion_reasons["pipeline_attempted_no_rmsd"] += 1
+                        else:
+                            # Analyze CLI JSON output to distinguish data issues from filtering
+                            exclusion_reason = self._classify_no_templates_case(result)
+                            exclusion_reasons[exclusion_reason] += 1
+                
+                # Extract RMSD values for explicit success counts
+                successful_rmsds = []
+                for result in successful_results:
+                    rmsd_values = result.get("rmsd_values", {})
+                    combo_rmsd = rmsd_values.get("combo")
+                    if combo_rmsd is not None and not np.isnan(combo_rmsd):
+                        successful_rmsds.append(combo_rmsd)
+                
+                # Calculate explicit success counts
+                count_2A = sum(1 for rmsd in successful_rmsds if rmsd <= 2.0)
+                count_5A = sum(1 for rmsd in successful_rmsds if rmsd <= 5.0)
                 
                 summary_row = {
                     "Benchmark": "Timesplit",
@@ -1167,17 +1238,32 @@ class BenchmarkSummaryGenerator:
                     "Total_Targets": total_targets,
                     "Targets_With_RMSD": len(successful_results),
                     "Excluded_Targets": total_targets - len(successful_results),
+                    
+                    # EXPLICIT SUCCESS RATE CALCULATIONS
                     "Success_Rate_2A": f"{rate_2A:.1f}%",
-                    "Success_Rate_5A": f"{rate_5A:.1f}%",
+                    "Success_Rate_2A_Explicit": f"{count_2A}/{pipeline_attempted_targets}",
+                    "Success_Rate_5A": f"{rate_5A:.1f}%", 
+                    "Success_Rate_5A_Explicit": f"{count_5A}/{pipeline_attempted_targets}",
+                    
+                    # RMSD STATISTICS
                     "Mean_RMSD": f"{metric_data.get('mean_rmsd', 0):.2f}",
                     "Median_RMSD": f"{metric_data.get('median_rmsd', 0):.2f}",
+                    
+                    # STAGE-AWARE PIPELINE REPORTING  
+                    "Pipeline_Attempted": pipeline_attempted_targets,
+                    "Pipeline_Successful": len(successful_results),
+                    "Pipeline_Failed": pipeline_attempted_targets - len(successful_results),
+                    "Pre_Pipeline_Excluded": pre_pipeline_excluded,
+                    "Pipeline_Filtered": pipeline_filtered,
+                    
+                    # FILTERING BREAKDOWN
+                    "Peptide_Polysaccharide_Filtered": self._count_peptide_filtering(all_results),
+                    "Template_Database_Filtering": self._extract_template_filtering_stats(all_results),
+                    
+                    # LEGACY COMPATIBILITY
                     "Avg_Exclusions": "0",  # Placeholder
                     "Avg_Runtime": f"{avg_runtime:.1f}s",
-                    "Exclusion_Reasons": dict(exclusion_reasons),
-                    # Add stage-aware metrics for debugging
-                    "Pipeline_Attempted": pipeline_attempted_targets,
-                    "Pre_Pipeline_Excluded": pre_pipeline_excluded,
-                    "Pipeline_Filtered": pipeline_filtered
+                    "Exclusion_Reasons": dict(exclusion_reasons)
                 }
                 
                 summary_rows.append(summary_row)
@@ -1203,6 +1289,90 @@ class BenchmarkSummaryGenerator:
         logger.info(f"Stage-aware pipeline success rate: {enhanced_summary['stage_aware_metrics']['pipeline_success_rate']:.1f}%")
         
         return self._format_output(summary_rows, output_format)
+
+    def _count_peptide_filtering(self, results: List[Dict]) -> Dict[str, int]:
+        """
+        Count peptide/polysaccharide filtering instances from CLI JSON output.
+        
+        Args:
+            results: List of benchmark result dictionaries
+            
+        Returns:
+            Dictionary with filtering counts
+        """
+        peptide_count = 0
+        polysaccharide_count = 0
+        
+        for result in results:
+            # Check if this result was filtered for peptide/polysaccharide
+            pipeline_stage = result.get("pipeline_stage", "")
+            if pipeline_stage == "pipeline_filtered":
+                # Extract CLI JSON to check for peptide filtering
+                stdout = result.get("stdout", "")
+                if "peptide" in stdout.lower():
+                    peptide_count += 1
+                elif "polysaccharide" in stdout.lower() or "saccharide" in stdout.lower():
+                    polysaccharide_count += 1
+                    
+        return {
+            "peptides": peptide_count,
+            "polysaccharides": polysaccharide_count,
+            "total_filtered": peptide_count + polysaccharide_count
+        }
+
+    def _extract_template_filtering_stats(self, results: List[Dict]) -> Dict[str, Any]:
+        """
+        Extract template database filtering statistics from CLI JSON output.
+        
+        Args:
+            results: List of benchmark result dictionaries
+            
+        Returns:
+            Dictionary with template filtering statistics
+        """
+        template_stats = {
+            "total_templates_in_database": [],
+            "templates_used_for_poses": [],
+            "template_filtering_applied": 0
+        }
+        
+        for result in results:
+            stdout = result.get("stdout", "")
+            if "TEMPL_JSON_RESULT:" in stdout:
+                try:
+                    json_start = stdout.find("TEMPL_JSON_RESULT:") + len("TEMPL_JSON_RESULT:")
+                    json_end = stdout.find("\n", json_start)
+                    if json_end == -1:
+                        json_end = len(stdout)
+                    
+                    json_str = stdout[json_start:json_end].strip()
+                    cli_result = json.loads(json_str)
+                    
+                    # Extract template statistics
+                    total_templates = cli_result.get("total_templates_in_database", 0)
+                    used_templates = cli_result.get("templates_used_for_poses", 0)
+                    
+                    if total_templates > 0:
+                        template_stats["total_templates_in_database"].append(total_templates)
+                        template_stats["templates_used_for_poses"].append(used_templates)
+                        
+                        # Check if filtering was applied
+                        template_db_stats = cli_result.get("template_database_stats", {})
+                        if template_db_stats.get("filtered_peptides", 0) > 0 or template_db_stats.get("filtered_polysaccharides", 0) > 0:
+                            template_stats["template_filtering_applied"] += 1
+                            
+                except (json.JSONDecodeError, ValueError, KeyError):
+                    continue
+        
+        # Calculate averages
+        if template_stats["total_templates_in_database"]:
+            template_stats["avg_total_templates"] = sum(template_stats["total_templates_in_database"]) / len(template_stats["total_templates_in_database"])
+            template_stats["avg_used_templates"] = sum(template_stats["templates_used_for_poses"]) / len(template_stats["templates_used_for_poses"])
+        else:
+            template_stats["avg_total_templates"] = 0
+            template_stats["avg_used_templates"] = 0
+            
+        return template_stats
     
     def _format_template_description(self, template_counts: Dict, dataset: str, query_count: int) -> str:
         """Format template description for Polaris results."""

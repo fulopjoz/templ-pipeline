@@ -871,6 +871,78 @@ def generate_poses_command(args):
         return 1
 
 
+def _is_pre_pipeline_failure(error_message: str) -> bool:
+    """
+    Classify error messages to determine if failure occurred before pipeline processing.
+    
+    Pre-pipeline failures are data availability/loading issues that prevent the 
+    molecule from entering the actual processing pipeline.
+    
+    Args:
+        error_message: Error message from pipeline execution
+        
+    Returns:
+        True if this is a pre-pipeline exclusion, False otherwise
+    """
+    if not error_message:
+        return False
+        
+    error_lower = error_message.lower()
+    
+    # Pre-pipeline exclusions (data availability issues)
+    pre_pipeline_patterns = [
+        "file not found", "could not load", "invalid file", "missing file",
+        "file does not exist", "cannot read", "failed to load", "io error",
+        "permission denied", "access denied", "corrupted file",
+        "invalid smiles", "smiles parsing failed", "molecule parsing failed",
+        "rdkit sanitization", "molecule creation failed",
+        "protein structure", "pdb parsing", "structure loading",
+        "embedding file", "database connection", "network error"
+    ]
+    
+    # Check if error matches pre-pipeline patterns
+    for pattern in pre_pipeline_patterns:
+        if pattern in error_lower:
+            return True
+    
+    return False
+
+
+def _is_pipeline_filtering(error_message: str) -> bool:
+    """
+    Determine if error message indicates molecular filtering (vs pipeline failure).
+    
+    Pipeline filtering excludes molecules based on chemical properties that make
+    them unsuitable for processing (peptides, polysaccharides, etc.). These should
+    be excluded from success rate denominators.
+    
+    Args:
+        error_message: Error message from pipeline execution
+        
+    Returns:
+        True if this represents molecular filtering, False otherwise
+    """
+    if not error_message:
+        return False
+        
+    error_lower = error_message.lower()
+    
+    # Molecular filtering patterns (chemical property exclusions)
+    filtering_patterns = [
+        "large peptide", "target is a large peptide", "peptide (", "residues >",
+        "polysaccharide", "complex polysaccharide", "sugar rings >", "sugar-like rings",
+        "rhenium complex", "cannot be processed", "pipeline is designed for drug-like",
+        "specialized conformational sampling", "filtered:", "validation failed:"
+    ]
+    
+    # Check if error matches filtering patterns
+    for pattern in filtering_patterns:
+        if pattern in error_lower:
+            return True
+    
+    return False
+
+
 def run_command(args):
     """Run the full TEMPL pipeline."""
     try:
@@ -988,13 +1060,44 @@ def run_command(args):
                 logger.error(f"CLI_RMSD: RMSD calculation setup failed: {e}")
                 logger.error(f"CLI_RMSD: Traceback: {traceback.format_exc()}")
 
+        # Determine pipeline stage for benchmark tracking
+        made_it_to_mcs = getattr(pipeline, 'made_it_to_mcs', False)
+        success = results.get("success", False)
+        error_message = results.get("error", "")
+        
+        # Comprehensive pipeline stage classification
+        if made_it_to_mcs:
+            # Reached MCS stage (success or failure in MCS/conformer generation/pose scoring)
+            # These should be counted in success rate denominators
+            pipeline_stage = "pipeline_attempted"
+        elif not success:
+            # Failed before reaching MCS - need to classify the type of failure
+            if _is_pre_pipeline_failure(error_message):
+                # Data availability issues (missing files, invalid data, loading failures)
+                # These are excluded from success rate denominators
+                pipeline_stage = "pre_pipeline_excluded"
+            elif _is_pipeline_filtering(error_message):
+                # Molecular filtering (peptides, polysaccharides, chemical validation)  
+                # These are excluded from success rate denominators
+                pipeline_stage = "pipeline_filtered"
+            else:
+                # Real pipeline failures (timeouts, computation errors, etc.)
+                # These should be counted in success rate denominators as failures
+                pipeline_stage = "pipeline_attempted"
+        else:
+            # Success but no MCS flag - should be rare, default to pipeline_attempted
+            pipeline_stage = "pipeline_attempted"
+
         # Output structured JSON for subprocess parsing
         json_output = {
-            "success": results.get("success", False),  
+            "success": results.get("success", False),
+            "pipeline_stage": pipeline_stage,
+            "made_it_to_mcs": made_it_to_mcs,
             "total_templates_in_database": len(results.get('templates', [])),
             "templates_used_for_poses": results.get('template_processing_pipeline', {}).get('final_usable_templates', 0),
             "template_filtering_info": results.get('filtering_info', {}),
             "template_processing_pipeline": results.get('template_processing_pipeline', {}),
+            "template_database_stats": getattr(pipeline, 'template_filtering_stats', {}),
             "template_embedding_similarities": results.get('template_similarities', {}),
             "poses_count": len(results.get('poses', {})),
             "output_file": results.get('output_file', 'unknown'),
