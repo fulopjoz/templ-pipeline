@@ -1224,8 +1224,24 @@ class BenchmarkSummaryGenerator:
                 for result in successful_results:
                     rmsd_values = result.get("rmsd_values", {})
                     combo_rmsd = rmsd_values.get("combo")
-                    if combo_rmsd is not None and not np.isnan(combo_rmsd):
-                        successful_rmsds.append(combo_rmsd)
+                    
+                    # Handle different RMSD value formats
+                    if combo_rmsd is not None:
+                        # Check if it's a dict with nested RMSD value
+                        if isinstance(combo_rmsd, dict):
+                            rmsd_val = combo_rmsd.get("rmsd")
+                        else:
+                            rmsd_val = combo_rmsd
+                        
+                        # Validate RMSD value is numeric and not NaN
+                        if rmsd_val is not None:
+                            try:
+                                rmsd_float = float(rmsd_val)
+                                if not np.isnan(rmsd_float):
+                                    successful_rmsds.append(rmsd_float)
+                            except (ValueError, TypeError):
+                                # Skip non-numeric RMSD values
+                                continue
                 
                 # Calculate explicit success counts
                 count_2A = sum(1 for rmsd in successful_rmsds if rmsd <= 2.0)
