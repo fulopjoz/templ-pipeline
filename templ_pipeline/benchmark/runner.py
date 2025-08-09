@@ -9,7 +9,7 @@ import time
 import logging
 import gc
 from typing import Dict, Set, Optional, Tuple, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -21,10 +21,6 @@ import numpy as np
 # Memory monitoring
 try:
     import psutil
-    import gc
-    import logging
-    import time
-    import os
     PSUTIL_AVAILABLE = True
 except ImportError:
     PSUTIL_AVAILABLE = False
@@ -35,6 +31,8 @@ except ImportError as e:
     raise RuntimeError(
         "Required dependencies not available - please check templ_pipeline/requirements.txt"
     ) from e
+
+logger = logging.getLogger(__name__)
 
 # Memory thresholds - updated for realistic usage
 MEMORY_WARNING_GB = 6.0  # Warn when process uses >6GB
@@ -186,7 +184,7 @@ class LazyMoleculeLoader:
             from templ_pipeline.core.utils import load_sdf_molecules_cached
             
             # Load with very low memory limit to prevent explosion
-            molecules = load_sdf_molecules_cached(sdf_path, cache=None, memory_limit_gb=2.0)
+            molecules = load_sdf_molecules_cached(sdf_path, cache={}, memory_limit_gb=2.0)
             
             if not molecules:
                 return None, None
@@ -233,7 +231,7 @@ class BenchmarkResult:
     rmsd_values: Dict[str, Dict[str, float]]
     runtime: float
     error: Optional[str]
-    metadata: Dict[str, Any] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict:
         """Convert to dictionary format compatible with existing benchmark code."""
@@ -383,9 +381,9 @@ class BenchmarkRunner:
         if not hasattr(self, 'molecule_loader') or self.molecule_loader is None:
             # Initialize lazy loader if not already done
             if not SharedMolecularCache.is_initialized():
-                SharedMolecularCache.initialize(self.data_dir)
+                SharedMolecularCache.initialize(str(self.data_dir))
             
-            self.molecule_loader = LazyMoleculeLoader(self.data_dir)
+            self.molecule_loader = LazyMoleculeLoader(str(self.data_dir))
             self.log.info("Initialized lazy molecule loader to prevent memory explosion")
         
         # Load specific ligand data on demand
@@ -544,22 +542,39 @@ class BenchmarkRunner:
                 # Use benchmark-specific output directory to prevent root directory pollution
                 benchmark_output_dir = str(self.poses_output_dir) if self.poses_output_dir else None
                 
-                pipeline_result = self.pipeline.run_full_pipeline(
-                    protein_file=protein_file,
-                    protein_pdb_id=params.target_pdb,
-                    ligand_smiles=ligand_smiles,
-                    num_templates=params.template_knn,
-                    num_conformers=params.n_conformers,
-                    n_workers=params.internal_workers,  # Always 1 to prevent nested parallelization
-                    similarity_threshold=params.similarity_threshold,
-                    exclude_pdb_ids=effective_exclusions,
-                    allowed_pdb_ids=params.allowed_pdb_ids,  # NEW: restrict template search space
-                    output_dir=benchmark_output_dir,
-                    unconstrained=params.unconstrained,
-                    align_metric=params.align_metric,
-                    enable_optimization=params.enable_optimization,
-                    no_realign=params.no_realign,
-                )
+                if params.similarity_threshold is not None:
+                    pipeline_result = self.pipeline.run_full_pipeline(
+                        protein_file=protein_file,
+                        protein_pdb_id=params.target_pdb,
+                        ligand_smiles=ligand_smiles,
+                        num_templates=params.template_knn,
+                        num_conformers=params.n_conformers,
+                        n_workers=params.internal_workers,  # Always 1 to prevent nested parallelization
+                        similarity_threshold=float(params.similarity_threshold),
+                        exclude_pdb_ids=effective_exclusions,
+                        allowed_pdb_ids=params.allowed_pdb_ids,  # NEW: restrict template search space
+                        output_dir=benchmark_output_dir,
+                        unconstrained=params.unconstrained,
+                        align_metric=params.align_metric,
+                        enable_optimization=params.enable_optimization,
+                        no_realign=params.no_realign,
+                    )
+                else:
+                    pipeline_result = self.pipeline.run_full_pipeline(
+                        protein_file=protein_file,
+                        protein_pdb_id=params.target_pdb,
+                        ligand_smiles=ligand_smiles,
+                        num_templates=params.template_knn,
+                        num_conformers=params.n_conformers,
+                        n_workers=params.internal_workers,  # Always 1 to prevent nested parallelization
+                        exclude_pdb_ids=effective_exclusions,
+                        allowed_pdb_ids=params.allowed_pdb_ids,  # NEW: restrict template search space
+                        output_dir=benchmark_output_dir,
+                        unconstrained=params.unconstrained,
+                        align_metric=params.align_metric,
+                        enable_optimization=params.enable_optimization,
+                        no_realign=params.no_realign,
+                    )
 
                 self.log.debug(
                     f"Pipeline result keys: {list(pipeline_result.keys()) if isinstance(pipeline_result, dict) else 'Not a dict'}"
@@ -575,7 +590,7 @@ class BenchmarkRunner:
                     if self.skip_tracker:
                         self.skip_tracker.track_skip(
                             params.target_pdb,
-                            pipeline_error.reason,
+                            getattr(pipeline_error, 'reason', 'validation_failed'),
                             str(pipeline_error),
                             getattr(pipeline_error, 'molecule_info', None)
                         )
@@ -587,11 +602,11 @@ class BenchmarkRunner:
                         success=False,
                         rmsd_values={},
                         runtime=time.time() - start_time,
-                        error=f"SKIPPED ({pipeline_error.reason}): {pipeline_error}",
+                        error=f"SKIPPED ({getattr(pipeline_error, 'reason', 'validation_failed')}): {pipeline_error}",
                         metadata={
                             "target_pdb": params.target_pdb,
                             "status": "skipped", 
-                            "skip_reason": pipeline_error.reason,
+                            "skip_reason": getattr(pipeline_error, 'reason', 'validation_failed'),
                             "skip_message": str(pipeline_error),
                         }
                     )
@@ -981,14 +996,14 @@ def run_templ_pipeline_for_benchmark(
     similarity_threshold: Optional[float] = None,
     internal_workers: int = 1,
     timeout: int = 300,
-    data_dir: str = None,
-    poses_output_dir: str = None,
-    shared_cache_file: str = None,
+    data_dir: Optional[str] = None,
+    poses_output_dir: Optional[str] = None,
+    shared_cache_file: Optional[str] = None,
     unconstrained: bool = False,
     align_metric: str = "combo",
     enable_optimization: bool = False,
     no_realign: bool = False,
-    allowed_pdb_ids: Set[str] = None,  # NEW: restrict template search to these PDB IDs
+    allowed_pdb_ids: Optional[Set[str]] = None,  # NEW: restrict template search to these PDB IDs
 ) -> Dict:
     """Main entry point for benchmark pipeline execution."""
     
