@@ -63,8 +63,10 @@ class BenchmarkErrorTracker:
         self._write_record(record)
 
     def record_target_success(self, target_pdb: str):
-        """Records a successful target processing."""
-        pass
+        """Records a successful target processing (no-op for error log)."""
+        # We keep success tracking out of the error jsonl to minimize file size.
+        # Could be extended to maintain a separate success counter if needed.
+        return
 
     def record_missing_pdb(self, pdb_id: str, reason: str, details: str, file_type: str):
         """Records a missing PDB file."""

@@ -10,7 +10,7 @@ import json
 import logging
 import time
 from collections import defaultdict
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Any, Union
 
@@ -33,7 +33,7 @@ class SkipRecord:
     reason: str
     details: str
     timestamp: float
-    molecule_info: Dict[str, Any] = None
+    molecule_info: Dict[str, Any] = field(default_factory=dict)
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -246,7 +246,7 @@ class BenchmarkSkipTracker:
         
         try:
             with open(summary_file, 'w') as f:
-                json.dumps(summary, f, indent=2)
+                f.write(json.dumps(summary, indent=2))
             logger.info(f"Skip summary saved to: {summary_file}")
             return summary_file
         except Exception as e:
@@ -395,7 +395,7 @@ class BenchmarkSkipTracker:
             return 0
 
 
-def create_molecule_info(mol, smiles: str = None) -> Dict[str, Any]:
+def create_molecule_info(mol, smiles: str = "") -> Dict[str, Any]:
     """
     Create molecular information dictionary for skip tracking.
     

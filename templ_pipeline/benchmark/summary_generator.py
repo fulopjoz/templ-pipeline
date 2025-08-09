@@ -59,10 +59,10 @@ class BenchmarkSummaryGenerator:
     
     def generate_unified_summary(
         self, 
-        results_data: Union[Dict, List[Dict]], 
+        results_data: Any, 
         benchmark_type: Optional[str] = None,
         output_format: str = "pandas"
-    ) -> Union[Dict, "pd.DataFrame"]:
+    ) -> Any:
         """Generate unified summary from benchmark results.
         
         Args:
@@ -82,14 +82,23 @@ class BenchmarkSummaryGenerator:
         logger.info(f"Generating summary for {benchmark_type} benchmark")
         
         if benchmark_type == "polaris":
+            # Ensure a dict for polaris path
+            if not isinstance(results_data, dict):
+                logger.warning("Polaris summary expects dict results; falling back to generic summary")
+                return self._generate_generic_summary({"results": results_data} if isinstance(results_data, list) else {}, output_format)
             return self._generate_polaris_summary(results_data, output_format)
         elif benchmark_type == "timesplit":
             return self._generate_timesplit_summary(results_data, output_format)
         else:
             logger.warning(f"Unknown benchmark type: {benchmark_type}")
+            # Ensure dict for generic path
+            if isinstance(results_data, list):
+                results_data = {"results": results_data}
+            elif not isinstance(results_data, dict):
+                results_data = {"data": str(type(results_data))}
             return self._generate_generic_summary(results_data, output_format)
     
-    def _generate_polaris_summary(self, results_data: Dict, output_format: str) -> Union[Dict, "pd.DataFrame"]:
+    def _generate_polaris_summary(self, results_data: Dict, output_format: str) -> Any:
         """Generate summary for Polaris benchmark results."""
         table_data = []
         
@@ -153,7 +162,7 @@ class BenchmarkSummaryGenerator:
         
         return self._format_output(table_data, output_format)
     
-    def _generate_timesplit_summary(self, results_data: Union[Dict, List[Dict]], output_format: str) -> Union[Dict, "pd.DataFrame"]:
+    def _generate_timesplit_summary(self, results_data: Any, output_format: str) -> Any:
         """Generate summary for Timesplit benchmark results using stage-aware metrics."""
         logger.info("Generating timesplit summary with stage-aware metrics...")
         
@@ -769,7 +778,7 @@ class BenchmarkSummaryGenerator:
         
         return metrics, exclusion_stats
 
-    def _calculate_timesplit_metrics(self, split_results: List[Dict], total_targets: int, all_results: List[Dict] = None) -> Dict:
+    def _calculate_timesplit_metrics(self, split_results: List[Dict], total_targets: int, all_results: Optional[List[Dict]] = None) -> Dict:
         """Calculate metrics for Timesplit benchmark results with stage-aware success rates."""
         metrics = {}
         
@@ -1082,7 +1091,7 @@ class BenchmarkSummaryGenerator:
         
         return validation_report
 
-    def _generate_timesplit_summary_fixed(self, results_data: Union[Dict, List[Dict]], output_format: str) -> Union[Dict, "pd.DataFrame"]:
+    def _generate_timesplit_summary_fixed(self, results_data: Any, output_format: str) -> Any:
         """
         Fixed version of timesplit summary generation using stage-aware metrics.
         
@@ -1122,36 +1131,54 @@ class BenchmarkSummaryGenerator:
         # Use stage-aware metrics calculation
         total_targets = len(results_data)
         successful_results = [r for r in results_data if r.get("success") and r.get("rmsd_values")]
+
+        # Determine split label from results (prefer 'target_split'), with robust fallbacks
+        split_labels = set()
+        for r in results_data:
+            lbl = r.get("target_split") or r.get("split") or r.get("split_name")
+            # Fallback: parse from embedded results file path if available
+            if not lbl:
+                rf = r.get("results_file") or r.get("results_path") or ""
+                if isinstance(rf, str) and rf:
+                    try:
+                        import re
+                        m = re.search(r"results_([^_]+)_\d+\.jsonl", rf)
+                        if m:
+                            lbl = m.group(1)
+                    except Exception:
+                        pass
+            if lbl:
+                split_labels.add(str(lbl))
+        if len(split_labels) == 1:
+            resolved_split_label = next(iter(split_labels))
+        elif len(split_labels) == 0:
+            resolved_split_label = "unknown"
+        else:
+            resolved_split_label = "mixed"
         
         # Calculate stage-aware metrics using existing processing_stage field
         stage_counts = {"pre_pipeline_excluded": 0, "pipeline_filtered": 0, "pipeline_attempted": 0}
         
         for result in results_data:
-            # Use the existing processing_stage field set by simple_runner.py
+            # Prioritize re-analysis for the ambiguous case: success==True but no RMSD
+            # This ensures cases like "database_empty" are correctly treated as pre-pipeline exclusions
+            if result.get("success") and not result.get("rmsd_values"):
+                # Attempt high-fidelity classification from CLI JSON
+                exclusion_reason = self._classify_no_templates_case(result)
+                fallback_stage = self._classify_exclusion_processing_stage(exclusion_reason)
+                stage_counts[fallback_stage] += 1
+                continue
+
+            # Otherwise, use the existing processing_stage if present
             processing_stage = result.get("processing_stage", "unknown")
-            
+
             if processing_stage in stage_counts:
-                # Use the pre-calculated processing stage
                 stage_counts[processing_stage] += 1
             else:
                 # Fallback for unknown processing stages - classify based on result content
                 if result.get("success") and result.get("rmsd_values"):
                     # Successful results with RMSD are always pipeline_attempted
                     stage_counts["pipeline_attempted"] += 1
-                elif result.get("success") and not result.get("rmsd_values"):
-                    # Successful CLI execution but no RMSD (0 templates/poses)
-                    # Check if this result has pipeline stage info first
-                    pipeline_stage = result.get("pipeline_stage", None)
-                    made_it_to_mcs = result.get("made_it_to_mcs", False)
-                    
-                    if pipeline_stage == "pipeline_attempted" or made_it_to_mcs:
-                        # This reached MCS stage but failed to generate RMSD - count as pipeline_attempted
-                        stage_counts["pipeline_attempted"] += 1
-                    else:
-                        # Analyze CLI JSON output to distinguish data issues from filtering
-                        exclusion_reason = self._classify_no_templates_case(result)
-                        fallback_stage = self._classify_exclusion_processing_stage(exclusion_reason)
-                        stage_counts[fallback_stage] += 1
                 else:
                     # Failed results - analyze error message to determine stage
                     error_msg = result.get("error", "")
@@ -1219,20 +1246,19 @@ class BenchmarkSummaryGenerator:
                             exclusion_reason = self._classify_no_templates_case(result)
                             exclusion_reasons[exclusion_reason] += 1
                 
-                # Extract RMSD values for explicit success counts
+                # Extract RMSD values for explicit success counts (per-metric)
                 successful_rmsds = []
                 for result in successful_results:
                     rmsd_values = result.get("rmsd_values", {})
-                    combo_rmsd = rmsd_values.get("combo")
-                    
-                    # Handle different RMSD value formats
-                    if combo_rmsd is not None:
-                        # Check if it's a dict with nested RMSD value
-                        if isinstance(combo_rmsd, dict):
-                            rmsd_val = combo_rmsd.get("rmsd")
+                    per_metric = rmsd_values.get(metric_key)
+
+                    if per_metric is not None:
+                        # If dict-like, extract 'rmsd'; else assume numeric
+                        if isinstance(per_metric, dict):
+                            rmsd_val = per_metric.get("rmsd")
                         else:
-                            rmsd_val = combo_rmsd
-                        
+                            rmsd_val = per_metric
+
                         # Validate RMSD value is numeric and not NaN
                         if rmsd_val is not None:
                             try:
@@ -1240,7 +1266,6 @@ class BenchmarkSummaryGenerator:
                                 if not np.isnan(rmsd_float):
                                     successful_rmsds.append(rmsd_float)
                             except (ValueError, TypeError):
-                                # Skip non-numeric RMSD values
                                 continue
                 
                 # Calculate explicit success counts
@@ -1249,7 +1274,7 @@ class BenchmarkSummaryGenerator:
                 
                 summary_row = {
                     "Benchmark": "Timesplit",
-                    "Split": "test",  # Use actual split name if available
+                    "Split": resolved_split_label,
                     "Metric": metric_name,
                     "Total_Targets": total_targets,
                     "Targets_With_RMSD": len(successful_results),
@@ -1309,28 +1334,33 @@ class BenchmarkSummaryGenerator:
 
     def _count_peptide_filtering(self, results: List[Dict]) -> Dict[str, int]:
         """
-        Count peptide/polysaccharide filtering instances from CLI JSON output.
-        
-        Args:
-            results: List of benchmark result dictionaries
-            
-        Returns:
-            Dictionary with filtering counts
+        Count peptide/polysaccharide filtering instances.
+
+        Uses multiple signals in order of reliability:
+        1) processing_stage == 'pipeline_filtered' and error message keywords
+        2) stdout (legacy CLI) keywords
         """
         peptide_count = 0
         polysaccharide_count = 0
-        
+
         for result in results:
-            # Check if this result was filtered for peptide/polysaccharide
-            pipeline_stage = result.get("pipeline_stage", "")
-            if pipeline_stage == "pipeline_filtered":
-                # Extract CLI JSON to check for peptide filtering
-                stdout = result.get("stdout", "")
-                if "peptide" in stdout.lower():
+            stage = result.get("processing_stage") or result.get("pipeline_stage") or ""
+            if stage == "pipeline_filtered":
+                # Prefer error message when present
+                err = (result.get("error") or "").lower()
+                if "peptide" in err:
                     peptide_count += 1
-                elif "polysaccharide" in stdout.lower() or "saccharide" in stdout.lower():
+                    continue
+                if "polysaccharide" in err or "saccharide" in err:
                     polysaccharide_count += 1
-                    
+                    continue
+                # Fallback to stdout keywords
+                stdout = (result.get("stdout") or "").lower()
+                if "peptide" in stdout:
+                    peptide_count += 1
+                elif "polysaccharide" in stdout or "saccharide" in stdout:
+                    polysaccharide_count += 1
+
         return {
             "peptides": peptide_count,
             "polysaccharides": polysaccharide_count,
@@ -1463,7 +1493,7 @@ class BenchmarkSummaryGenerator:
             total_templates = sum(template_counts.values()) if template_counts else 0
             return str(total_templates)
     
-    def _generate_generic_summary(self, results_data: Dict, output_format: str) -> Union[Dict, "pd.DataFrame"]:
+    def _generate_generic_summary(self, results_data: Dict, output_format: str) -> Any:
         """Generate generic summary for unknown benchmark types."""
         logger.warning("Using generic summary generation for unknown benchmark type")
         
@@ -1497,12 +1527,12 @@ class BenchmarkSummaryGenerator:
             cleaned_data.append(cleaned_row)
         return cleaned_data
     
-    def _format_output(self, table_data: List[Dict], output_format: str) -> Union[Dict, "pd.DataFrame"]:
+    def _format_output(self, table_data: List[Dict], output_format: str) -> Any:
         """Format output data according to requested format."""
         # Store original data for JSON output
         self._original_data_for_json = table_data
         
-        if output_format == "pandas" and PANDAS_AVAILABLE:
+        if output_format == "pandas" and PANDAS_AVAILABLE and pd is not None:
             # Use cleaned data for pandas (which feeds MD/CSV outputs)
             return pd.DataFrame(self._clean_data_for_display(table_data))
         elif output_format == "dict":
@@ -1516,7 +1546,7 @@ class BenchmarkSummaryGenerator:
     
     def save_summary_files(
         self, 
-        summary_data: Union[Dict, "pd.DataFrame", List[Dict]], 
+        summary_data: Any, 
         output_dir: Path,
         base_name: str = "benchmark_summary",
         formats: Optional[List[str]] = None
@@ -1599,7 +1629,8 @@ class BenchmarkSummaryGenerator:
                     file_path = output_dir / f"{base_name}_{timestamp}.md"
                     with open(file_path, 'w') as f:
                         f.write(f"# Benchmark Summary ({timestamp})\n\n")
-                        f.write(df.to_markdown(index=False))
+                        md_text = df.to_markdown(index=False)
+                        f.write(md_text if isinstance(md_text, str) else "")
                         f.write("\n\n*Generated by TEMPL Benchmark Suite*\n")
                     saved_files["markdown"] = file_path
                 
