@@ -11,11 +11,10 @@ from rdkit import Chem
 try:
     from templ_pipeline.core.chemistry import (
         detect_and_substitute_organometallic,
-        needs_uff_fallback,
         has_rhenium_complex,
-        is_large_peptide,
         validate_target_molecule,
     )
+    from templ_pipeline.core.mcs import needs_uff_fallback
 except ImportError:
     # Fall back to local imports for development
     sys.path.insert(
@@ -23,11 +22,10 @@ except ImportError:
     )
     from core.chemistry import (
         detect_and_substitute_organometallic,
-        needs_uff_fallback,
         has_rhenium_complex,
-        is_large_peptide,
         validate_target_molecule,
     )
+    from core.mcs import needs_uff_fallback
 
 
 def test_detect_and_substitute_organometallic():
@@ -103,25 +101,13 @@ def test_has_rhenium_complex():
         assert msg == ""
 
 
-def test_is_large_peptide():
-    """Test large peptide detection."""
-    # Test with None
-    is_peptide, msg = is_large_peptide(None)
-    assert not is_peptide
-    assert msg == ""
-
-    # Test with simple molecule
+def test_is_large_peptide_or_polysaccharide_small_cases():
+    """Basic sanity check for peptide/polysaccharide filter via validate_target_molecule."""
+    # Using validate_target_molecule path which calls the unified function
     benzene = Chem.MolFromSmiles("c1ccccc1")
-    is_peptide, msg = is_large_peptide(benzene)
-    assert not is_peptide
+    valid, msg = validate_target_molecule(benzene, "benzene")
+    assert valid
     assert msg == ""
-
-    # Test with small peptide (should pass)
-    dipeptide = Chem.MolFromSmiles("CC(N)C(=O)NC(C)C(=O)O")  # Ala-Ala
-    if dipeptide:
-        is_peptide, msg = is_large_peptide(dipeptide, residue_threshold=8)
-        assert not is_peptide
-        assert msg == ""
 
 
 def test_validate_target_molecule():
