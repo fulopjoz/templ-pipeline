@@ -7,7 +7,7 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union, Any
+from typing import Dict, List, Optional, Tuple, Union, Any, cast
 from datetime import datetime
 
 import numpy as np
@@ -42,8 +42,6 @@ from .templates import (
 )
 from .chemistry import (
     validate_target_molecule,
-    detect_and_substitute_organometallic,
-    needs_uff_fallback,
     is_large_peptide_or_polysaccharide,
 )
 from .output_manager import EnhancedOutputManager
@@ -1201,8 +1199,11 @@ class TEMPLPipeline:
                 for metric_name, (mol, scores) in all_ranked_poses.items():
                     poses_for_saving.append((mol, scores, 0))  # Add dummy conf_id
             else:
-                # Already in list format, but need to reorder: (conf_id, scores, mol) -> (mol, scores, conf_id)
-                poses_for_saving = [(mol, scores, conf_id) for conf_id, scores, mol in all_ranked_poses]
+                # Already in list format, reorder tuples: (conf_id, scores, mol) -> (mol, scores, conf_id)
+                poses_for_saving = cast(
+                    List[Tuple[Chem.Mol, Dict[str, float], int]],
+                    [(mol, scores, conf_id) for conf_id, scores, mol in all_ranked_poses],
+                )
             
             all_poses_file = self.output_manager.save_all_poses(
                 poses_for_saving, best_template, mcs_details, crystal_mol

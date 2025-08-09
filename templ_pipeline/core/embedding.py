@@ -14,14 +14,13 @@ The main classes and functions:
 - select_templates: Find similar templates for a target protein
 """
 
-import hashlib
 import logging
 import os
 import tempfile
 import time
 import warnings
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 from Bio.PDB.PDBExceptions import PDBConstructionWarning
@@ -45,7 +44,8 @@ except ImportError:
 
 # ESM model configuration
 ESM_MAX_SEQUENCE_LENGTH = 1022
-
+# https://www.biorxiv.org/content/10.1101/2022.07.20.500902v2.full
+# https://github.com/gcorso/DiffDock/issues/199
 
 # GPU Detection Functions
 def _detect_gpu() -> bool:
@@ -130,93 +130,18 @@ except ImportError:
     find_pdbbind_paths = None
     get_default_embedding_path = None
 
-# Add constants at the top after imports
-CA_RMSD_THRESHOLD = 10.0  # Maximum C-alpha RMSD in Angstroms for protein filtering
-CA_RMSD_FALLBACK_THRESHOLDS = [10.0, 15.0, 20.0]  # Progressive fallback thresholds
+# Note: CA RMSD filtering utilities live in templ_pipeline.core.templates
 
 
 # --- Path Resolution Helper ---
 def _get_standard_embedding_paths() -> List[Path]:
-    """Get standard embedding paths, using new centralized path management first."""
-    potential_paths = []
-
-    # First, try the new centralized path management system
-    if get_default_embedding_path:
-        current_dir = Path(__file__).parent.absolute()
-        # Try different base directories
-        for base_dir in [
-            current_dir.parent.parent,  # project root
-            current_dir.parent.parent.parent,  # if nested deeper
-            ".",  # current working directory
-        ]:
-            embedding_path = get_default_embedding_path(str(base_dir))
-            if embedding_path:
-                potential_paths.append(Path(embedding_path))
-
-    # Standard path resolution for the correct embedding file
+    """Deprecated internal helper (no longer used)."""
     current_dir = Path(__file__).parent.absolute()
-    root_dir_candidate1 = current_dir.parent.parent  # e.g., 'mcs' or 'project_root'
-    root_dir_candidate2 = (
-        current_dir.parent.parent.parent
-    )  # If nested deeper, e.g. in 'src'
-
-    root_dir = root_dir_candidate1  # Default assumption
-
-    # Heuristic to find a more general project root if possible
-    project_root_marker = "README.md"
-    if (
-        (root_dir_candidate2 / project_root_marker).exists()
-        or (root_dir_candidate2 / "templ_pipeline").exists()
-        or (root_dir_candidate2 / ".git").exists()
-    ):
-        root_dir = root_dir_candidate2
-    elif not (
-        (root_dir_candidate1 / "data").exists()
-        or (root_dir_candidate1 / "templ_pipeline").exists()
-        or (root_dir_candidate1 / ".git").exists()
-        or (root_dir_candidate1 / project_root_marker).exists()
-    ):
-        # If candidate1 doesn't look like a project root, try one level up if structures exist
-        if (current_dir.parent / "data" / "embeddings").exists():
-            root_dir = current_dir.parent
-
-    # ZENODO standardized paths only
-    standard_paths = [
-        # Standard ZENODO path
-        root_dir / "data" / "embeddings" / "templ_protein_embeddings_v1.0.0.npz",
-    ]
-
-    potential_paths.extend(standard_paths)
-
-    # Return unique, resolved paths
-    unique_paths = []
-    seen_paths_str = set()
-    for p in potential_paths:
-        try:
-            resolved_p = p.resolve()  # Resolves symlinks and makes absolute
-            if str(resolved_p) not in seen_paths_str:
-                unique_paths.append(resolved_p)
-                seen_paths_str.add(str(resolved_p))
-        except (
-            FileNotFoundError
-        ):  # Path.resolve() can raise this if a component doesn't exist
-            if (
-                p.is_absolute() and str(p) not in seen_paths_str
-            ):  # Keep original absolute path if resolve fails but it's a target
-                unique_paths.append(p)
-                seen_paths_str.add(str(p))
-            elif (
-                not p.is_absolute() and str(p) not in seen_paths_str
-            ):  # Keep original relative path
-                unique_paths.append(
-                    p
-                )  # Store as is, will be checked with .exists() later
-                seen_paths_str.add(str(p))
-
-    return unique_paths
+    root_dir = current_dir.parent.parent
+    return [root_dir / "data" / "embeddings" / "templ_protein_embeddings_v1.0.0.npz"]
 
 
-def _resolve_embedding_path(embedding_path=None):
+def _resolve_embedding_path(embedding_path: Optional[Union[str, Path]] = None) -> str:
     """
     Resolve the embedding path from various sources.
 
@@ -235,8 +160,6 @@ def _resolve_embedding_path(embedding_path=None):
         return str(embedding_path)
 
     # Check environment variable
-    import os
-    from pathlib import Path
 
     env_path = os.environ.get("TEMPL_EMBEDDING_PATH")
     if env_path and Path(env_path).exists():
@@ -415,7 +338,7 @@ def get_protein_sequence(
         return None, []
 
 
-def initialize_esm_model():
+def initialize_esm_model() -> Optional[Dict[str, Any]]:
     """Initialize ESM model for embedding calculation, cached for reuse."""
     global _esm_components
     if _esm_components is None:
@@ -482,7 +405,7 @@ def initialize_esm_model():
     return _esm_components
 
 
-def calculate_embedding_single(sequence: str, esm_components):
+def calculate_embedding_single(sequence: str, esm_components: Dict[str, Any]) -> Optional[np.ndarray]:
     """Calculate embedding for a single protein sequence."""
     if not ESM_AVAILABLE:
         logger.error(
@@ -635,67 +558,27 @@ def get_protein_embedding(
 
 
 def is_pdb_id_in_database(pdb_id: str, embedding_path: Optional[str] = None) -> bool:
-    """Check if a PDB ID exists in the pre-computed embedding database.
-
-    Args:
-        pdb_id: The PDB ID to check (case-insensitive)
-        embedding_path: Path to the embedding NPZ file
-
-    Returns:
-        bool: True if PDB ID exists in database, False otherwise
-    """
+    """Deprecated: use EmbeddingManager.has_embedding instead."""
+    logger.warning("is_pdb_id_in_database is deprecated; use EmbeddingManager.has_embedding instead")
     try:
-        # Normalize PDB ID exactly the same way as has_embedding does
-        pdb_id = pdb_id.upper().split(":")[-1]
-
-        # Resolve embedding path
-        resolved_path = _resolve_embedding_path(embedding_path)
-
-        if not resolved_path or not os.path.exists(resolved_path):
-            logger.warning(f"Embedding file not found at {resolved_path}")
-            return False
-
-        # Create a temporary manager to perform the check consistently with has_embedding
-        # This ensures both methods use the same logic and data structures
-        manager = EmbeddingManager(embedding_path=resolved_path)
+        manager = EmbeddingManager(embedding_path=_resolve_embedding_path(embedding_path))
         return manager.has_embedding(pdb_id)
-    except Exception as e:
-        logger.error(f"Error checking database for PDB ID {pdb_id}: {str(e)}")
+    except Exception:
         return False
 
 
 # Create a function to get sample PDB IDs from the database
-def get_sample_pdb_ids(
-    embedding_path: Optional[str] = None, limit: int = 20
-) -> List[str]:
-    """Get a sample of PDB IDs available in the embedding database.
-
-    Args:
-        embedding_path: Path to the embedding NPZ file
-        limit: Maximum number of PDB IDs to return
-
-    Returns:
-        List of PDB ID strings
-    """
+def get_sample_pdb_ids(embedding_path: Optional[str] = None, limit: int = 20) -> List[str]:
+    """Deprecated utility; not used by core. Consider removing or moving to diagnostics."""
     try:
-        # Resolve embedding path
         resolved_path = _resolve_embedding_path(embedding_path)
-
         with np.load(resolved_path, allow_pickle=True) as data:
-            if "pdb_ids" in data:
-                pdb_ids = data["pdb_ids"]
-                # Convert all PDB IDs to uppercase for consistency
-                pdb_ids = [str(pid).upper() for pid in pdb_ids]
-
-                # Take a random sample or the first few
-                import random
-
-                if len(pdb_ids) > limit:
-                    return random.sample(pdb_ids, limit)
-                return pdb_ids[:limit]
-            return []
-    except Exception as e:
-        logger.error(f"Error getting sample PDB IDs: {str(e)}")
+            if "pdb_ids" not in data:
+                return []
+            pdb_ids = [str(pid).upper() for pid in data["pdb_ids"]]
+            import random
+            return random.sample(pdb_ids, min(limit, len(pdb_ids)))
+    except Exception:
         return []
 
 
@@ -1313,118 +1196,28 @@ class EmbeddingManager:
     def add_to_batch(
         self, pdb_id: str, pdb_file: str, target_chain_id: Optional[str] = None
     ) -> bool:
-        """Add a PDB to the batch for processing."""
-        if not self.enable_batching:
-            return False
-
-        if len(self._batch_queue) >= self.max_batch_size:
-            return False
-
-        self._batch_queue.append(
-            {"pdb_id": pdb_id, "pdb_file": pdb_file, "target_chain_id": target_chain_id}
-        )
-        return True
+        """Deprecated batch API; returns False (no-op)."""
+        logger.warning("EmbeddingManager.add_to_batch is deprecated and is a no-op")
+        return False
 
     def process_batch(self) -> int:
-        """Process all items in the batch queue."""
-        if not self._batch_queue:
-            return 0
-
-        processed = 0
-        sequences = []
-        batch_items = []
-
-        # Collect sequences for batch processing
-        for item in self._batch_queue:
-            try:
-                sequence, chains = get_protein_sequence(
-                    item["pdb_file"], item["target_chain_id"]
-                )
-                if sequence:
-                    sequences.append(sequence)
-                    batch_items.append((item, sequence, chains))
-            except Exception as e:
-                logger.warning(f"Failed to get sequence for {item['pdb_id']}: {e}")
-
-        if not sequences:
-            self._batch_queue.clear()
-            return 0
-
-        # Process sequences in batch
-        try:
-            esm_components = initialize_esm_model()
-            embeddings = self._process_sequence_batch(sequences, esm_components)
-
-            # Save results
-            for (item, sequence, chains), embedding in zip(batch_items, embeddings):
-                if embedding is not None:
-                    self._save_to_cache(item["pdb_id"], embedding, chains)
-                    processed += 1
-
-        except Exception as e:
-            logger.error(f"Batch processing failed: {e}")
-
-        finally:
-            self._batch_queue.clear()
-
-        return processed
+        """Deprecated batch API; returns 0 (no-op)."""
+        logger.warning("EmbeddingManager.process_batch is deprecated and is a no-op")
+        self._batch_queue.clear()
+        return 0
 
     def _process_sequence_batch(
         self, sequences: List[str], esm_components
     ) -> List[Optional[np.ndarray]]:
-        """Process multiple sequences in a single batch."""
-        model, alphabet, batch_converter = esm_components
-
-        # Prepare batch data
-        batch_data = [(f"seq_{i}", seq) for i, seq in enumerate(sequences)]
-
-        try:
-            batch_labels, batch_strs, batch_tokens = batch_converter(batch_data)
-
-            import torch
-
-            with torch.no_grad():
-                results = model(batch_tokens, repr_layers=[33], return_contacts=False)
-
-            embeddings = []
-            for i, seq in enumerate(sequences):
-                try:
-                    # Extract per-token representations for sequence i
-                    # results["representations"][33] is a tensor of shape [batch_size, seq_len, hidden_dim]
-                    token_representations = results["representations"][33][
-                        i, 1 : len(seq) + 1
-                    ]
-                    # Mean pool over sequence length
-                    embedding = token_representations.mean(0).cpu().numpy()
-                    embeddings.append(embedding)
-                except Exception as e:
-                    logger.warning(f"Failed to extract embedding for sequence {i}: {e}")
-                    embeddings.append(None)
-
-            return embeddings
-
-        except Exception as e:
-            logger.error(f"Batch embedding generation failed: {e}")
-            return [None] * len(sequences)
+        """Deprecated batch API; returns [None] for compatibility."""
+        logger.warning("EmbeddingManager._process_sequence_batch is deprecated and returns no embeddings")
+        return [None] * len(sequences)
 
     def prepare_batch_embeddings(self, pdb_ids: List[str]) -> int:
-        """Prepare embeddings for a list of PDB IDs using batch processing."""
-        if not self.enable_batching:
-            return 0
-
-        processed = 0
-        for pdb_id in pdb_ids:
-            if not self.has_embedding(pdb_id):
-                pdb_file = self._find_pdb_file(pdb_id)
-                if pdb_file and self.add_to_batch(pdb_id, pdb_file):
-                    if len(self._batch_queue) >= self.max_batch_size:
-                        processed += self.process_batch()
-
-        # Process remaining items
-        if self._batch_queue:
-            processed += self.process_batch()
-
-        return processed
+        """Deprecated batch API; returns 0 (no-op)."""
+        logger.warning("EmbeddingManager.prepare_batch_embeddings is deprecated and is a no-op")
+        self._batch_queue.clear()
+        return 0
 
     def _find_pdb_file(self, pdb_id: str) -> Optional[str]:
         """Find PDB file path for a given PDB ID."""
@@ -1599,182 +1392,27 @@ def select_templates(
 
 
 def analyze_embedding_database(embedding_path: Optional[str] = None) -> Dict[str, Any]:
-    """Analyze an embedding database file to provide diagnostics.
-
-    Args:
-        embedding_path: Path to the embedding NPZ file
-
-    Returns:
-        Dictionary with diagnostic information
-    """
+    """Deprecated diagnostic; kept for backward compatibility."""
+    logger.warning("analyze_embedding_database is deprecated and may be removed in a future release")
     try:
-        # Resolve embedding path
         resolved_path = _resolve_embedding_path(embedding_path)
-
         if not resolved_path or not os.path.exists(resolved_path):
-            logger.error(f"Embedding file not found at {resolved_path}")
-            return {
-                "status": "error",
-                "message": f"Embedding file not found at {resolved_path}",
-                "paths_checked": _get_standard_embedding_paths(),
-                "resolved_path": resolved_path,
-            }
-
-        # Get file metadata
-        file_size = os.path.getsize(resolved_path) / (1024 * 1024)  # MB
-        file_mtime = os.path.getmtime(resolved_path)
-        mod_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(file_mtime))
-
-        logger.info(
-            f"Analyzing embedding file: {resolved_path} (Size: {file_size:.2f} MB, Modified: {mod_time})"
-        )
-
-        # Load NPZ metadata without loading entire content
+            return {"status": "error", "message": f"Embedding file not found at {resolved_path}", "resolved_path": resolved_path}
         with np.load(resolved_path, allow_pickle=True) as data:
-            arrays = dict(data)
-            keys = list(arrays.keys())
-
-            logger.info(f"NPZ file contains keys: {keys}")
-
-            # Check for required keys
-            has_pdb_ids = "pdb_ids" in keys
-            has_embeddings = "embeddings" in keys
-            has_chain_ids = "chain_ids" in keys
-
-            # Get PDB ID sample and count if exists
-            pdb_count = 0
-            pdb_sample = []
-            pdb_first_chars = {}  # To check for case patterns
-            case_stats = {"lowercase": 0, "uppercase": 0, "mixed": 0}
-
-            if has_pdb_ids:
-                pdb_ids = arrays["pdb_ids"]
-                pdb_count = len(pdb_ids)
-                logger.info(f"Found {pdb_count} PDB IDs in database")
-
-                # Get a sample of the PDB IDs
-                if pdb_count > 0:
-                    # Take a mix of items from the start, middle and end for better sampling
-                    samples = []
-                    if pdb_count <= 10:
-                        samples = list(range(pdb_count))
-                    else:
-                        samples = [
-                            0,
-                            1,
-                            2,
-                            pdb_count // 2 - 1,
-                            pdb_count // 2,
-                            pdb_count // 2 + 1,
-                            pdb_count - 3,
-                            pdb_count - 2,
-                            pdb_count - 1,
-                        ]
-
-                    pdb_sample = [str(pdb_ids[i]) for i in samples if i < pdb_count]
-                    logger.info(
-                        f"Sample PDB IDs: {pdb_sample[:5]} ... (total: {len(pdb_sample)})"
-                    )
-
-                    # Analyze case distribution
-                    for pid in pdb_ids:
-                        pid_str = str(pid)
-                        if not pid_str:
-                            continue
-
-                        # Track first character distribution
-                        first_char = pid_str[0]
-                        pdb_first_chars[first_char] = (
-                            pdb_first_chars.get(first_char, 0) + 1
-                        )
-
-                        # Track case patterns
-                        if pid_str.islower():
-                            case_stats["lowercase"] += 1
-                        elif pid_str.isupper():
-                            case_stats["uppercase"] += 1
-                        else:
-                            case_stats["mixed"] += 1
-
-                    # Log case distribution
-                    logger.info(f"Case distribution: {case_stats}")
-
-            else:
-                logger.error("No 'pdb_ids' key found in NPZ file!")
-
-            # Check if embeddings match PDB ID count
-            embedding_shapes_match = False
-            embedding_count = 0
-            emb_dim = None
-
-            if has_embeddings:
-                embeddings = arrays["embeddings"]
-                embedding_count = len(embeddings)
-                logger.info(f"Found {embedding_count} embeddings in database")
-                embedding_shapes_match = embedding_count == pdb_count
-
-                # Get embedding shape
-                if embedding_count > 0:
-                    emb_dim = embeddings[0].shape
-                    logger.info(f"Embedding dimension: {emb_dim}")
-            else:
-                logger.error("No 'embeddings' key found in NPZ file!")
-
-            # Check chain IDs if available
-            chain_id_count = 0
-            if has_chain_ids:
-                chain_ids = arrays["chain_ids"]
-                chain_id_count = (
-                    len(chain_ids) if isinstance(chain_ids, np.ndarray) else 0
-                )
-                logger.info(f"Found {chain_id_count} chain_ids in database")
-
-                # Check a sample
-                if chain_id_count > 0:
-                    chain_sample = [
-                        str(chain_ids[i]) for i in samples[:3] if i < chain_id_count
-                    ]
-                    logger.info(f"Sample chain IDs: {chain_sample}")
-
-            # Add case-related info to the results
-            norm_note = "Note: PDB IDs are normalized to uppercase on load, but original file contains "
-            if case_stats["lowercase"] == pdb_count:
-                norm_note += "all lowercase PDB IDs."
-            elif case_stats["uppercase"] == pdb_count:
-                norm_note += "all uppercase PDB IDs."
-            else:
-                norm_note += "mixed case PDB IDs."
-
+            keys = list(data.keys())
+            pdb_count = len(data["pdb_ids"]) if "pdb_ids" in data else 0
+            emb_count = len(data["embeddings"]) if "embeddings" in data else 0
+            emb_dim = data["embeddings"][0].shape if emb_count else None
         return {
             "status": "success",
             "file_path": resolved_path,
-            "file_size_mb": round(file_size, 2),
-            "last_modified": mod_time,
             "keys": keys,
-            "has_pdb_ids": has_pdb_ids,
-            "has_embeddings": has_embeddings,
-            "has_chain_ids": has_chain_ids,
             "pdb_count": pdb_count,
-            "embedding_count": embedding_count,
-            "chain_id_count": chain_id_count,
-            "pdb_sample": pdb_sample[:10],  # Limit sample size
-            "first_char_dist": pdb_first_chars,
-            "case_stats": case_stats,
-            "case_normalization_note": norm_note,
-            "embeddings_match_count": embedding_shapes_match,
+            "embedding_count": emb_count,
             "embedding_dimension": emb_dim,
         }
     except Exception as e:
-        logger.error(f"Error analyzing embedding database: {str(e)}")
-        return {
-            "status": "error",
-            "message": str(e),
-            "resolved_path": (
-                _resolve_embedding_path(embedding_path)
-                if embedding_path
-                else "Not provided"
-            ),
-        }
+        return {"status": "error", "message": str(e)}
 
 
 def extract_pdb_id_from_file(pdb_file_path: str) -> str:
@@ -1844,210 +1482,55 @@ def extract_pdb_id_from_path(file_path: str) -> Optional[str]:
         return None
 
 
-def filter_templates_by_ca_rmsd(
-    all_templates: List[Any], ca_rmsd_threshold: float
-) -> List[Any]:
-    """Filter templates by CA RMSD threshold.
-
-    Args:
-        all_templates: List of template molecules with CA RMSD properties
-        ca_rmsd_threshold: Maximum CA RMSD allowed (Angstroms)
-
-    Returns:
-        List of templates that pass the CA RMSD threshold
-    """
-    if ca_rmsd_threshold == float("inf"):
-        return all_templates
-
-    filtered_templates = []
-    for tpl in all_templates:
-        if hasattr(tpl, "HasProp") and tpl.HasProp("ca_rmsd"):
-            try:
-                ca_rmsd = float(tpl.GetProp("ca_rmsd"))
-                if ca_rmsd <= ca_rmsd_threshold:
-                    filtered_templates.append(tpl)
-            except (ValueError, TypeError):
-                # If CA RMSD property exists but can't be parsed, skip this template
-                continue
-        else:
-            # If no CA RMSD property, include in filtered list (shouldn't happen in normal flow)
-            filtered_templates.append(tpl)
-
-    return filtered_templates
+def filter_templates_by_ca_rmsd(all_templates: List[Any], ca_rmsd_threshold: float) -> List[Any]:
+    """Deprecated duplicate; use templ_pipeline.core.templates.filter_templates_by_ca_rmsd instead."""
+    from templ_pipeline.core.templates import filter_templates_by_ca_rmsd as _impl
+    return _impl(all_templates, ca_rmsd_threshold)
 
 
 def get_templates_with_progressive_fallback(
     all_templates: List[Any], fallback_thresholds: Optional[List[float]] = None
 ) -> Tuple[List[Any], float, bool]:
-    """Apply progressive CA RMSD fallback with central atom final fallback.
-
-    Args:
-        all_templates: List of all available template molecules
-        fallback_thresholds: List of CA RMSD thresholds to try (default: global constant)
-
-    Returns:
-        Tuple of (valid_templates, threshold_used, use_central_atom_fallback)
-    """
-    if fallback_thresholds is None:
-        fallback_thresholds = CA_RMSD_FALLBACK_THRESHOLDS
-
-    for threshold in fallback_thresholds:
-        filtered_templates = filter_templates_by_ca_rmsd(all_templates, threshold)
-        if filtered_templates:
-            if threshold > CA_RMSD_THRESHOLD:
-                logger.warning(
-                    f"Using relaxed CA RMSD threshold ({threshold}Å) - found {len(filtered_templates)} templates (poses may be less accurate)"
-                )
-            else:
-                logger.info(
-                    f"Found {len(filtered_templates)} templates with CA RMSD ≤ {threshold}Å"
-                )
-            return filtered_templates, threshold, False
-
-    # Ultimate fallback: find template with smallest CA RMSD and use central atom positioning
-    best_template = None
-    best_rmsd = float("inf")
-
-    for tpl in all_templates:
-        if hasattr(tpl, "HasProp") and tpl.HasProp("ca_rmsd"):
-            try:
-                ca_rmsd = float(tpl.GetProp("ca_rmsd"))
-                if ca_rmsd < best_rmsd:
-                    best_rmsd = ca_rmsd
-                    best_template = tpl
-            except (ValueError, TypeError):
-                continue
-
-    # If no template has CA RMSD, use first available
-    if best_template is None and all_templates:
-        best_template = all_templates[0]
-        best_rmsd = "N/A"
-
-    if best_template:
-        logger.warning(
-            f"Using central atom fallback with best available template (CA RMSD: {best_rmsd}Å)"
-        )
-        return [best_template], float("inf"), True
-
-    # This should never happen since we have templates
-    logger.error("No templates available for central atom fallback")
-    return [], float("inf"), False
+    """Deprecated duplicate; use templ_pipeline.core.templates.get_templates_with_progressive_fallback instead."""
+    from templ_pipeline.core.templates import (
+        get_templates_with_progressive_fallback as _impl,
+        CA_RMSD_FALLBACK_THRESHOLDS,
+    )
+    thresholds: List[float] = (
+        fallback_thresholds if fallback_thresholds is not None else CA_RMSD_FALLBACK_THRESHOLDS
+    )
+    return _impl(all_templates, thresholds)
 
 
 def clear_embedding_cache(clear_model_cache: bool = True, clear_disk_cache: bool = True, clear_memory_cache: bool = True) -> Dict[str, bool]:
-    """Clear all types of embedding caches.
-    
-    This function provides a comprehensive way to clear all embedding-related caches:
-    1. Global ESM model cache (_esm_components)
-    2. EmbeddingManager disk cache (cached .npz files)
-    3. EmbeddingManager memory cache (in-memory embeddings)
-    
-    Args:
-        clear_model_cache: Whether to clear the global ESM model cache
-        clear_disk_cache: Whether to clear the disk cache directory
-        clear_memory_cache: Whether to clear in-memory embeddings
-    
-    Returns:
-        Dictionary with success status for each cache type cleared
-    """
-    results = {}
-    
-    # Clear global ESM model cache
-    if clear_model_cache:
-        try:
-            global _esm_components
-            if _esm_components is not None:
-                # Clear GPU memory if using CUDA
-                if ESM_AVAILABLE:
-                    try:
-                        import torch
-                        if torch.cuda.is_available():
-                            torch.cuda.empty_cache()
-                    except ImportError:
-                        pass
-                
-                _esm_components = None
-                logger.info("Cleared global ESM model cache")
-                results["model_cache"] = True
-            else:
-                logger.info("Global ESM model cache was already empty")
-                results["model_cache"] = True
-        except Exception as e:
-            logger.error(f"Failed to clear global ESM model cache: {str(e)}")
-            results["model_cache"] = False
-    else:
-        results["model_cache"] = None  # Not requested
-    
-    # Clear EmbeddingManager caches
-    if clear_disk_cache or clear_memory_cache:
-        try:
-            # Get the singleton instance if it exists
-            if hasattr(EmbeddingManager, '_instance') and EmbeddingManager._instance is not None:
-                manager = EmbeddingManager._instance
-                
-                # Clear disk cache
-                if clear_disk_cache:
-                    disk_result = manager.clear_cache()
-                    results["disk_cache"] = disk_result
-                else:
-                    results["disk_cache"] = None  # Not requested
-                
-                # Clear memory cache
-                if clear_memory_cache:
-                    try:
-                        # Clear the in-memory embedding databases
-                        manager.embedding_db.clear()
-                        manager.embedding_chain_data.clear()
-                        manager.on_demand_embeddings.clear()
-                        manager.on_demand_chain_data.clear()
-                        manager.pdb_to_uniprot.clear()
-                        manager._batch_queue.clear()
-                        
-                        # Reset initialization flag to allow re-initialization
-                        EmbeddingManager._initialized = False
-                        
-                        logger.info("Cleared EmbeddingManager memory cache")
-                        results["memory_cache"] = True
-                    except Exception as e:
-                        logger.error(f"Failed to clear EmbeddingManager memory cache: {str(e)}")
-                        results["memory_cache"] = False
-                else:
-                    results["memory_cache"] = None  # Not requested
-            else:
-                # No manager instance exists
-                if clear_disk_cache:
-                    # Try to clear disk cache by creating a temporary manager
-                    try:
-                        temp_manager = EmbeddingManager()
-                        disk_result = temp_manager.clear_cache()
-                        results["disk_cache"] = disk_result
-                    except Exception as e:
-                        logger.error(f"Failed to clear disk cache via temporary manager: {str(e)}")
-                        results["disk_cache"] = False
-                else:
-                    results["disk_cache"] = None
-                
-                if clear_memory_cache:
-                    logger.info("No EmbeddingManager instance exists, memory cache already empty")
-                    results["memory_cache"] = True
-                else:
-                    results["memory_cache"] = None
-        except Exception as e:
-            logger.error(f"Failed to access EmbeddingManager for cache clearing: {str(e)}")
+    """Deprecated: prefer clearing cache via EmbeddingManager and torch APIs directly."""
+    results: Dict[str, bool] = {}
+    # Model cache
+    try:
+        if clear_model_cache and ESM_AVAILABLE:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        results["model_cache"] = True if clear_model_cache else None  # type: ignore
+    except Exception:
+        results["model_cache"] = False
+    # Manager caches
+    try:
+        if hasattr(EmbeddingManager, "_instance") and EmbeddingManager._instance is not None:
+            manager = EmbeddingManager._instance
             if clear_disk_cache:
-                results["disk_cache"] = False
+                results["disk_cache"] = manager.clear_cache()
             if clear_memory_cache:
-                results["memory_cache"] = False
-    
-    # Log summary
-    cleared_caches = [k for k, v in results.items() if v is True]
-    if cleared_caches:
-        logger.info(f"Successfully cleared caches: {', '.join(cleared_caches)}")
-    
-    failed_caches = [k for k, v in results.items() if v is False]
-    if failed_caches:
-        logger.warning(f"Failed to clear caches: {', '.join(failed_caches)}")
-    
+                manager.embedding_db.clear()
+                manager.embedding_chain_data.clear()
+                manager.on_demand_embeddings.clear()
+                manager.on_demand_chain_data.clear()
+                results["memory_cache"] = True
+    except Exception:
+        if clear_disk_cache:
+            results["disk_cache"] = False
+        if clear_memory_cache:
+            results["memory_cache"] = False
     return results
 
 

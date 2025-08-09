@@ -56,7 +56,6 @@ if TYPE_CHECKING:
     from .chemistry import (
         detect_and_substitute_organometallic,
         has_rhenium_complex,
-        is_large_peptide,
         validate_target_molecule,
     )
     from .templates import (
@@ -108,11 +107,8 @@ if TYPE_CHECKING:
         get_suggested_worker_config,
         detect_optimal_configuration,
     )
-    from .data import (
+    from .datasets import (
         DatasetSplits,
-        DatasetManager,
-        load_benchmark_pdbs,
-        validate_dataset_integrity,
     )
     from .validation import (
         SplitDataValidator,
@@ -159,7 +155,6 @@ __all__ = [
     # Chemistry
     "detect_and_substitute_organometallic",
     "has_rhenium_complex",
-    "is_large_peptide",
     "validate_target_molecule",
     # Templates
     "load_reference_protein",
@@ -206,9 +201,6 @@ __all__ = [
     "detect_optimal_configuration",
     # Data Management
     "DatasetSplits",
-    "DatasetManager",
-    "load_benchmark_pdbs",
-    "validate_dataset_integrity",
     # Validation
     "SplitDataValidator",
     "DatabaseValidator",
@@ -253,7 +245,6 @@ _MODULE_MAP = {
     # Chemistry functions
     "detect_and_substitute_organometallic": "chemistry",
     "has_rhenium_complex": "chemistry",
-    "is_large_peptide": "chemistry",
     "validate_target_molecule": "chemistry",
     # Templates
     "load_reference_protein": "templates",
@@ -299,10 +290,7 @@ _MODULE_MAP = {
     "get_suggested_worker_config": "hardware",
     "detect_optimal_configuration": "hardware",
     # Data Management
-    "DatasetSplits": "data",
-    "DatasetManager": "data",
-    "load_benchmark_pdbs": "data",
-    "validate_dataset_integrity": "data",
+    "DatasetSplits": "datasets",
     # Validation
     "SplitDataValidator": "validation",
     "DatabaseValidator": "validation",

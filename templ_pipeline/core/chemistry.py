@@ -1,20 +1,16 @@
 """
-Chemical processing utilities for TEMPL pipeline.
+Chemical processing utilities for the TEMPL pipeline.
 
-This module provides comprehensive chemical processing functionality including:
+This module provides:
 - Molecule validation and filtering
 - Organometallic detection and handling
-- Molecule standardization
-- Force field compatibility checking
 - Large biomolecule detection (peptides and polysaccharides)
-- Problematic compound filtering
 """
 
 import logging
 from typing import List, Tuple
 
 from rdkit import Chem, RDLogger  # type: ignore
-from rdkit.Chem import rdForceFieldHelpers  # type: ignore
 
 # Disable RDKit logging noise
 try:
@@ -54,12 +50,6 @@ ORGANOMETALLIC_ELEMENTS = {
     41: "Nb",  # Niobium
     43: "Tc",  # Technetium
 }
-
-ORGANOMETALLIC_SYMBOLS = {
-    'Fe', 'Mn', 'Co', 'Ni', 'Cu', 'Zn', 'Ru', 'Pd', 'Ag', 'Cd', 'Pt', 'Au', 'Hg',
-    'Mo', 'W', 'Cr', 'V', 'Ti', 'Sc', 'Y', 'Zr', 'Nb', 'Tc', 'Re', 'Os', 'Ir'
-}
-
 
 # Organometallic detection and handling
 def detect_and_substitute_organometallic(
@@ -127,71 +117,6 @@ def detect_and_substitute_organometallic(
         error_msg = f"Organometallic substitution failed for {molecule_name}: {e}"
         logger.warning(error_msg)
         return mol, False, [error_msg]
-
-
-def has_problematic_organometallics(mol: Chem.Mol) -> Tuple[bool, str]:
-    """
-    Check if molecule contains problematic organometallic atoms.
-
-    Args:
-        mol: RDKit molecule object
-
-    Returns:
-        Tuple[bool, str]: (has_problematic_metals, warning_message)
-    """
-    if mol is None:
-        return False, ""
-
-    problematic_atoms = []
-
-    for atom in mol.GetAtoms():
-        symbol = atom.GetSymbol()
-        if symbol in ORGANOMETALLIC_SYMBOLS:
-            problematic_atoms.append(f"{symbol}(idx:{atom.GetIdx()})")
-
-    if problematic_atoms:
-        warning_msg = (
-            f"Target contains organometallic atoms: {', '.join(problematic_atoms)}. "
-            "These may cause issues with force field calculations. "
-            "Consider using organometallic substitution or UFF fallback."
-        )
-        return True, warning_msg
-
-    return False, ""
-
-
-def needs_uff_fallback(mol: Chem.Mol) -> bool:
-    """
-    Determine if a molecule needs UFF fallback for force field calculations.
-
-    Returns True if MMFF is likely to fail and UFF should be used instead.
-
-    Args:
-        mol: RDKit molecule object
-
-    Returns:
-        bool: True if UFF should be used instead of MMFF
-    """
-    if mol is None:
-        return True
-
-    # Check for elements that MMFF doesn't handle well
-    for atom in mol.GetAtoms():
-        if atom.GetAtomicNum() in ORGANOMETALLIC_ELEMENTS:
-            return True
-
-    # Check for unusual bonding patterns that might cause MMFF issues
-    try:
-        # Try to get MMFF properties - if this fails, we need UFF
-        mmff_props = rdForceFieldHelpers.MMFFGetMoleculeProperties(mol)
-        if mmff_props is None:
-            return True
-    except Exception:
-        return True
-
-    return False
-
-
 # Molecule validation functions
 def has_rhenium_complex(mol: Chem.Mol, pdb_id: str = "") -> Tuple[bool, str]:
     """
@@ -312,24 +237,6 @@ def is_large_peptide_or_polysaccharide(
         logger.debug(f"Sugar ring pattern matching failed: {e}")
 
     return False, ""
-
-
-def is_large_peptide(mol: Chem.Mol, residue_threshold: int = 12) -> Tuple[bool, str]:
-    """
-    Backward compatibility wrapper for is_large_peptide_or_polysaccharide.
-
-    This function is deprecated. Use is_large_peptide_or_polysaccharide instead.
-
-    Args:
-        mol: RDKit molecule object
-        residue_threshold: Number of amino acid residues above which to consider "large"
-
-    Returns:
-        Tuple[bool, str]: (True if large peptide, warning message)
-    """
-    # Only check for peptides, not polysaccharides, to maintain exact backward compatibility
-    result, msg = is_large_peptide_or_polysaccharide(mol, residue_threshold, 999999)
-    return result, msg
 
 
 def validate_target_molecule(
