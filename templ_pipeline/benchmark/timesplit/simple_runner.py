@@ -442,13 +442,21 @@ class SimpleTimeSplitRunner:
                 # FALLBACK: Legacy logic for older CLI versions
                 cli_success = cli_result.get("success", False)
                 total_templates_in_db = cli_result.get("total_templates_in_database", 0)
-                
-                if not cli_success and total_templates_in_db == 0:
-                    # Database is empty - data availability issue
-                    logger.debug(f"{target_pdb}: CLI reports database_empty (0 templates) [LEGACY LOGIC]")
+                filtering_info = cli_result.get("template_filtering_info", {})
+                found_templates = filtering_info.get("found_templates", None)
+
+                # Treat empty database as pre-pipeline exclusion regardless of CLI success
+                if total_templates_in_db == 0:
+                    logger.debug(f"{target_pdb}: database_empty (0 templates) -> pre_pipeline_excluded [LEGACY LOGIC]")
                     return "pre_pipeline_excluded", False
-                elif not cli_success:
-                    # CLI failed for other reasons - algorithm issue  
+
+                # If DB has templates but none passed filtering, classify as pipeline filtered
+                if total_templates_in_db > 0 and isinstance(found_templates, int) and found_templates == 0:
+                    logger.debug(f"{target_pdb}: templates present but filtered out -> pipeline_filtered [LEGACY LOGIC]")
+                    return "pipeline_filtered", False
+
+                if not cli_success:
+                    # CLI failed for other reasons - algorithm issue
                     logger.debug(f"{target_pdb}: CLI reports failure with {total_templates_in_db} templates [LEGACY LOGIC]")
                     return "pipeline_attempted", True
                 else:
@@ -482,8 +490,8 @@ class SimpleTimeSplitRunner:
         start_time = time.time()
         
         try:
-            # Load ligand SMILES for this PDB
-            ligand_smiles, _ = self.molecule_loader.get_ligand_data(target_pdb)
+            # Load ligand SMILES and crystal molecule for this PDB
+            ligand_smiles, crystal_mol = self.molecule_loader.get_ligand_data(target_pdb)
             if not ligand_smiles:
                 error_msg = f"Could not load ligand SMILES for {target_pdb}"
                 processing_stage, affects_success_rate = self.classify_processing_stage(error_msg, False)
@@ -510,8 +518,44 @@ class SimpleTimeSplitRunner:
                     "processing_stage": processing_stage,
                     "affects_pipeline_success_rate": affects_success_rate,
                     "runtime_total": time.time() - start_time,
-                    "rmsd_values": {},  # Empty RMSD values for SMILES loading error
+                    "rmsd_values": {},
                 }
+
+            # Pre-filter: Detect large peptides/polysaccharides and skip before pipeline
+            try:
+                from templ_pipeline.core.chemistry import is_large_peptide_or_polysaccharide
+                if crystal_mol is not None:
+                    is_large, bio_msg = is_large_peptide_or_polysaccharide(crystal_mol)
+                    if is_large:
+                        error_msg = bio_msg.strip() or "Molecule validation failed"
+                        # Determine normalized reason
+                        reason_key = "complex_polysaccharide" if "polysaccharide" in error_msg.lower() or "saccharide" in error_msg.lower() else "large_peptide"
+
+                        # Track skip
+                        if self.skip_tracker:
+                            self.skip_tracker.track_skip(target_pdb, reason_key, error_msg)
+
+                        # Record filtered case in error tracker for completeness
+                        if self.error_tracker:
+                            self.error_tracker.record_target_failure(target_pdb, error_msg, {
+                                "processing_stage": "pipeline_filtered",
+                                "affects_success_rate": False,
+                                "component": "molecule_filtering",
+                                "reason": reason_key
+                            })
+
+                        return {
+                            "success": False,
+                            "target_pdb": target_pdb,
+                            "error": error_msg,
+                            "processing_stage": "pipeline_filtered",
+                            "affects_pipeline_success_rate": False,
+                            "runtime_total": time.time() - start_time,
+                            "rmsd_values": {},
+                        }
+            except Exception:
+                # If chemistry utilities are unavailable, continue without pre-filtering
+                pass
             
             # Build CLI command with enhanced shared data parameters
             cmd = [
@@ -773,9 +817,11 @@ class SimpleTimeSplitRunner:
                     try:
                         result = future.result(timeout=timeout + 30)
                         
-                        # Stream result to file
+                        # Stream result to file, include split label for downstream summaries
+                        to_write = dict(result)
+                        to_write["target_split"] = split_name
                         with open(output_jsonl, 'a') as f:
-                            json.dump(result, f)
+                            json.dump(to_write, f)
                             f.write('\n')
                         
                         # Update counters with processing stage awareness
@@ -813,8 +859,10 @@ class SimpleTimeSplitRunner:
                             "affects_pipeline_success_rate": affects_success_rate,
                         }
                         
+                        to_write_err = dict(error_result)
+                        to_write_err["target_split"] = split_name
                         with open(output_jsonl, 'a') as f:
-                            json.dump(error_result, f)
+                            json.dump(to_write_err, f)
                             f.write('\n')
                         
                         # Update counters for error result with processing stage awareness
