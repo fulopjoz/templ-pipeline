@@ -228,24 +228,37 @@ def simple_minimize_molecule(mol: Chem.Mol) -> bool:
         # Check if UFF fallback is needed for organometallic molecules
         if needs_uff_fallback(mol):
             log.debug("Using UFF minimization for organometallic molecule")
-            # Use UFF for organometallic molecules
-            AllChem.UFFOptimizeMolecule(mol, maxIters=1000)  # type: ignore
-            return True
+            all_ok = True
+            for conf_id in range(mol.GetNumConformers()):
+                try:
+                    rc = AllChem.UFFOptimizeMolecule(mol, confId=conf_id, maxIters=1000)  # type: ignore
+                except TypeError:
+                    # Older RDKit versions may not support confId; optimize default conf only
+                    rc = AllChem.UFFOptimizeMolecule(mol, maxIters=1000)  # type: ignore
+                if rc != 0:
+                    all_ok = False
+            return all_ok
         else:
             log.debug("Using MMFF minimization for standard molecule")
             # Use MMFF for standard molecules - optimize all conformers
-            if mol.GetNumConformers() == 1:
-                # Single conformer optimization
-                result = AllChem.MMFFOptimizeMolecule(mol, maxIters=1000)  # type: ignore
-                return result == 0  # 0 indicates successful convergence
-            else:
-                # Multiple conformer optimization
-                results = AllChem.MMFFOptimizeMoleculeConfs(mol, maxIters=1000)  # type: ignore
-                # Return True if at least one conformer converged successfully
-                return any(result[0] == 0 for result in results)
-    
+            props = rdForceFieldHelpers.MMFFGetMoleculeProperties(mol, mmffVariant='MMFF94s')
+            if props is None:
+                log.debug("MMFF properties unavailable; cannot minimize with MMFF")
+                return False
+            all_ok = True
+            for conf_id in range(mol.GetNumConformers()):
+                try:
+                    ff = rdForceFieldHelpers.MMFFGetMoleculeForceField(mol, props, confId=conf_id)
+                    rc = ff.Minimize(maxIts=1000)
+                except Exception:
+                    log.exception("MMFF minimization error on conformer %d", conf_id)
+                    rc = 1
+                if rc != 0:
+                    all_ok = False
+            return all_ok
+
     except Exception as e:
-        log.warning(f"Simple minimization failed: {e}")
+        log.exception(f"Simple minimization failed: {e}")
         return False
 
 
@@ -473,32 +486,32 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: Optional
         # Simple thread limiting to prevent resource exhaustion
     safe_threads = min(numThreads if numThreads > 0 else mp.cpu_count(), 3)
     
-    # Use fixed number of conformers for consistent performance
-    adaptive_conformers = 200
+    # Respect requested conformer count
+    adaptive_conformers = max(1, int(n_conformers))
     
     try:
             
         # Try standard embedding with coordinate map
         if coordMap:
             cids = rdDistGeom.EmbedMultipleConfs(
-                mol, 
+                mol,
                 numConfs=adaptive_conformers,
                 randomSeed=42,
                 numThreads=safe_threads,
                 coordMap=coordMap,
                 useRandomCoords=False,
                 enforceChirality=False,
-                maxAttempts=1000
+                maxAttempts=1000,
             )
         else:
             cids = rdDistGeom.EmbedMultipleConfs(
-                mol, 
+                mol,
                 numConfs=adaptive_conformers,
                 randomSeed=42,
                 numThreads=safe_threads,
                 useRandomCoords=False,
                 enforceChirality=False,
-                maxAttempts=1000
+                maxAttempts=1000,
             )
         
         if cids:
@@ -511,24 +524,24 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: Optional
             # Use UFF-compatible embedding with random coordinates
             if coordMap:
                 cids = rdDistGeom.EmbedMultipleConfs(
-                    mol, 
+                    mol,
                     numConfs=adaptive_conformers,
                     randomSeed=42,
                     numThreads=safe_threads,
                     coordMap=coordMap,
                     useRandomCoords=True,
                     enforceChirality=False,
-                    maxAttempts=1000
+                    maxAttempts=1000,
                 )
             else:
                 cids = rdDistGeom.EmbedMultipleConfs(
-                    mol, 
+                    mol,
                     numConfs=adaptive_conformers,
                     randomSeed=42,
                     numThreads=safe_threads,
                     useRandomCoords=True,
                     enforceChirality=False,
-                    maxAttempts=1000
+                    maxAttempts=1000,
                 )
             if cids:
                 # Use simple UFF optimization for organogmetallic molecules
@@ -539,13 +552,13 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: Optional
         # Fallback 2: Try with relaxed parameters and no coordinate map
         log.debug("UFF fallback failed, trying relaxed parameters")
         cids = rdDistGeom.EmbedMultipleConfs(
-            mol, 
+            mol,
             numConfs=min(adaptive_conformers, 200),  # Further reduce conformer count
             randomSeed=42,
             numThreads=safe_threads,
             useRandomCoords=True,
             enforceChirality=False,
-            maxAttempts=2000  # Increase attempts
+            maxAttempts=2000,  # Increase attempts
         )
         
         if cids:
@@ -555,13 +568,13 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: Optional
         # Fallback 3: Minimal parameters for difficult molecules
         log.debug("Relaxed embedding failed, trying minimal parameters")
         cids = rdDistGeom.EmbedMultipleConfs(
-            mol, 
+            mol,
             numConfs=min(adaptive_conformers, 20),  # Minimal conformer count
             randomSeed=42,
             numThreads=1,  # Single thread
             useRandomCoords=True,
             enforceChirality=False,
-            maxAttempts=5000  # Many attempts
+            maxAttempts=5000,  # Many attempts
         )
         
         if cids:
@@ -650,6 +663,13 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
     
     # Build coordinate map for constrained embedding
     coordMap = {}
+    if ref.GetNumConformers() == 0:
+        # Attempt to create a minimal conformer for the reference if missing
+        try:
+            rdDistGeom.EmbedMolecule(ref, rdDistGeom.ETKDGv3())
+        except Exception:
+            log.warning("Reference molecule has no conformers and embedding failed; falling back to central atom")
+            return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline, enable_optimization)
     ref_conf = ref.GetConformer()
     for i, (tgt_idx, ref_idx) in enumerate(zip(tgt_idxs_h, ref_idxs)):
         try:
@@ -685,7 +705,7 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
         ps.numThreads = 1
         
         # Progressive coordinate mapping - reduce constraints until embedding succeeds
-        r = -1
+        r = []
         lrm = 0
         
         # Try with relaxed constraints first
@@ -696,7 +716,7 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
                 # Enhanced error handling for conformer generation
         try:
             # Use the parameter-specified number of conformers
-            r = rdDistGeom.EmbedMultipleConfs(target_h, n_conformers, ps)
+            r = rdDistGeom.EmbedMultipleConfs(target_h, numConfs=n_conformers, params=ps)
         except Exception as e:
             log.error(f"RDKit EmbedMultipleConfs failed: {e}")
             log.error(f"Target molecule info: atoms={target_h.GetNumAtoms()}, heavy_atoms={target_h.GetNumHeavyAtoms()}")
@@ -704,25 +724,26 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
             log.error("Falling back to central atom embedding")
             return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline, enable_optimization)
         
-        if r != -1:
+        if r:
             log.info(f"Embedding succeeded with relaxed constraints, generated {len(r)} conformers")
         else:
             log.warning("Embedding failed with relaxed constraints, trying progressive reduction")
             
             # Progressive coordinate mapping - reduce constraints until embedding succeeds
-            while r == -1:
+            while not r:
                 cmap = {}
                 for i, t in enumerate(tgt_idxs_h[lrm:]):
-                    if i < len(ref_idxs):
-                        cmap[t] = ref_conf.GetAtomPosition(ref_idxs[i])
+                    ref_pos = lrm + i
+                    if ref_pos < len(ref_idxs):
+                        cmap[t] = ref_conf.GetAtomPosition(ref_idxs[ref_pos])
                 
                 log.info(f"Progressive embedding attempt {lrm + 1}: using {len(cmap)} constraints")
                 log_coordinate_map(cmap, f"progressive_attempt_{lrm + 1}")
                 
                 ps.SetCoordMap(cmap)  # type: ignore
-                r = rdDistGeom.EmbedMultipleConfs(target_h, n_conformers, ps)
+                r = rdDistGeom.EmbedMultipleConfs(target_h, numConfs=n_conformers, params=ps)
                 
-                if r == -1:
+                if not r:
                     log.warning(f"Embedding attempt {lrm + 1} failed with {len(cmap)} constraints")
                 else:
                     log.info(f"Embedding succeeded at attempt {lrm + 1} with {len(cmap)} constraints, generated {len(r)} conformers")
@@ -731,7 +752,7 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
                 if lrm >= len(tgt_idxs_h):
                     break
         
-        if r == -1:
+        if not r:
             log.warning("Progressive embedding failed, falling back to central atom")
             return central_atom_embed(tgt, ref, n_conformers, n_workers_pipeline, enable_optimization)
         
@@ -835,6 +856,12 @@ def central_atom_embed(tgt: Chem.Mol, ref: Chem.Mol, n_conformers: int, n_worker
             return None
         
         # Position at central atom of reference
+        if ref.GetNumConformers() == 0:
+            try:
+                rdDistGeom.EmbedMolecule(ref, rdDistGeom.ETKDGv3())
+            except Exception:
+                log.warning("Reference molecule has no conformers and embedding failed in central_atom_embed")
+                return None
         ref_center = ref.GetConformer().GetAtomPosition(get_central_atom(ref))
         tgt_center_idx = get_central_atom(tgt_copy)
         

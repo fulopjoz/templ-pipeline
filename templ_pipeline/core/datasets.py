@@ -1,26 +1,27 @@
-"""
-TEMPL Pipeline Dataset Utilities
+"""Dataset utilities for time-split management in the TEMPL pipeline.
 
 This module provides utilities for handling dataset splits and filtering:
-1. Loading time-split datasets (train, validation, test)
-2. Filtering templates by dataset split
-3. Supporting benchmarking with time-based train/test separation
+- Loading time-split datasets (train, validation, test)
+- Filtering templates by dataset split
+- Supporting benchmarking with time-based train/test separation
 """
 
+from __future__ import annotations
+
 import logging
-import os
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Union
+from typing import Dict, Optional, Set, Union
+
 
 logger = logging.getLogger(__name__)
 
 
 class DatasetSplits:
-    """Handles dataset splits for training, validation, and testing.
+    """Handle dataset splits for training, validation, and testing.
 
-    This class loads and manages time-split dataset files, which contain
-    PDB IDs separated into training, validation, and test sets based on
-    deposition dates.
+    This class loads and manages time-split dataset files, which contain PDB
+    IDs separated into training, validation, and test sets based on deposition
+    dates.
 
     Attributes:
         splits_dir: Directory containing the split files
@@ -29,50 +30,58 @@ class DatasetSplits:
         test_pdbs: Set of PDB IDs in the test set
     """
 
-    def __init__(self, splits_dir: Optional[str] = None):
+    def __init__(self, splits_dir: Optional[Union[str, Path]] = None) -> None:
         """Initialize dataset splits from files.
 
         Args:
-            splits_dir: Directory containing the split files.
-                If None, uses default location (data/splits)
+            splits_dir: Directory containing the split files. If None, multiple
+                common locations are checked and the first that exists is used.
         """
-        # Determine splits directory with proper path resolution
-        if splits_dir is None:
-            # Try multiple potential locations
-            potential_dirs = [
-                os.path.join(os.getcwd(), "data", "splits"),
-                os.path.join(os.getcwd(), "templ_pipeline", "data", "splits"),
-                os.path.join(
-                    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                    "data",
-                    "splits",
-                ),
-            ]
-
-            for dir_path in potential_dirs:
-                if os.path.exists(dir_path):
-                    splits_dir = dir_path
-                    break
-
-            if splits_dir is None:
-                logger.warning(
-                    "Could not find splits directory. Using default path."
-                )
-                splits_dir = os.path.join(os.getcwd(), "data", "splits")
-
-        self.splits_dir = splits_dir
+        resolved_dir = self._resolve_splits_dir(splits_dir)
+        self.splits_dir: Path = resolved_dir
         logger.debug(f"Using splits directory: {self.splits_dir}")
 
         # Load all splits
-        self.train_pdbs = self._load_split("timesplit_train")
-        self.val_pdbs = self._load_split("timesplit_val")
-        self.test_pdbs = self._load_split("timesplit_test")
+        self.train_pdbs: Set[str] = self._load_split("timesplit_train")
+        self.val_pdbs: Set[str] = self._load_split("timesplit_val")
+        self.test_pdbs: Set[str] = self._load_split("timesplit_test")
 
-        # Log split sizes
         logger.info(
-            f"Loaded dataset splits: train={len(self.train_pdbs)}, "
-            f"val={len(self.val_pdbs)}, test={len(self.test_pdbs)}"
+            "Loaded dataset splits: train=%d, val=%d, test=%d",
+            len(self.train_pdbs),
+            len(self.val_pdbs),
+            len(self.test_pdbs),
         )
+
+    def _resolve_splits_dir(
+        self, splits_dir: Optional[Union[str, Path]]
+    ) -> Path:
+        """Resolve the splits directory using sensible defaults.
+
+        Preference order when `splits_dir` is not provided:
+        1) <cwd>/data/splits
+        2) <cwd>/templ_pipeline/data/splits
+        3) <project_root>/data/splits (derived from this file's location)
+        """
+        if splits_dir is not None:
+            return Path(splits_dir)
+
+        potential_dirs = [
+            Path.cwd() / "data" / "splits",
+            Path.cwd() / "templ_pipeline" / "data" / "splits",
+            Path(__file__).resolve().parents[2] / "data" / "splits",
+        ]
+
+        for candidate in potential_dirs:
+            if candidate.exists():
+                return candidate
+
+        logger.warning(
+            "Could not find splits directory in any common location. "
+            "Falling back to default path: %s",
+            potential_dirs[0],
+        )
+        return potential_dirs[0]
 
     def _load_split(self, filename: str) -> Set[str]:
         """Load PDB IDs from a split file.
@@ -83,63 +92,50 @@ class DatasetSplits:
         Returns:
             Set of PDB IDs (lowercase)
         """
-        path = os.path.join(self.splits_dir, filename)
-        if not os.path.exists(path):
-            logger.warning(f"Split file not found: {path}")
+        path = self.splits_dir / filename
+        if not path.exists():
+            logger.warning("Split file not found: %s", path)
             return set()
 
-        with open(path) as f:
-            # Strip whitespace and convert to lowercase for consistent matching
-            return {line.strip().lower() for line in f if line.strip()}
+        try:
+            with path.open("r", encoding="utf-8") as file:
+                return {line.strip().lower() for line in file if line.strip()}
+        except OSError as exc:
+            logger.error("Failed to read split file %s: %s", path, exc)
+            return set()
 
     def get_split(self, split_name: str) -> Set[str]:
         """Get PDB IDs for a specific split.
 
         Args:
-            split_name: Name of the split ('train', 'val', or 'test')
+            split_name: Name of the split ("train", "val", or "test"). The
+                alias "validation" is also accepted.
 
         Returns:
-            Set of PDB IDs in the split
+            Set of PDB IDs in the split.
 
         Raises:
-            ValueError: If split_name is not recognized
+            ValueError: If `split_name` is not recognized.
         """
-        split_name = split_name.lower()
-        if split_name == "train":
+        name = split_name.lower()
+        if name == "train":
             return self.train_pdbs
-        elif split_name in ["val", "validation"]:
+        if name in {"val", "validation"}:
             return self.val_pdbs
-        elif split_name == "test":
+        if name == "test":
             return self.test_pdbs
-        else:
-            raise ValueError(
-                f"Unknown split name: {split_name}. "
-                f"Use 'train', 'val', or 'test'."
-            )
+
+        raise ValueError("Unknown split name: %s. Use 'train', 'val', or 'test'." % split_name)
 
     def is_in_split(self, pdb_id: str, split_name: str) -> bool:
-        """Check if a PDB ID is in a specific split.
-
-        Args:
-            pdb_id: PDB ID to check
-            split_name: Name of the split ('train', 'val', or 'test')
-
-        Returns:
-            True if the PDB ID is in the specified split, False otherwise
-        """
+        """Check if a PDB ID is in a specific split."""
         return pdb_id.lower() in self.get_split(split_name)
 
     def get_statistics(self) -> Dict[str, int]:
-        """Get statistics about the dataset splits.
-
-        Returns:
-            Dictionary with counts for each split
-        """
+        """Get statistics about the dataset splits."""
         return {
             "train": len(self.train_pdbs),
             "val": len(self.val_pdbs),
             "test": len(self.test_pdbs),
-            "total": (
-                len(self.train_pdbs) + len(self.val_pdbs) + len(self.test_pdbs)
-            ),
+            "total": len(self.train_pdbs) + len(self.val_pdbs) + len(self.test_pdbs),
         }
