@@ -695,23 +695,21 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
     
     log.info(f"Using {len(coordMap)} constraints after relaxation")
     
-    # Use proven working pattern from reference code
     try:
         ps = rdDistGeom.ETKDGv3()
         ps.randomSeed = 42
         ps.enforceChirality = False
-        # Reduce thread pressure to prevent memory allocation errors
-        # Use single thread for conformer generation to reduce thread-local storage pressure
+
         ps.numThreads = 1
         
         # Progressive coordinate mapping - reduce constraints until embedding succeeds
         r = []
         lrm = 0
         
-        # Try with relaxed constraints first
-        log.info("Attempting embedding with relaxed constraints")
+        # Try with current constraints first (possibly relaxed if any were removed)
+        log.info("Attempting embedding with current constraints")
         log_coordinate_map(coordMap, "relaxed_coordinate_map")
-        ps.SetCoordMap(coordMap)  # type: ignore
+        ps.coordMap = coordMap
         
                 # Enhanced error handling for conformer generation
         try:
@@ -732,15 +730,13 @@ def constrained_embed(tgt: Chem.Mol, ref: Chem.Mol, smarts: str, n_conformers: i
             # Progressive coordinate mapping - reduce constraints until embedding succeeds
             while not r:
                 cmap = {}
-                for i, t in enumerate(tgt_idxs_h[lrm:]):
-                    ref_pos = lrm + i
-                    if ref_pos < len(ref_idxs):
-                        cmap[t] = ref_conf.GetAtomPosition(ref_idxs[ref_pos])
+                for t_idx, r_idx in zip(tgt_idxs_h[lrm:], ref_idxs[lrm:]):
+                    cmap[t_idx] = ref_conf.GetAtomPosition(r_idx)
                 
                 log.info(f"Progressive embedding attempt {lrm + 1}: using {len(cmap)} constraints")
                 log_coordinate_map(cmap, f"progressive_attempt_{lrm + 1}")
                 
-                ps.SetCoordMap(cmap)  # type: ignore
+                ps.coordMap = cmap
                 r = rdDistGeom.EmbedMultipleConfs(target_h, numConfs=n_conformers, params=ps)
                 
                 if not r:
