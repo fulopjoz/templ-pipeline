@@ -1,4 +1,6 @@
 # TEMPL Pipeline
+
+[![Live App](https://img.shields.io/badge/Live_App-templ.dyn.cloud.e--infra.cz-2ea44f?logo=google-chrome&logoColor=white)](https://templ.dyn.cloud.e-infra.cz/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Template-based protein–ligand pose prediction with command-line interface and web application.
@@ -10,32 +12,31 @@ Template-based protein–ligand pose prediction with command-line interface and 
 TEMPL is a template-based method for rapid protein–ligand pose prediction that leverages ligand similarity and template superposition. The method uses maximal common substructure (MCS) alignment and constrained conformer generation (ETKDG v3) for pose generation within known chemical space.
 
 **Key Features:**
+
 - Template-based pose prediction using ligand similarity
 - Alignment driven by maximal common substructure (MCS)
 - Shape and pharmacophore scoring for pose selection
 - Built-in benchmarks (Polaris, time-split PDBbind)
 - CPU-only by default with optional GPU acceleration
 
-**⚠️ Scope:** 
-* Optimized for rapid pose prediction within known chemical space. Performance may be limited for novel scaffolds, allosteric sites, or targets with insufficient template coverage.
+**⚠️ Scope:**
+
+- Optimized for rapid pose prediction within known chemical space. Performance may be limited for novel scaffolds, allosteric sites, or targets with insufficient template coverage.
 
 ---
 
 ## Installation
 
-### Standard Installation
+### Installation (one-time)
+
 ```bash
 git clone https://github.com/fulopjoz/templ-pipeline
 cd templ-pipeline
 source setup_templ_env.sh
 ```
 
-### Development Installation
-```bash
-source setup_templ_env.sh --dev
-```
-
 The setup script automatically:
+
 - Detects hardware configuration
 - Creates the `.templ` virtual environment
 - Installs dependencies with `uv`
@@ -43,6 +44,7 @@ The setup script automatically:
 - Verifies installation
 
 For future sessions, activate the environment:
+
 ```bash
 source .templ/bin/activate
 ```
@@ -55,6 +57,8 @@ TEMPL requires pre-computed embeddings and ligand structures that are automatica
 
 - `templ_protein_embeddings_v1.0.0.npz` (~90MB) - Protein embeddings
 - `templ_processed_ligands_v1.0.0.sdf.gz` (~10MB) - Processed ligand structures
+
+See `data/README.md` for directory layout and the provided benchmark splits under `data/splits/`.
 
 ### PDBbind Dataset
 
@@ -72,28 +76,22 @@ After downloading, extract both folders into `data/PDBBind/` using the standard 
 
 ## Project Structure
 
-```
-templ_pipeline/
-├── benchmarks/          # Benchmark workspaces and results
-│   ├── workspaces/      # Generated benchmark workspaces
-│   └── results/         # Benchmark result files
-├── data/                # Data files and embeddings
-├── deploy/              # Deployment configurations
-│   ├── docker/          # Docker files
-│   ├── kubernetes/      # Kubernetes manifests
-│   └── scripts/         # Deployment scripts
-├── docs/                # Documentation
-│   ├── api/             # API documentation
-│   ├── deployment/      # Deployment guides
-│   └── guides/          # User guides and references
-├── examples/            # Example usage scripts
-├── output/              # Pipeline output results
-├── scripts/             # Entry point scripts
-├── templ_pipeline/      # Main Python package
-├── tests/               # Test suite
-│   ├── artifacts/       # Test coverage and artifacts
-│   └── temp/            # Temporary test files
-└── tools/               # Development tools and configs
+```text
+.
+├── setup_templ_env.sh        # One-shot environment setup
+├── pyproject.toml            # Packaging and dependencies
+├── data/                     # Embeddings, ligands, splits (see data/README.md)
+├── templ_pipeline/           # Main Python package and CLI
+├── scripts/                  # Helper entry points (UI launcher, tests, benchmarks)
+├── examples/                 # Minimal usage examples
+├── output/                   # Pipeline run outputs (templ_run_...)
+├── benchmarks/               # Benchmark workspaces and archives
+├── tests/                    # Unit, integration, performance tests
+├── deploy/                   # Docker and Kubernetes assets
+├── docs/                     # Additional documentation
+├── diagrams/                 # Architecture and flow diagrams
+├── tools/                    # Dev configs (pytest, workspace)
+└── README.md                 # This file
 ```
 
 ---
@@ -101,6 +99,7 @@ templ_pipeline/
 ## Usage
 
 ### Command Line Interface
+
 ```bash
 # Basic pose prediction
 templ run --protein-file protein.pdb --ligand-smiles "C1CC(=O)N(C1)CC(=O)N"
@@ -116,11 +115,20 @@ templ --help
 ```
 
 ### Web Interface
+
+Hosted app: [templ.dyn.cloud.e-infra.cz](https://templ.dyn.cloud.e-infra.cz/)
+
 ```bash
 python scripts/run_streamlit_app.py
 ```
 
+#### Notes
+
+- The launcher picks the first free port starting at 8501. Override via PORT or TEMPL_PORT_START.
+- It prints both Local and Network URLs; the app listens on 0.0.0.0 for LAN access.
+
 ### Benchmarking
+
 ```bash
 # Full benchmark
 templ benchmark polaris
@@ -129,6 +137,11 @@ templ benchmark time-split # PDBBind dataset
 # Partial benchmark
 templ benchmark time-split --test-only
 ```
+
+#### Outputs
+
+- Individual runs are written to output/ as templ_run_YYYYMMDD_HHMMSS_[pdbid]/
+- Benchmark artifacts are saved under benchmarks/[suite]/...
 
 ---
 
@@ -150,7 +163,7 @@ If you use TEMPL in your research, please cite:
 
 ```bibtex
 @article{templ2025,
-  title={TEMPL: Template-based Protein-Ligand Pose Prediction},
+  title={TEMPL: A template-based protein ligand pose prediction baseline},
   author={J. Fülöp and M. Šícho and W. Dehaen},
   journal={},
   year={2025}
@@ -161,7 +174,9 @@ If you use TEMPL in your research, please cite:
 
 ## Acknowledgments
 
-J.F., M.S. and W.D. were supported by the Ministry of Education, Youth and Sports of the Czech Republic – National Infrastructure for Chemical Biology (CZ-OPENSCREEN, LM2023052). W.D. was supported by the Ministry of Education, Youth and Sports of the Czech Republic by the project "New Technologies for Translational Research in Pharmaceutical Sciences/NETPHARM", project ID CZ.02.01.01/00/22_008/0004607, cofunded by the European Union.
+J.F., M.Š. and W.D. were supported by the Ministry of Education, Youth and Sports of the Czech Republic – National Infrastructure for Chemical Biology (CZ-OPENSCREEN, LM2023052). W.D. was supported by the Ministry of Education, Youth and Sports of the Czech Republic by the project “New Technologies for Translational Research in Pharmaceutical Sciences/NETPHARM”, project ID CZ.02.01.01/00/22_008/0004607, cofunded by the European Union.
+Computational resources were provided by the e-INFRA CZ project (ID:90254), supported by the Ministry of Education, Youth and Sports of the Czech Republic.
+
 
 ---
 
