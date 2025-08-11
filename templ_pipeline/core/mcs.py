@@ -486,8 +486,8 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: Optional
         # Simple thread limiting to prevent resource exhaustion
     safe_threads = min(numThreads if numThreads > 0 else mp.cpu_count(), 3)
     
-    # Respect requested conformer count
-    adaptive_conformers = max(1, int(n_conformers))
+    # Validate and ensure minimum conformer count of 1
+    requested_conformers = max(1, int(n_conformers))
     
     try:
             
@@ -495,7 +495,7 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: Optional
         if coordMap:
             cids = rdDistGeom.EmbedMultipleConfs(
                 mol,
-                numConfs=adaptive_conformers,
+                numConfs=requested_conformers,
                 randomSeed=42,
                 numThreads=safe_threads,
                 coordMap=coordMap,
@@ -506,7 +506,7 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: Optional
         else:
             cids = rdDistGeom.EmbedMultipleConfs(
                 mol,
-                numConfs=adaptive_conformers,
+                numConfs=requested_conformers,
                 randomSeed=42,
                 numThreads=safe_threads,
                 useRandomCoords=False,
@@ -525,7 +525,7 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: Optional
             if coordMap:
                 cids = rdDistGeom.EmbedMultipleConfs(
                     mol,
-                    numConfs=adaptive_conformers,
+                    numConfs=requested_conformers,
                     randomSeed=42,
                     numThreads=safe_threads,
                     coordMap=coordMap,
@@ -536,7 +536,7 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: Optional
             else:
                 cids = rdDistGeom.EmbedMultipleConfs(
                     mol,
-                    numConfs=adaptive_conformers,
+                    numConfs=requested_conformers,
                     randomSeed=42,
                     numThreads=safe_threads,
                     useRandomCoords=True,
@@ -553,7 +553,7 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: Optional
         log.debug("UFF fallback failed, trying relaxed parameters")
         cids = rdDistGeom.EmbedMultipleConfs(
             mol,
-            numConfs=min(adaptive_conformers, 200),  # Further reduce conformer count
+            numConfs=requested_conformers,  # Use requested conformer count for fair comparison
             randomSeed=42,
             numThreads=safe_threads,
             useRandomCoords=True,
@@ -569,7 +569,7 @@ def embed_with_uff_fallback(mol: Chem.Mol, n_conformers: int, coordMap: Optional
         log.debug("Relaxed embedding failed, trying minimal parameters")
         cids = rdDistGeom.EmbedMultipleConfs(
             mol,
-            numConfs=min(adaptive_conformers, 20),  # Minimal conformer count
+            numConfs=requested_conformers,  # Use requested conformer count for fair comparison
             randomSeed=42,
             numThreads=1,  # Single thread
             useRandomCoords=True,
@@ -838,15 +838,12 @@ def central_atom_embed(tgt: Chem.Mol, ref: Chem.Mol, n_conformers: int, n_worker
         tgt_copy = Chem.Mol(tgt)
         tgt_copy = Chem.AddHs(tgt_copy)
         
-        # Use even fewer conformers for central atom fallback (more conservative)
+        # Use requested conformer count for fair ablation study comparison
+        # When users specify large conformer counts, it's typically for difficult cases (large molecules)
+        # so artificially limiting conformers for large molecules is counterproductive
         num_atoms = tgt_copy.GetNumAtoms()
-        if num_atoms > 100:
-            # Large molecules: very few conformers for fallback
-            fallback_conformers = min(n_conformers, 20)
-            log.info(f"Central atom fallback for large molecule ({num_atoms} atoms): using {fallback_conformers} conformers")
-        else:
-            # Smaller molecules: use standard adaptive count
-            fallback_conformers = n_conformers
+        fallback_conformers = n_conformers
+        log.info(f"Central atom embedding for molecule ({num_atoms} atoms): using {fallback_conformers} conformers")
         
         # Generate unconstrained conformers
         conf_ids = embed_with_uff_fallback(tgt_copy, fallback_conformers, numThreads=n_workers_pipeline)
