@@ -837,8 +837,8 @@ class MainLayout:
             message: Progress message
             progress: Progress percentage (0-100)
         """
-        # This method is no longer used - replaced by inline callback
-        pass
+        # Deprecated: replaced by inline progress callback. Remove if not reintroduced.
+        return None
 
     def _render_error_state(self, error: Exception):
         """Render error state UI

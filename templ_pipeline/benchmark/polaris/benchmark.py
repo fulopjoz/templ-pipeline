@@ -92,7 +92,7 @@ class ProgressConfig:
             'bar_format': ProgressConfig.get_bar_format(),
             'ncols': 100,
             'leave': True,
-            'file': sys.stdout,
+            'file': sys.stderr,
             'disable': False
         }
         if desc:
@@ -562,8 +562,10 @@ def evaluate_with_leave_one_out(
                         if (successes + errors) > 0
                         else 0
                     )
+                    # Single refresh per step: set postfix without refresh, then update
                     pbar.set_postfix(
-                        ProgressConfig.get_postfix_format(success_rate, errors)
+                        ProgressConfig.get_postfix_format(success_rate, errors),
+                        refresh=False,
                     )
                     pbar.update(1)
     else:
@@ -650,8 +652,10 @@ def evaluate_with_leave_one_out(
                         if (successes + errors) > 0
                         else 0
                     )
+                    # Single refresh per step: set postfix without refresh, then update
                     pbar.set_postfix(
-                        ProgressConfig.get_postfix_format(success_rate, errors)
+                        ProgressConfig.get_postfix_format(success_rate, errors),
+                        refresh=False,
                     )
                     pbar.update(1)
 
@@ -824,8 +828,10 @@ def evaluate_with_templates(
                         if (successes + errors) > 0
                         else 0
                     )
+                    # Single refresh per step: set postfix without refresh, then update
                     pbar.set_postfix(
-                        ProgressConfig.get_postfix_format(success_rate, errors)
+                        ProgressConfig.get_postfix_format(success_rate, errors),
+                        refresh=False,
                     )
                     pbar.update(1)
     else:
@@ -926,8 +932,10 @@ def evaluate_with_templates(
                         if (successes + errors) > 0
                         else 0
                     )
+                    # Single refresh per step: set postfix without refresh, then update
                     pbar.set_postfix(
-                        ProgressConfig.get_postfix_format(success_rate, errors)
+                        ProgressConfig.get_postfix_format(success_rate, errors),
+                        refresh=False,
                     )
                     pbar.update(1)
 
