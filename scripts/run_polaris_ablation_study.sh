@@ -200,27 +200,63 @@ results_data = []
 header = ["Settings", "MERS < 2 Å", "SARS < 2 Å", "MERS+SARS < 2 Å"]
 
 for exp_name, pattern in experiments.items():
-    files = glob.glob(os.path.join("$RAW_RESULTS_DIR", pattern))
-    if files:
-        filepath = files[0]  # Take first match
-        
-        # Determine metric based on experiment
-        metric = "combo"  # default
-        if "Shape" in exp_name:
-            metric = "shape"
-        elif "Color" in exp_name:
-            metric = "color"
-            
-        # Determine template source based on experiment
-        template_source = "auto"  # default - uses cross_aligned if available
-        if "MERS PDB reference" in exp_name:
-            template_source = "native"
-            
-        mers_rate = extract_success_rate(filepath, "MERS", metric, template_source)
-        sars_rate = extract_success_rate(filepath, "SARS", metric, template_source)
-        combined_rate = extract_combined_rate(filepath, metric, template_source)
-        
-        results_data.append([exp_name, f"{mers_rate:.1f}", f"{sars_rate:.1f}", f"{combined_rate:.1f}"])
+    # Robust selection: pick latest matching file; avoid prefix collisions
+    candidates = sorted(glob.glob(os.path.join("$RAW_RESULTS_DIR", pattern)), key=os.path.getmtime, reverse=True)
+    # Special-case to prevent unconstrained_* collision
+    if exp_name == "Unconstrained embedding":
+        candidates = [p for p in candidates if not (os.path.basename(p).startswith("unconstrained_shape_") or os.path.basename(p).startswith("unconstrained_color_"))]
+
+    if candidates:
+        # Walk candidates until parameters match the expected metric/flags
+        filepath = None
+        for fp in candidates:
+            try:
+                with open(fp, 'r') as f:
+                    data = json.load(f)
+                params = data.get("parameters", {})
+                # Determine metric based on experiment name
+                metric = "combo"
+                if "Shape" in exp_name:
+                    metric = "shape"
+                elif "Color" in exp_name:
+                    metric = "color"
+
+                # Minimal param validation
+                if params.get("align_metric", metric) != metric:
+                    continue
+                # For unconstrained rows ensure flag consistency
+                if exp_name.startswith("Unconstrained") and not params.get("unconstrained", False):
+                    continue
+                if exp_name == "No realignment" and not params.get("no_realign", False):
+                    continue
+                if exp_name == "MMFF94x" and not params.get("enable_optimization", False):
+                    continue
+                if exp_name.endswith("confs"):
+                    try:
+                        expected = int(exp_name.split()[0])
+                        if params.get("n_conformers") != expected:
+                            continue
+                    except Exception:
+                        pass
+                filepath = fp
+                break
+            except Exception:
+                continue
+
+        if filepath is None:
+            results_data.append([exp_name, "N/A", "N/A", "N/A"])
+        else:
+            # Determine template source for display
+            template_source = "auto"
+            if exp_name.startswith("MCS+200"):
+                template_source = "cross_aligned"
+            if exp_name.startswith("MERS native"):
+                template_source = "native"
+
+            mers_rate = extract_success_rate(filepath, "MERS", metric, template_source)
+            sars_rate = extract_success_rate(filepath, "SARS", metric, template_source)
+            combined_rate = extract_combined_rate(filepath, metric, template_source)
+            results_data.append([exp_name, f"{mers_rate:.1f}", f"{sars_rate:.1f}", f"{combined_rate:.1f}"])
     else:
         results_data.append([exp_name, "N/A", "N/A", "N/A"])
 
