@@ -869,6 +869,8 @@ class TEMPLPipeline:
             },
             "poses": getattr(self, "pipeline_poses", {}),
             "template_info": getattr(self, "pipeline_template_info", {}),
+            # Expose structured MCS details to UI for visualization
+            "mcs_details": locals().get("mcs_details_organized", {}),
             "all_ranked_poses": getattr(self, "pipeline_all_ranked_poses", []),
             "output_file": output_folder,
             "output_folder": output_folder,  # New field for timestamped folder
@@ -1179,7 +1181,10 @@ class TEMPLPipeline:
                     "ca_rmsd": best_template.GetProp('ca_rmsd') if best_template.HasProp('ca_rmsd') else 'unknown',
                     "embedding_similarity": embedding_similarity,
                     "alignment_method": alignment_method,
-                    "anchor_count": anchor_count
+                    "anchor_count": anchor_count,
+                    # Expose MCS summary directly in template_info for UI convenience
+                    "mcs_smarts": mcs_smarts if 'mcs_smarts' in locals() else "",
+                    "atoms_matched": mcs_details.get("atom_count", 0) if 'mcs_details' in locals() and isinstance(mcs_details, dict) else 0,
                 }
 
             # Get crystal structure for RMSD calculation if available
@@ -1232,6 +1237,9 @@ class TEMPLPipeline:
                 # Add atom mappings at the end
                 mcs_details_organized["query_atoms"] = mcs_details.get("query_atoms", [])
                 mcs_details_organized["template_atoms"] = mcs_details.get("template_atoms", [])
+            
+            # Make MCS details accessible after run() for UI layer
+            self.pipeline_mcs_details = mcs_details_organized
             
             pipeline_results = {
                 "target_pdb": query_pdb_id,

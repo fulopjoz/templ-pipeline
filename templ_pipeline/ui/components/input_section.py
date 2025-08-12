@@ -68,39 +68,37 @@ class InputSection:
             # Define callback function for setting example SMILES
             def set_example_smiles(smiles_value):
                 st.session_state.smiles_input = smiles_value
-            
-            # Create columns for input and example button
-            col1, col2 = st.columns([4, 1])
-            
-            with col1:
+
+            # Create columns for input, example button, and validation tick
+            col_inp, col_btn, col_tick = st.columns([4, 1, 0.5])
+
+            with col_inp:
                 smiles = st.text_input(
                     "SMILES String",
                     placeholder="Enter SMILES string",
                     key="smiles_input",
                 )
-            
-            with col2:
+
+            with col_btn:
                 # Add some spacing to align with the input field
                 st.markdown("<br>", unsafe_allow_html=True)
                 example_smiles = "Cc1cn(cn1)c2cc(NC(=O)c3ccc(C)c(Nc4nccc(n4)c5cccnc5)c3)cc(c2)C(F)(F)F"
                 st.button(
-                    "Use Example", 
-                    key="use_example_smiles", 
+                    "Use Example",
+                    key="use_example_smiles",
                     help="Fill with example SMILES",
                     on_click=set_example_smiles,
-                    args=[example_smiles]
+                    args=[example_smiles],
                 )
 
+            # Inline, subtle validation indicator (✅/❌) instead of large success box
             if smiles:
-                # Import validation functions
                 try:
                     valid, msg, mol_data = validate_smiles_input(smiles)
                     if valid:
-                        # Convert from cached binary format if needed
                         if mol_data is not None:
                             Chem, AllChem, Draw = get_rdkit_modules()
                             mol = Chem.Mol(mol_data)
-                            # Preserve original SMILES as molecule property for visualization
                             if mol is not None:
                                 mol.SetProp("original_smiles", smiles)
                                 mol.SetProp("input_method", "smiles")
@@ -108,15 +106,26 @@ class InputSection:
                             mol = None
                         self.session.set(SESSION_KEYS["QUERY_MOL"], mol)
                         self.session.set(SESSION_KEYS["INPUT_SMILES"], smiles)
-                        st.success(f"SMILES validated: {smiles}")
+                        with col_tick:
+                            st.markdown(
+                                "<div style='font-size:20px;color:#22c55e;text-align:center;'>✅</div>",
+                                unsafe_allow_html=True,
+                            )
                     else:
                         self.session.set(SESSION_KEYS["INPUT_SMILES"], None)
-                        st.error(f"{msg}")
+                        with col_tick:
+                            st.markdown(
+                                "<div style='font-size:20px;color:#ef4444;text-align:center;'>❌</div>",
+                                unsafe_allow_html=True,
+                            )
                 except Exception as e:
                     logger.error(f"Error validating SMILES: {e}")
-                    # Fallback - just store the SMILES
                     self.session.set(SESSION_KEYS["INPUT_SMILES"], smiles)
-                    st.warning(f"SMILES stored (validation failed): {smiles}")
+                    with col_tick:
+                        st.markdown(
+                            "<div style='font-size:20px;color:#f59e0b;text-align:center;'>⚠️</div>",
+                            unsafe_allow_html=True,
+                        )
             else:
                 # Clear SMILES when input is empty
                 self.session.set(SESSION_KEYS["INPUT_SMILES"], None)
@@ -161,17 +170,17 @@ class InputSection:
             def set_example_pdb(pdb_value):
                 st.session_state.pdb_id_input = pdb_value
             
-            # Create columns for input and example button
-            col1, col2 = st.columns([4, 1])
+            # Create columns for input, example button, and validation tick
+            col_inp, col_btn, col_tick = st.columns([4, 1, 0.5])
             
-            with col1:
+            with col_inp:
                 pdb_id = st.text_input(
                     "PDB ID",
                     placeholder="Enter 4-character PDB ID",
                     key="pdb_id_input",
                 )
             
-            with col2:
+            with col_btn:
                 # Add some spacing to align with the input field
                 st.markdown("<br>", unsafe_allow_html=True)
                 example_pdb = "2hyy"
@@ -189,10 +198,18 @@ class InputSection:
                     # Clear file path when using PDB ID
                     self.session.set(SESSION_KEYS["PROTEIN_FILE_PATH"], None)
                     self.session.set(SESSION_KEYS["CUSTOM_TEMPLATES"], None)
-                    st.success(f"PDB ID validated: {pdb_id.upper()}")
+                    with col_tick:
+                        st.markdown(
+                            "<div style='font-size:20px;color:#22c55e;text-align:center;'>✅</div>",
+                            unsafe_allow_html=True,
+                        )
                 else:
                     self.session.set(SESSION_KEYS["PROTEIN_PDB_ID"], None)
-                    st.error("PDB ID must be 4 alphanumeric characters")
+                    with col_tick:
+                        st.markdown(
+                            "<div style='font-size:20px;color:#ef4444;text-align:center;'>❌</div>",
+                            unsafe_allow_html=True,
+                        )
             else:
                 # Clear PDB ID when input is empty
                 self.session.set(SESSION_KEYS["PROTEIN_PDB_ID"], None)

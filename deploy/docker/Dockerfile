@@ -26,6 +26,10 @@ RUN conda create -n templ python=3.11 -y && \
     rdkit=2024.09.6 pandas numpy scipy scikit-learn biopython streamlit -y && \
     /opt/conda/envs/templ/bin/pip install --no-cache-dir \
     biotite spyrmsd tabulate zenodo-get rich tqdm colorama pebble psutil && \
+    /opt/conda/envs/templ/bin/pip install --no-cache-dir \
+    --index-url https://download.pytorch.org/whl/cpu \
+    torch && \
+    /opt/conda/envs/templ/bin/pip install --no-cache-dir transformers huggingface-hub && \
     conda clean -afy
 
 #==============================================================================
@@ -46,7 +50,6 @@ WORKDIR /app
 
 # Copy application files
 COPY templ_pipeline/ ./templ_pipeline/
-COPY run_streamlit_app.py ./
 COPY pyproject.toml ./
 COPY setup_templ_env.sh ./
 
@@ -61,8 +64,15 @@ RUN useradd -m -u 1000 templ && \
 RUN mkdir -p /app/data /app/temp && \
     chown -R templ:templ /app/data /app/temp
 
+# Preload essential data into the image for offline use
+RUN mkdir -p /app/data/embeddings /app/data/ligands && \
+    /opt/conda/envs/templ/bin/zenodo_get 10.5281/zenodo.15813500 --output /app/data || true && \
+    (mv /app/data/templ_protein_embeddings_v1.0.0.npz /app/data/embeddings/ 2>/dev/null || true) && \
+    (mv /app/data/templ_processed_ligands_v1.0.0.sdf.gz /app/data/ligands/ 2>/dev/null || true) && \
+    true
+
 # Copy and make executable the entry point script
-COPY docker-entrypoint.sh /docker-entrypoint.sh
+COPY deploy/docker/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
 # Switch to non-root user
