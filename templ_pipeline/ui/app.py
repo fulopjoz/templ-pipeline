@@ -79,15 +79,7 @@ def initialize_app():
         config = get_config()
         logger.info(f"Configuration loaded successfully: {config.app_version}")
 
-        # Configure Streamlit page
-        try:
-            logger.info("Setting up Streamlit page configuration...")
-            st.set_page_config(**config.page_config)
-            logger.info("Streamlit page configuration set successfully")
-        except st.errors.StreamlitAPIException as e:
-            # Page already configured (on rerun)
-            logger.info(f"Page already configured: {e}")
-            pass
+        # Page config is set once in main(); avoid duplicate calls per Streamlit guidance
 
         # Get session manager
         logger.info("Initializing session manager...")

@@ -20,7 +20,6 @@ from ..core.session_manager import SessionManager
 from ..utils.export_utils import (
     create_best_poses_sdf,
     create_all_conformers_sdf,
-    extract_pdb_id_from_template,
 )
 from ..utils.visualization_utils import (
     display_molecule, 

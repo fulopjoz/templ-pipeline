@@ -16,7 +16,8 @@ class TestRunner:
     """Intelligent test runner with performance optimization."""
     
     def __init__(self):
-        self.project_root = Path(__file__).parent
+        # Use repository root (two levels up from this script)
+        self.project_root = Path(__file__).resolve().parent.parent
         self.configs = {
             'default': 'pytest.ini',
             'performance': 'pytest-performance.ini'  # Keep specialized performance config
@@ -65,8 +66,8 @@ class TestRunner:
         """Build the pytest command with appropriate options."""
         cmd = ['python', '-m', 'pytest']
         
-        # Add configuration file
-        config_file = self.project_root / self.configs[config]
+        # Add configuration file (stored under tools/)
+        config_file = self.project_root / 'tools' / self.configs[config]
         if config_file.exists():
             cmd.extend(['-c', str(config_file)])
         
