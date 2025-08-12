@@ -1,7 +1,6 @@
 """Utility modules for TEMPL Pipeline UI"""
 
 from .performance_monitor import PerformanceMonitor
-from .resource_manager import get_resource_manager
 from .molecular_utils import (
     get_rdkit_modules,
     validate_smiles_input,
@@ -30,7 +29,6 @@ from .export_utils import (
 
 __all__ = [
     "PerformanceMonitor",
-    "get_resource_manager",
     "get_rdkit_modules",
     "validate_smiles_input",
     "validate_sdf_input",
