@@ -44,47 +44,11 @@ spec:
                   - templ-pipeline
               topologyKey: kubernetes.io/hostname
       
-      initContainers:
-      - name: code-init
-        image: cerit.io/xfulop/templ-pipeline:latest-production
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-            - ALL
-          runAsUser: 1000
-          runAsNonRoot: true
-        command: ["/bin/bash", "-c"]
-        args:
-        - |
-          echo "Initializing code storage..."
-          
-          # Create code directory structure
-          mkdir -p /code/templ_pipeline /code/scripts
-          
-          # If code storage is empty, copy initial code from image
-          if [ ! "$(ls -A /code/templ_pipeline)" ]; then
-            echo "Copying initial code from image..."
-            cp -r /app/templ_pipeline/* /code/templ_pipeline/
-            cp -r /app/scripts/* /code/scripts/ 2>/dev/null || true
-            echo "Initial code copied to persistent storage"
-          else
-            echo "Code already exists in persistent storage"
-          fi
-          
-          # Ensure proper permissions
-          chown -R 1000:1000 /code
-          echo "Code initialization complete"
-        volumeMounts:
-        - name: code-volume
-          mountPath: /code
-        - name: app-volume
-          mountPath: /app
-          readOnly: true
+      # initContainers removed to avoid mount conflicts on read-only paths; main container handles sync
       
       containers:
       - name: templ-pipeline
-        image: cerit.io/xfulop/templ-pipeline:latest-production
+        image: cerit.io/xfulop/templ-pipeline@sha256:a3c3a7f3aaf5a3beb3d319eda36df72172640fc7bddaa62f710454e94c2e323d
         imagePullPolicy: Always
         
         command: ["/bin/bash", "-c"]
@@ -95,18 +59,21 @@ spec:
           # Create necessary directories
           mkdir -p /app/data/embeddings /app/data/ligands /app/temp
           
-          # Copy latest code from persistent storage to app directory
+          # Copy latest code from persistent storage to app directory (without rsync)
           echo "Syncing code from persistent storage..."
-          rsync -av --delete /code/templ_pipeline/ /app/templ_pipeline/
+          rm -rf /app/templ_pipeline/*
+          cp -a /code/templ_pipeline/. /app/templ_pipeline/
           if [ -d "/code/scripts" ]; then
-            rsync -av --delete /code/scripts/ /app/scripts/
+            mkdir -p /app/scripts
+            rm -rf /app/scripts/*
+            cp -a /code/scripts/. /app/scripts/
           fi
           
-          # Set proper permissions
-          chown -R 1000:1000 /app/templ_pipeline /app/scripts
+          # Set proper permissions (ignore failures if scripts dir missing)
+          chown -R 1000:1000 /app/templ_pipeline /app/scripts || true
           
           echo "Starting Streamlit application..."
-          exec streamlit run /app/templ_pipeline/ui/app.py \
+          exec /app/.templ/bin/streamlit run /app/templ_pipeline/ui/app.py \
             --server.headless=true \
             --server.port=8501 \
             --server.address=0.0.0.0 \
@@ -193,9 +160,8 @@ spec:
           name: temp-volume
         - mountPath: /code
           name: code-volume
-        - mountPath: /app
+        - mountPath: /app/workspace
           name: app-volume
-          readOnly: true
         
         resources:
           requests:

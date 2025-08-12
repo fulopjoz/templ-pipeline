@@ -100,29 +100,22 @@ check_prerequisites() {
 
 # Build Docker image
 build_image() {
-    step "Building Docker image with enhanced optimization"
+    step "Building Docker image"
+    local image_tag="${REGISTRY}/${USERNAME}/templ-pipeline:${VERSION}-production"
+    info "Image: $image_tag"
     
-    info "Using optimized multi-stage build for faster performance"
-    info "Target: production (optimized for deployment)"
-    
-    # Ensure we're in the right directory
-    if [[ ! -f "deploy/docker/build-optimized.sh" ]]; then
-        error "build-optimized.sh not found"
+    if [[ ! -f "deploy/docker/Dockerfile" ]]; then
+        error "deploy/docker/Dockerfile not found"
         exit 1
     fi
     
-    # Use optimized build script
-    local push_flag="false"
+    docker build -f deploy/docker/Dockerfile -t "$image_tag" .
+    success "Image built: $image_tag"
+    
     if [[ "$PUSH_IMAGE" == "true" ]]; then
-        push_flag="true"
-    fi
-    
-    # Execute optimized build with proper error handling
-    if bash deploy/docker/build-optimized.sh "$USERNAME" "$VERSION" "production" "$push_flag"; then
-        success "Optimized build completed successfully"
-    else
-        error "Optimized build failed"
-        exit 1
+        step "Pushing image to registry"
+        docker push "$image_tag"
+        success "Image pushed: $image_tag"
     fi
 }
 
@@ -176,7 +169,7 @@ deploy_k8s() {
     fi
     
     # Update deployment with correct image
-    sed "s|cerit.io/xfulop/templ-pipeline:latest-production|${image_tag}|g" \
+    sed "s|cerit.io/xfulop/templ-pipeline:latest-production|cerit.io/xfulop/templ-pipeline@sha256:a3c3a7f3aaf5a3beb3d319eda36df72172640fc7bddaa62f710454e94c2e323d|g; s|cerit.io/xfulop/templ-pipeline@sha256:.*|cerit.io/xfulop/templ-pipeline@sha256:a3c3a7f3aaf5a3beb3d319eda36df72172640fc7bddaa62f710454e94c2e323d|g" \
         "$deployment_file" > /tmp/k8s-deploy/deployment.yaml
     
     # Update ingress with correct domain

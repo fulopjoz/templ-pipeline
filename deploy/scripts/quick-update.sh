@@ -113,47 +113,62 @@ copy_code() {
     success "Code copied successfully"
 }
 
-# Restart application
+# Clear Python cache and restart pod
 restart_app() {
-    step "Restarting Streamlit application"
+    step "Clearing Python cache and restarting pod"
     
-    # Kill existing Streamlit process and restart
+    # Clear Python cache files in the container
+    info "Clearing Python cache files..."
     kubectl exec "$POD_NAME" -n "$NAMESPACE" -c templ-pipeline -- bash -c "
-        # Kill existing streamlit processes
-        pkill -f streamlit || true
-        sleep 2
-        
-        # Start new streamlit process in background
-        cd /app
-        nohup streamlit run templ_pipeline/ui/app.py \
-            --server.headless=true \
-            --server.port=8501 \
-            --server.address=0.0.0.0 \
-            --server.fileWatcherType=none \
-            > /tmp/streamlit.log 2>&1 &
-        
-        echo 'Streamlit restarted'
+        find /app/templ_pipeline -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
+        find /app/templ_pipeline -name '*.pyc' -delete 2>/dev/null || true
+        find /app/scripts -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
+        find /app/scripts -name '*.pyc' -delete 2>/dev/null || true
+        echo 'Python cache cleared'
     "
     
-    success "Application restarted with new code"
+    # Restart the deployment to get clean process with new code
+    info "Restarting deployment to load new code..."
+    kubectl rollout restart deployment/templ-pipeline -n "$NAMESPACE"
+    
+    # Wait for rollout to complete
+    info "Waiting for pod restart to complete..."
+    kubectl rollout status deployment/templ-pipeline -n "$NAMESPACE" --timeout=180s
+    
+    success "Pod restarted successfully with new code"
 }
 
 # Verify update
 verify_update() {
     step "Verifying application is running"
     
+    # Get new pod name after restart
+    local NEW_POD_NAME
+    NEW_POD_NAME=$(kubectl get pods -l app=templ-pipeline -n "$NAMESPACE" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    
+    if [[ -z "$NEW_POD_NAME" ]]; then
+        error "Could not find new pod after restart"
+        return 1
+    fi
+    
+    info "New pod: $NEW_POD_NAME"
+    
     # Wait a moment for app to start
-    sleep 5
+    info "Waiting for application to be ready..."
+    kubectl wait --for=condition=ready pod "$NEW_POD_NAME" -n "$NAMESPACE" --timeout=120s
+    
+    # Additional wait for streamlit to fully start
+    sleep 10
     
     # Check if streamlit is responding
-    kubectl exec "$POD_NAME" -n "$NAMESPACE" -c templ-pipeline -- curl -s http://localhost:8501/_stcore/health >/dev/null
-    
-    if [[ $? -eq 0 ]]; then
+    if kubectl exec "$NEW_POD_NAME" -n "$NAMESPACE" -c templ-pipeline -- curl -s http://localhost:8501/_stcore/health >/dev/null 2>&1; then
         success "Application is responding correctly"
         info "Health check passed"
+        POD_NAME="$NEW_POD_NAME"  # Update global pod name for summary
     else
-        warning "Application may be starting up..."
-        info "Check logs with: kubectl logs $POD_NAME -n $NAMESPACE"
+        warning "Application may still be starting up..."
+        info "Check logs with: kubectl logs $NEW_POD_NAME -n $NAMESPACE"
+        POD_NAME="$NEW_POD_NAME"  # Update global pod name for summary
     fi
 }
 
@@ -185,9 +200,10 @@ show_dry_run() {
     echo ""
     echo "Actions that would be performed:"
     echo "  1. Copy code to pod: $POD_NAME"
-    echo "  2. Kill existing Streamlit process"
-    echo "  3. Start new Streamlit process with updated code"
-    echo "  4. Verify application is responding"
+    echo "  2. Clear Python cache files (.pyc, __pycache__)"
+    echo "  3. Restart deployment to create new pod with updated code"
+    echo "  4. Wait for new pod to be ready"
+    echo "  5. Verify application is responding"
     
     echo ""
     info "Run without --dry-run to apply these changes"
@@ -199,16 +215,19 @@ show_summary() {
     step "Update completed!"
     echo ""
     success "Performance benefits:"
-    echo "  - Update time: ~30 seconds (vs 20+ minutes for rebuild)"
+    echo "  - Update time: ~2-3 minutes (vs 20+ minutes for full rebuild)"
     echo "  - No Docker rebuild required"
-    echo "  - Preserves data and configuration"
-    echo "  - Perfect for development workflow"
+    echo "  - Clean process restart ensures code changes are reflected"
+    echo "  - Python cache cleared to prevent stale imports"
     
     echo ""
     info "Next steps:"
     echo "  - Test your changes in the application"
     echo "  - View logs: kubectl logs $POD_NAME -n $NAMESPACE"
     echo "  - For dependency changes: ./deploy.sh update -n $NAMESPACE"
+    
+    echo ""
+    success "Code update method: Pod restart (more reliable than process restart)"
 }
 
 # Parse arguments

@@ -305,7 +305,9 @@ class PipelineService:
                 return None
 
             if progress_callback:
-                progress_callback("Pipeline complete!", 100)
+                progress_callback("Predicting poses...", 80)
+                progress_callback("Finalizing results...", 95)
+                progress_callback("Complete!", 100)
 
             logger.info("Pipeline completed successfully")
             return results
@@ -740,17 +742,18 @@ class PipelineService:
                 logger.warning(f"Invalid query molecule object: {type(final_query_mol)}")
                 final_query_mol = None
         
-        # Set original SMILES property if valid molecule
+        # Always set original SMILES property from current session input to avoid stale visualization
         if final_query_mol is not None and hasattr(final_query_mol, "HasProp"):
-            # If original SMILES not set, try to get from session
-            if not final_query_mol.HasProp("original_smiles"):
-                try:
-                    input_smiles = self.session.get(SESSION_KEYS["INPUT_SMILES"])
-                    if input_smiles:
-                        final_query_mol.SetProp("original_smiles", input_smiles)
-                        logger.debug(f"Added original_smiles property to query molecule: {input_smiles}")
-                except Exception as e:
-                    logger.warning(f"Could not set original_smiles property: {e}")
+            try:
+                input_smiles = self.session.get(SESSION_KEYS["INPUT_SMILES"])
+                if input_smiles:
+                    final_query_mol.SetProp("original_smiles", input_smiles)
+                    final_query_mol.SetProp("input_method", "smiles")
+                    logger.debug(
+                        f"Synchronized query molecule visualization props with current SMILES: {input_smiles}"
+                    )
+            except Exception as e:
+                logger.warning(f"Could not set visualization properties on query molecule: {e}")
 
         # Process template molecule information
         template_mol = None
@@ -851,9 +854,14 @@ class PipelineService:
                 raw_mcs_info = mcs_smarts_from_pipeline
                 logger.info(f"Found MCS SMARTS from pipeline template_info: {mcs_smarts_from_pipeline}")
         
-        # Fallback to other possible locations
+        # Fallback to other possible locations (include structured mcs_details from pipeline)
         if not raw_mcs_info:
-            raw_mcs_info = results.get("mcs_info") or results.get("mcs") or results.get("mcs_smarts")
+            raw_mcs_info = (
+                results.get("mcs_details")
+                or results.get("mcs_info")
+                or results.get("mcs")
+                or results.get("mcs_smarts")
+            )
             if raw_mcs_info:
                 logger.info(f"Found MCS info from fallback location: {type(raw_mcs_info)}")
         
@@ -869,6 +877,12 @@ class PipelineService:
                 except:
                     pass
         
+        # If still nothing, try to pull from pipeline object if available
+        if not raw_mcs_info and hasattr(self.pipeline, "pipeline_mcs_details"):
+            raw_mcs_info = getattr(self.pipeline, "pipeline_mcs_details", None)
+            if raw_mcs_info:
+                logger.info("Using MCS details from pipeline state (pipeline_mcs_details)")
+
         logger.debug(f"Raw MCS info from pipeline: {type(raw_mcs_info)} - {raw_mcs_info}")
         processed_mcs_info = self._process_mcs_info(raw_mcs_info, template_info)
         logger.debug(f"Processed MCS info: {processed_mcs_info}")

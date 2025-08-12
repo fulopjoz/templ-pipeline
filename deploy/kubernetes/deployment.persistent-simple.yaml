@@ -46,7 +46,7 @@ spec:
       
       containers:
       - name: templ-pipeline
-        image: cerit.io/xfulop/templ-pipeline:latest-production
+        image: cerit.io/xfulop/templ-pipeline@sha256:a3c3a7f3aaf5a3beb3d319eda36df72172640fc7bddaa62f710454e94c2e323d
         imagePullPolicy: Always
         
         command: ["/bin/bash", "-c"]
@@ -69,18 +69,21 @@ spec:
             echo "Code storage already exists"
           fi
           
-          # Copy latest code from persistent storage to app directory
+          # Copy latest code from persistent storage to app directory (without rsync)
           echo "Syncing code from persistent storage..."
-          rsync -av --delete /code/templ_pipeline/ /app/templ_pipeline/
+          rm -rf /app/templ_pipeline/*
+          cp -a /code/templ_pipeline/. /app/templ_pipeline/
           if [ -d "/code/scripts" ]; then
-            rsync -av --delete /code/scripts/ /app/scripts/
+            mkdir -p /app/scripts
+            rm -rf /app/scripts/*
+            cp -a /code/scripts/. /app/scripts/
           fi
           
           # Set proper permissions
           chown -R 1000:1000 /app/templ_pipeline /app/scripts
           
           echo "Starting Streamlit application..."
-          exec streamlit run /app/templ_pipeline/ui/app.py \
+          exec /opt/conda/envs/templ/bin/streamlit run /app/templ_pipeline/ui/app.py \
             --server.headless=true \
             --server.port=8501 \
             --server.address=0.0.0.0 \

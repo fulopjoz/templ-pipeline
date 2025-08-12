@@ -40,17 +40,8 @@ class MainLayout:
         self.cache_manager = get_cache_manager()
         self.performance_monitor = PerformanceMonitor()
 
-        # Initialize pipeline service and workspace integration
+        # Initialize pipeline service (workspace panel removed for a cleaner UI)
         self.pipeline_service = PipelineService(config, session)
-        self.workspace_integration = get_workspace_integration(session, self.pipeline_service)
-        
-        # Store workspace manager in session state for file utilities
-        try:
-            workspace_manager = self.workspace_integration.workspace_manager
-            if workspace_manager:
-                st.session_state._workspace_manager = workspace_manager
-        except Exception as e:
-            logger.debug(f"Could not store workspace manager in session state: {e}")
 
         # Component instances
         self.input_section = InputSection(config, session)
@@ -129,8 +120,7 @@ class MainLayout:
             # Main content area
             self._render_main_content()
 
-            # Workspace status in sidebar (with collapsible state)
-            self._render_workspace_status()
+            # Workspace panel removed per UX simplification
 
             # Status bar at bottom
             if self.config.ui_settings.get("show_status_bar", True):
@@ -261,56 +251,7 @@ class MainLayout:
         else:
             st.warning("No cleanup actions were performed")
 
-    def _render_workspace_status(self):
-        """Render workspace status with collapsible sidebar functionality"""
-        try:
-            # Initialize sidebar state if not exists
-            if 'show_workspace_sidebar' not in st.session_state:
-                st.session_state.show_workspace_sidebar = False
-            
-            # Add custom CSS for workspace toggle button
-            st.markdown("""
-            <style>
-            /* Workspace toggle button styling */
-            div[data-testid="stButton"] > button[kind="secondary"] {
-                background: linear-gradient(90deg, #f8fafc 0%, #e2e8f0 100%);
-                border: 1px solid #cbd5e1;
-                border-radius: 8px;
-                font-weight: 500;
-                transition: all 0.2s ease;
-                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-            }
-            
-            div[data-testid="stButton"] > button[kind="secondary"]:hover {
-                background: linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%);
-                color: white;
-                border-color: #2563eb;
-                transform: translateY(-1px);
-                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-            }
-            </style>
-            """, unsafe_allow_html=True)
-            
-            # Always show toggle button in main area
-            with st.container():
-                col1, col2, col3 = st.columns([1, 6, 1])
-                with col1:
-                    if st.session_state.show_workspace_sidebar:
-                        if st.button("Hide Workspace", key="hide_workspace", help="Hide workspace panel", type="secondary"):
-                            st.session_state.show_workspace_sidebar = False
-                            st.rerun()
-                    else:
-                        if st.button("Show Workspace", key="show_workspace", help="Show workspace panel", type="secondary"):
-                            st.session_state.show_workspace_sidebar = True
-                            st.rerun()
-            
-            # Only render sidebar content when enabled
-            if st.session_state.show_workspace_sidebar:
-                self.workspace_integration.display_workspace_status()
-                
-        except Exception as e:
-            logger.warning(f"Failed to render workspace status: {e}")
-            # Silently fail to avoid breaking main UI
+    # Workspace status UI fully removed
 
     def _render_main_content(self):
         """Render the main content area using native Streamlit tabs"""
@@ -523,31 +464,16 @@ class MainLayout:
             
 
             
-            # Debug mode toggle
-            debug_mode = st.checkbox(
-                "Enable Debug Mode",
-                value=st.session_state.get("debug_mode", False),
-                help="Show detailed debugging information for troubleshooting"
-            )
-            
-            # Show FAIR metadata toggle
-            show_fair_panel = st.checkbox(
-                "Show FAIR Metadata Panel",
-                value=self.session.get(SESSION_KEYS["SHOW_FAIR_PANEL"], False),
-                help="Display FAIR (Findable, Accessible, Interoperable, Reusable) metadata information"
-            )
-            
+            # Removed Debug Mode and FAIR metadata toggles for a cleaner UI
 
-            
             # Store settings in session
             self.session.set(SESSION_KEYS["USER_DEVICE_PREFERENCE"], device_pref)
             self.session.set(SESSION_KEYS["USER_KNN_THRESHOLD"], knn_threshold)
             self.session.set(SESSION_KEYS["USER_SIMILARITY_THRESHOLD"], similarity_threshold)
             self.session.set(SESSION_KEYS["USER_CHAIN_SELECTION"], chain_selection)
-            self.session.set(SESSION_KEYS["SHOW_FAIR_PANEL"], show_fair_panel)
-            
-            # Store debug mode
-            st.session_state["debug_mode"] = debug_mode
+            # Ensure flags are off
+            self.session.set(SESSION_KEYS["SHOW_FAIR_PANEL"], False)
+            st.session_state["debug_mode"] = False
             
             # Validation callback for chain selection
             def update_chain_selection():
@@ -660,7 +586,6 @@ class MainLayout:
                     from ..services.pipeline_service import PipelineService
 
                     pipeline_service = PipelineService(self.config, self.session)
-                    st.success("Pipeline service loaded successfully")
                 except Exception as e:
                     logger.error(
                         f"Failed to import PipelineService: {e}", exc_info=True
@@ -722,6 +647,28 @@ class MainLayout:
                         logger.info(f"Template info type: {type(template_info)}")
 
                         mcs_info = results.get("mcs_info")
+                        # Fallback: build MCS info from template_info if missing
+                        if not mcs_info:
+                            try:
+                                tinfo = template_info or {}
+                                mcs_smarts_candidate = None
+                                if isinstance(tinfo, dict):
+                                    mcs_smarts_candidate = tinfo.get("mcs_smarts")
+                                # Also check raw results in case it exists there
+                                if not mcs_smarts_candidate:
+                                    mcs_smarts_candidate = results.get("mcs_smarts")
+                                # Final fallback to structured details
+                                if not mcs_smarts_candidate and isinstance(results.get("mcs_details"), dict):
+                                    mcs_smarts_candidate = results["mcs_details"].get("smarts")
+                                if mcs_smarts_candidate and isinstance(mcs_smarts_candidate, str) and mcs_smarts_candidate.strip():
+                                    # Use pipeline service processor to normalize
+                                    processed = self.pipeline_service._process_mcs_info(mcs_smarts_candidate, template_info)
+                                    if processed:
+                                        mcs_info = processed
+                                        logger.info("Reconstructed MCS info from template info fallback")
+                            except Exception as mcs_fallback_err:
+                                logger.warning(f"Failed to reconstruct MCS info: {mcs_fallback_err}")
+
                         self.session.set(SESSION_KEYS["MCS_INFO"], mcs_info)
                         logger.info(f"Stored MCS info: {mcs_info}")
                         logger.info(f"MCS info type: {type(mcs_info)}")

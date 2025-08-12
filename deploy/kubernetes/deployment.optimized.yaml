@@ -49,31 +49,41 @@ spec:
       
       containers:
       - name: templ-pipeline
-        image: cerit.io/xfulop/templ-pipeline:latest-production
+        image: cerit.io/xfulop/templ-pipeline@sha256:a3c3a7f3aaf5a3beb3d319eda36df72172640fc7bddaa62f710454e94c2e323d
         imagePullPolicy: Always
         
-        # Optimized command for faster startup
+        # Custom command for the larger image with correct Python environment
         command: ["/bin/bash", "-c"]
-        args: 
+        args:
         - |
-          echo "Starting TEMPL Pipeline..."
-          mkdir -p /app/data/embeddings /app/data/ligands /app/temp
-          exec streamlit run /app/templ_pipeline/ui/app.py \
+          set -e
+          echo "Starting TEMPL Pipeline in production mode..."
+          
+          # Set environment variables
+          export PATH="/app/.templ/bin:$PATH"
+          export STREAMLIT_GLOBAL_LOG_LEVEL=info
+          export TEMPL_WORKERS=auto
+          
+          # Use writable temp directory from volume mount
+          mkdir -p /app/temp
+          
+          # Start application
+          echo "Starting Streamlit application..."
+          echo "Available at: http://0.0.0.0:8501"
+          exec /app/.templ/bin/streamlit run /app/templ_pipeline/ui/app.py \
             --server.headless=true \
             --server.port=8501 \
             --server.address=0.0.0.0 \
             --server.fileWatcherType=none \
             --server.runOnSave=false
         
-        # Enhanced security context
+        # Enhanced security context - use image's default user
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: false  # Streamlit needs write access
           capabilities:
             drop:
             - ALL
-          runAsUser: 1000
-          runAsNonRoot: true
         
         # Environment variables from ConfigMap and direct settings
         env:
@@ -157,9 +167,6 @@ spec:
         
         # Volume mounts
         volumeMounts:
-        - mountPath: /app/data
-          name: data-volume
-          readOnly: false
         - mountPath: /app/temp
           name: temp-volume
         
@@ -207,9 +214,6 @@ spec:
       
       # Volumes
       volumes:
-      - name: data-volume
-        emptyDir:
-          sizeLimit: 8Gi  # Sufficient space for data files (embeddings + ligands)
       - name: temp-volume
         emptyDir:
           sizeLimit: 4Gi  # Increased for GPU model caching
