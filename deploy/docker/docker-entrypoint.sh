@@ -47,4 +47,9 @@ chmod 755 /app/temp
 # Start application
 echo "Starting Streamlit application..."
 echo "Available at: http://0.0.0.0:8501"
-exec python run_streamlit_app.py
+exec streamlit run /app/templ_pipeline/ui/app.py \
+  --server.headless=true \
+  --server.port=8501 \
+  --server.address=0.0.0.0 \
+  --server.fileWatcherType=none \
+  --server.runOnSave=false

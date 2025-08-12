@@ -78,30 +78,12 @@ class ResultsSection:
 
     def _render_template_badge(self):
         """Display template information prominently"""
-        template_info = self.session.get("template_info")
+        # Use the standardized session key for template info
+        template_info = self.session.get(SESSION_KEYS["TEMPLATE_INFO"])
         if template_info:
             template_pdb = template_info.get("name", "Unknown")
-            template_rank = template_info.get("index", 0) + 1
-
-            # Check if custom templates are being used
-            if self.session.get(SESSION_KEYS["CUSTOM_TEMPLATES"]):
-                total_templates = template_info.get("total_templates", 1)
-            else:
-                # Get user-defined k-NN value from session for standard pipeline runs
-                total_templates = self.session.get(
-                    SESSION_KEYS["USER_KNN_THRESHOLD"], 100
-                )
-
-            atoms_matched = template_info.get("atoms_matched", 0)
-
-            # Create informative badge
-            badge_text = f"**Poses generated using template: {template_pdb}**"
-            if total_templates > 1:
-                badge_text += f" (ranked #{template_rank} of {total_templates})"
-            if atoms_matched > 0:
-                badge_text += f" | {atoms_matched} atoms matched"
-
-            st.info(badge_text)
+            # Minimal, clean badge without rank/atoms details
+            st.info(f"Poses generated using template: {template_pdb}")
 
     def _find_best_pose(self, poses: Dict) -> tuple:
         """Find the best pose by combo score
@@ -136,7 +118,6 @@ class ResultsSection:
             scores: Score dictionary
         """
         st.markdown("### Best Predicted Pose")
-        st.info(f"Best method: {method}")
 
         # Score metrics
         col1, col2, col3 = st.columns(3)
@@ -563,14 +544,8 @@ class ResultsSection:
                         with info_col1:
                             if template_info.get("name"):
                                 st.markdown(f"**Template:** {template_info['name']}")
-                            if template_info.get("atoms_matched"):
-                                st.markdown(f"**Atoms Matched:** {template_info['atoms_matched']}")
                         
                         with info_col2:
-                            if template_info.get("index") is not None:
-                                total = template_info.get("total_templates", 1)
-                                rank = template_info.get("index", 0) + 1
-                                st.markdown(f"**Template Rank:** {rank}/{total}")
                             if template_info.get("ca_rmsd"):
                                 try:
                                     ca_rmsd_value = float(template_info['ca_rmsd'])
