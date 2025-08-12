@@ -6,7 +6,7 @@ Tracks and reports performance metrics for UI operations.
 
 import time
 import logging
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any
 from collections import defaultdict
 
 logger = logging.getLogger(__name__)

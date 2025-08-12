@@ -122,7 +122,7 @@ def main():
         import streamlit.web.cli as stcli
         
         print("Application starting...")
-        print("\nTROUBLESHOoting:")
+        print("\nTROUBLESHOOTING:")
         print("- If you see issues, check the browser console (F12)")
         print("- Try refreshing the page or clearing browser cache")
         
