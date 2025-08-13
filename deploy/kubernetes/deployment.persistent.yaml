@@ -44,11 +44,37 @@ spec:
                   - templ-pipeline
               topologyKey: kubernetes.io/hostname
       
-      # initContainers removed to avoid mount conflicts on read-only paths; main container handles sync
+      # Init container for data preparation (disabled - data already present)
+      # Uncomment when deploying to new namespace or when data needs to be redownloaded
+      #initContainers:
+      #- name: data-init
+      #  image: cerit.io/xfulop/templ-pipeline-data-init:latest
+      #  imagePullPolicy: Always
+      #  
+      #  securityContext:
+      #    allowPrivilegeEscalation: false
+      #    readOnlyRootFilesystem: false
+      #    capabilities:
+      #      drop:
+      #      - ALL
+      #    runAsUser: 1000
+      #    runAsNonRoot: true
+      #  
+      #  volumeMounts:
+      #  - mountPath: /app/data
+      #    name: data-volume
+      #  
+      #  resources:
+      #    requests:
+      #      memory: "512Mi"
+      #      cpu: "500m"
+      #    limits:
+      #      memory: "1Gi" 
+      #      cpu: "1000m"
       
       containers:
       - name: templ-pipeline
-        image: cerit.io/xfulop/templ-pipeline@sha256:a3c3a7f3aaf5a3beb3d319eda36df72172640fc7bddaa62f710454e94c2e323d
+        image: cerit.io/xfulop/templ-pipeline:latest-production
         imagePullPolicy: Always
         
         command: ["/bin/bash", "-c"]
@@ -73,7 +99,7 @@ spec:
           chown -R 1000:1000 /app/templ_pipeline /app/scripts || true
           
           echo "Starting Streamlit application..."
-          exec /app/.templ/bin/streamlit run /app/templ_pipeline/ui/app.py \
+          exec /opt/conda/envs/templ/bin/streamlit run /app/templ_pipeline/ui/app.py \
             --server.headless=true \
             --server.port=8501 \
             --server.address=0.0.0.0 \
