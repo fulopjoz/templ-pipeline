@@ -35,13 +35,15 @@ USAGE:
   ./deploy.sh COMMAND [OPTIONS]
 
 COMMANDS:
-  build      Build Docker image
-  deploy     Full deployment to Kubernetes
-  update     Update running deployment
-  config     Update configuration only (fast, no rebuild)
-  status     Check deployment status
-  logs       Show application logs
-  shell      Get shell access to running pod
+  build         Build Docker image
+  build-init    Build data initialization container
+  deploy        Full deployment to Kubernetes (with data setup)
+  update        Update running deployment
+  config        Update configuration only (fast, no rebuild)
+  status        Check deployment status
+  logs          Show application logs
+  shell         Get shell access to running pod
+  data-status   Check dataset status and storage usage
 
 OPTIONS:
   -u, --username USERNAME    Harbor username (default: current user)
@@ -169,7 +171,7 @@ deploy_k8s() {
     fi
     
     # Update deployment with correct image
-    sed "s|cerit.io/xfulop/templ-pipeline:latest-production|cerit.io/xfulop/templ-pipeline@sha256:a3c3a7f3aaf5a3beb3d319eda36df72172640fc7bddaa62f710454e94c2e323d|g; s|cerit.io/xfulop/templ-pipeline@sha256:.*|cerit.io/xfulop/templ-pipeline@sha256:a3c3a7f3aaf5a3beb3d319eda36df72172640fc7bddaa62f710454e94c2e323d|g" \
+    sed "s|cerit.io/xfulop/templ-pipeline:latest-production|${image_tag}|g; s|cerit.io/xfulop/templ-pipeline@sha256:.*|${image_tag}|g" \
         "$deployment_file" > /tmp/k8s-deploy/deployment.yaml
     
     # Update ingress with correct domain
@@ -319,6 +321,69 @@ get_shell() {
     kubectl exec -it deployment/templ-pipeline -n "$NAMESPACE" -- bash
 }
 
+# Build init container for data management
+build_init_container() {
+    step "Building data initialization container"
+    
+    local init_image="${REGISTRY}/${USERNAME}/templ-pipeline-data-init:latest"
+    info "Building init container: $init_image"
+    
+    docker build -f deploy/docker/init-data.Dockerfile -t "$init_image" .
+    success "Init container built: $init_image"
+    
+    if [[ "$PUSH_IMAGE" == "true" ]]; then
+        step "Pushing init container to registry"
+        docker push "$init_image"
+        success "Init container pushed: $init_image"
+    else
+        info "To push init container: docker push $init_image"
+    fi
+}
+
+# Check data status and storage usage
+check_data_status() {
+    step "Checking dataset status and storage usage"
+    
+    info "PVC Status:"
+    kubectl get pvc templ-data-pvc -n "$NAMESPACE" 2>/dev/null || {
+        warning "PVC templ-data-pvc not found in namespace $NAMESPACE"
+        return 1
+    }
+    
+    echo ""
+    info "Data Directory Contents:"
+    kubectl exec deployment/templ-pipeline -n "$NAMESPACE" -- ls -la /app/data/ 2>/dev/null || {
+        warning "Could not access /app/data in running pod"
+        return 1
+    }
+    
+    echo ""
+    info "Storage Usage:"
+    kubectl exec deployment/templ-pipeline -n "$NAMESPACE" -- du -sh /app/data/* 2>/dev/null | sort -hr || true
+    
+    echo ""
+    info "Disk Space:"
+    kubectl exec deployment/templ-pipeline -n "$NAMESPACE" -- df -h /app/data 2>/dev/null || true
+    
+    echo ""
+    info "Required Datasets Check:"
+    kubectl exec deployment/templ-pipeline -n "$NAMESPACE" -- bash -c "
+        echo -n 'Protein embeddings: '
+        [[ -f /app/data/embeddings/templ_protein_embeddings_v1.0.0.npz ]] && echo '✅ Present' || echo '❌ Missing'
+        
+        echo -n 'Processed ligands: '
+        [[ -f /app/data/ligands/templ_processed_ligands_v1.0.0.sdf.gz ]] && echo '✅ Present' || echo '❌ Missing'
+        
+        echo -n 'PDBBind refined: '
+        [[ -d /app/data/PDBBind/PDBbind_v2020_refined ]] && echo '✅ Present' || echo '❌ Missing'
+        
+        echo -n 'PDBBind other_PL: '
+        [[ -d /app/data/PDBBind/PDBbind_v2020_other_PL ]] && echo '✅ Present' || echo '❌ Missing'
+    " 2>/dev/null || warning "Could not check dataset files"
+    
+    success "Data status check completed"
+}
+
 # Parse arguments
 parse_args() {
     COMMAND=""
@@ -330,7 +395,7 @@ parse_args() {
     
     while [[ $# -gt 0 ]]; do
         case $1 in
-            build|deploy|update|config|status|logs|shell)
+            build|deploy|update|config|status|logs|shell|build-init|data-status)
                 COMMAND="$1"
                 shift
                 ;;
@@ -412,6 +477,12 @@ main() {
             ;;
         shell)
             get_shell
+            ;;
+        build-init)
+            build_init_container
+            ;;
+        data-status)
+            check_data_status
             ;;
         *)
             error "Unknown command: $COMMAND"

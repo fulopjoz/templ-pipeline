@@ -697,6 +697,10 @@ class MainLayout:
                         else:
                             logger.warning("No query molecule in results")
 
+                        # Clear any previous pose refs to avoid stale retrievals
+                        if "best_poses_refs" in st.session_state:
+                            del st.session_state["best_poses_refs"]
+
                         # Increment pipeline runs
                         self.session.increment_pipeline_runs()
                         

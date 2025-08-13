@@ -152,6 +152,13 @@ class PipelineService:
             Results dictionary or None on failure
         """
         try:
+            # Prepare session for new pipeline run with cache optimization
+            preparation_result = self.session.prepare_for_new_pipeline_run()
+            if preparation_result.get("success", False):
+                logger.info(f"Session preparation: {preparation_result['message']}")
+            else:
+                logger.warning(f"Session preparation failed: {preparation_result.get('error', 'unknown')}")
+            
             # Log inputs
             logger.info("Starting pipeline execution")
             logger.info(f"Molecule data: {molecule_data.get('input_smiles', 'N/A')}")
@@ -190,26 +197,45 @@ class PipelineService:
             if str(parent_dir) not in sys.path:
                 sys.path.insert(0, str(parent_dir))
 
-            from templ_pipeline.core.pipeline import TEMPLPipeline
+            from templ_pipeline.core.pipeline import TEMPLPipeline, PipelineConfig
 
             if progress_callback:
                 progress_callback("Loading TEMPL pipeline...", 20)
 
             # Initialize pipeline if not already done
             if self.pipeline is None:
-                # Always use simplified initialization to avoid Streamlit errors
-                # Previous workspace manager integration was causing parameter issues
+                # Create pipeline config with UI settings
+                pipeline_config = PipelineConfig(
+                    output_dir=self.config.paths.get("output_dir", "temp"),
+                    n_workers=getattr(self.config, 'n_workers', 0),  # 0 = auto-detect
+                    n_confs=getattr(self.config, 'n_confs', 200),
+                    sim_threshold=getattr(self.config, 'sim_threshold', 0.9)
+                )
+                
+                # Initialize pipeline with config
                 self.pipeline = TEMPLPipeline(
                     embedding_path=None,  # Auto-detect
                     output_dir=self.config.paths.get("output_dir", "temp"),
+                    config=pipeline_config
                 )
-                logger.info("Pipeline initialized with simplified configuration")
+                logger.info("Pipeline initialized with configuration support")
 
             # Prepare inputs
             smiles = molecule_data.get("input_smiles")
             pdb_id = protein_data.get("pdb_id")
             pdb_file = protein_data.get("file_path")
             custom_templates = molecule_data.get("custom_templates")
+
+            # If a protein input is provided (PDB ID or file), ignore any stale custom templates
+            if (pdb_id or pdb_file) and custom_templates:
+                logger.info(
+                    "Protein input provided; ignoring stale custom templates in session"
+                )
+                try:
+                    self.session.set(SESSION_KEYS["CUSTOM_TEMPLATES"], None)
+                except Exception:
+                    pass
+                custom_templates = None
 
             # Check if PDB ID exists in database first
             if pdb_id and not pdb_file:
@@ -252,22 +278,8 @@ class PipelineService:
                     progress_callback("Loading protein embedding from database...", 30)
 
             # Handle different input scenarios with user settings
-            if custom_templates:
-                # MCS-only workflow with custom templates
-                results = self._run_custom_template_pipeline(
-                    smiles,
-                    custom_templates,
-                    progress_callback,
-                    user_settings={
-                        "device_pref": user_device_pref,
-                        "knn_threshold": user_knn_threshold,
-                        "chain_selection": user_chain_selection,
-                        "similarity_threshold": user_similarity_threshold,
-                        "num_conformers": 200,  # Standard conformer count
-                        "n_workers": self._get_optimal_workers(),
-                    },
-                )
-            elif pdb_file:
+            # Prefer explicit protein inputs over custom templates
+            if pdb_file:
                 # Full pipeline with uploaded PDB file - generate embedding and search
                 results = self._run_uploaded_pdb_pipeline(
                     smiles,
@@ -291,6 +303,21 @@ class PipelineService:
                         "knn_threshold": user_knn_threshold,
                         "chain_selection": user_chain_selection,
                         "similarity_threshold": user_similarity_threshold,
+                    },
+                )
+            elif custom_templates:
+                # MCS-only workflow with custom templates
+                results = self._run_custom_template_pipeline(
+                    smiles,
+                    custom_templates,
+                    progress_callback,
+                    user_settings={
+                        "device_pref": user_device_pref,
+                        "knn_threshold": user_knn_threshold,
+                        "chain_selection": user_chain_selection,
+                        "similarity_threshold": user_similarity_threshold,
+                        "num_conformers": 200,  # Standard conformer count
+                        "n_workers": self._get_optimal_workers(),
                     },
                 )
             else:
@@ -713,7 +740,22 @@ class PipelineService:
 
         # Ensure query molecule has original SMILES for visualization
         final_query_mol = query_mol or results.get("query_molecule")
-        
+
+        # If pipeline did not return query_mol (common for PDB-ID/file flows), rebuild from current SMILES
+        if final_query_mol is None:
+            try:
+                from rdkit import Chem
+                input_smiles_for_build = self.session.get(SESSION_KEYS["INPUT_SMILES"])
+                if input_smiles_for_build:
+                    rebuilt = Chem.MolFromSmiles(input_smiles_for_build)
+                    if rebuilt:
+                        rebuilt.SetProp("original_smiles", input_smiles_for_build)
+                        rebuilt.SetProp("input_method", "smiles")
+                        final_query_mol = rebuilt
+                        logger.info("Rebuilt query molecule from INPUT_SMILES for visualization")
+            except Exception as e:
+                logger.warning(f"Could not rebuild query molecule from SMILES: {e}")
+
         # Validate and fix query molecule if it's not a proper RDKit object
         if final_query_mol is not None:
             # If it's a dictionary, try to reconstruct the molecule from SMILES

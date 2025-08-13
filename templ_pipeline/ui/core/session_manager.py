@@ -13,6 +13,7 @@ from pathlib import Path
 
 from ..config.constants import SESSION_KEYS
 from .memory_manager import get_memory_manager
+from .cache_optimizer import get_cache_optimizer, auto_optimize_if_needed
 
 logger = logging.getLogger(__name__)
 
@@ -98,21 +99,25 @@ class SessionManager:
         Returns:
             Value from session state or default
         """
-        # For molecule keys, try memory manager first
+        # For large objects, handle special cases
         if key in self.large_object_keys:
             try:
-                # Try to get from memory manager
+                # Poses: prefer session state (freshest), then memory manager fallback
+                if key == SESSION_KEYS["POSES"]:
+                    poses_in_session = st.session_state.get(SESSION_KEYS["POSES"], {})
+                    if poses_in_session and isinstance(poses_in_session, dict):
+                        return poses_in_session
+
+                    pose_results = self.memory_manager.get_pose_results()
+                    if pose_results:
+                        logger.debug("Retrieved poses from memory manager fallback")
+                        return pose_results
+
+                # Other large objects first try memory manager molecule cache
                 memory_value = self.memory_manager.get_molecule(key)
                 if memory_value is not None:
                     logger.debug(f"Retrieved {key} from memory manager")
                     return memory_value
-                
-                # Try to get from memory manager for poses
-                if key == SESSION_KEYS["POSES"]:
-                    pose_results = self.memory_manager.get_pose_results()
-                    if pose_results:
-                        logger.debug(f"Retrieved poses from memory manager")
-                        return pose_results
                         
             except Exception as e:
                 logger.warning(f"Memory manager retrieval failed for {key}: {e}")
@@ -124,7 +129,7 @@ class SessionManager:
         # Return default
         return self.defaults.get(key, default)
 
-    def set(self, key: str, value: Any, track_large: bool = None) -> None:
+    def set(self, key: str, value: Any, track_large: bool = False) -> None:
         """Set value in session state with memory-aware handling
 
         Args:
@@ -163,6 +168,12 @@ class SessionManager:
                 elif key == SESSION_KEYS["POSES"] and value is not None:
                     # Always store in session state first as fallback
                     st.session_state[key] = value
+                    # Timestamp to help determine freshness
+                    try:
+                        import time as _time
+                        st.session_state["poses_timestamp"] = _time.time()
+                    except Exception:
+                        pass
                     logger.info(f"Stored poses directly in session state as primary storage")
                     
                     # Also try to store in memory manager for optimization
@@ -172,8 +183,13 @@ class SessionManager:
                             logger.info(f"Successfully stored poses in memory manager as secondary storage")
                         else:
                             logger.warning(f"Failed to store poses in memory manager, but session state storage succeeded")
+                            # Prevent stale best_poses_refs from previous runs
+                            if "best_poses_refs" in st.session_state:
+                                del st.session_state["best_poses_refs"]
                     except Exception as mem_error:
                         logger.warning(f"Memory manager storage failed for poses: {mem_error}, but session state storage succeeded")
+                        if "best_poses_refs" in st.session_state:
+                            del st.session_state["best_poses_refs"]
                     
                 else:
                     # General large object storage
@@ -234,8 +250,19 @@ class SessionManager:
 
             logger.info(f"Cleared {len(keys_to_clear)} session keys")
 
-        # Trigger memory cleanup
-        self.memory_manager.cleanup_memory()
+        # Trigger memory cleanup and cache optimization
+        try:
+            self.memory_manager.optimize_memory()
+        except Exception:
+            pass
+            
+        # Smart cache optimization for better performance
+        try:
+            cache_optimizer = get_cache_optimizer()
+            cache_optimizer.reset_for_new_calculation()
+            logger.debug("Cache optimization completed during session clear")
+        except Exception as e:
+            logger.warning(f"Cache optimization failed during clear: {e}")
         
         # Cleanup temporary files
         self._cleanup_temp_files()
@@ -389,6 +416,55 @@ class SessionManager:
             "state_size": len(st.session_state),
         }
 
+    def prepare_for_new_pipeline_run(self) -> Dict[str, Any]:
+        """Prepare session for a new pipeline run with smart optimization
+        
+        Returns:
+            Dictionary with preparation results
+        """
+        try:
+            # Auto-optimize caches if needed
+            optimization_result = auto_optimize_if_needed()
+            logger.info(f"Cache auto-optimization: {optimization_result.get('action', 'none')}")
+            
+            # Clear previous results to prevent confusion
+            result_keys = [
+                SESSION_KEYS["POSES"],
+                SESSION_KEYS["ALL_RANKED_POSES"], 
+                SESSION_KEYS["TEMPLATE_INFO"],
+                SESSION_KEYS["MCS_INFO"],
+                "poses_timestamp",
+                "best_poses_refs"
+            ]
+            
+            cleared_keys = []
+            for key in result_keys:
+                if key in st.session_state:
+                    del st.session_state[key]
+                    cleared_keys.append(key)
+            
+            # Increment pipeline run counter
+            current_runs = self.get("pipeline_runs", 0)
+            self.set("pipeline_runs", current_runs + 1)
+            
+            logger.info(f"Prepared for pipeline run #{current_runs + 1}, cleared {len(cleared_keys)} result keys")
+            
+            return {
+                "success": True,
+                "pipeline_run_number": current_runs + 1,
+                "cleared_result_keys": len(cleared_keys),
+                "cache_optimization": optimization_result,
+                "message": f"Session prepared for pipeline run #{current_runs + 1}"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error preparing for pipeline run: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to prepare session for pipeline run"
+            }
+
     def export_state(self) -> Dict[str, Any]:
         """Export session state for debugging or persistence
 
@@ -454,7 +530,8 @@ class SessionManager:
             import glob
             
             # Get workspace directory from session
-            workspace_dir = self.get(SESSION_KEYS.get("WORKSPACE_DIR"))
+            workspace_dir_key = SESSION_KEYS.get("WORKSPACE_DIR", "workspace_dir")
+            workspace_dir = self.get(workspace_dir_key)
             if workspace_dir and os.path.exists(workspace_dir):
                 # Clean up uploaded files older than 1 hour
                 uploaded_dir = os.path.join(workspace_dir, "temp", "uploaded")

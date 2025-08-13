@@ -20,7 +20,9 @@ from ..utils.molecular_utils import (
 )
 from ..utils.file_utils import (
     save_uploaded_file,
-    extract_pdb_id_from_file,
+    extract_pdb_id_from_file_robust,
+    validate_pdb_file_content,
+    integrate_uploaded_pdb_with_pipeline,
     load_templates_from_uploaded_sdf,
 )
 
@@ -166,6 +168,11 @@ class InputSection:
         )
 
         if input_method == "PDB ID":
+            # Clear any stale custom templates when switching to PDB ID mode
+            try:
+                self.session.set(SESSION_KEYS["CUSTOM_TEMPLATES"], None)
+            except Exception:
+                pass
             # Define callback function for setting example PDB ID
             def set_example_pdb(pdb_value):
                 st.session_state.pdb_id_input = pdb_value
@@ -215,6 +222,11 @@ class InputSection:
                 self.session.set(SESSION_KEYS["PROTEIN_PDB_ID"], None)
 
         elif input_method == "Upload File":
+            # Clear any stale custom templates when switching to file upload mode
+            try:
+                self.session.set(SESSION_KEYS["CUSTOM_TEMPLATES"], None)
+            except Exception:
+                pass
             uploaded_file = st.file_uploader(
                 "Upload PDB File", type=["pdb"], key="pdb_file_upload"
             )
@@ -224,27 +236,49 @@ class InputSection:
                     # Save uploaded file
                     file_path = save_uploaded_file(uploaded_file)
 
-                    # Store file path in session
-                    self.session.set(SESSION_KEYS["PROTEIN_FILE_PATH"], file_path)
-                    # Clear PDB ID when using file upload
-                    self.session.set(SESSION_KEYS["PROTEIN_PDB_ID"], None)
-                    self.session.set(SESSION_KEYS["CUSTOM_TEMPLATES"], None)
-
-                    st.success(f"PDB file uploaded: {uploaded_file.name}")
-
-                    # Optional: Try to extract PDB ID from file for display purposes only
-                    try:
-                        extracted_pdb_id = extract_pdb_id_from_file(file_path)
+                    # Integrate with pipeline system for robust processing
+                    success, message, extracted_pdb_id, embedding_info = integrate_uploaded_pdb_with_pipeline(
+                        file_path, self.session
+                    )
+                    
+                    if success:
+                        # Store file path and PDB ID in session
+                        self.session.set(SESSION_KEYS["PROTEIN_FILE_PATH"], file_path)
+                        
                         if extracted_pdb_id:
-                            st.info(
-                                f"Detected PDB ID from file: {extracted_pdb_id.upper()}"
-                            )
-                    except:
-                        pass
+                            # Store extracted PDB ID for database integration
+                            self.session.set(SESSION_KEYS["PROTEIN_PDB_ID"], extracted_pdb_id)
+                            # Store embedding info for pipeline use
+                            if embedding_info:
+                                self.session.set("pdb_embedding_info", embedding_info)
+                        else:
+                            # Clear PDB ID if not found
+                            self.session.set(SESSION_KEYS["PROTEIN_PDB_ID"], None)
+                            
+                        # Clear custom templates when using file upload
+                        self.session.set(SESSION_KEYS["CUSTOM_TEMPLATES"], None)
+
+                        # Show appropriate success/warning message
+                        if "Successfully processed" in message:
+                            st.success(message)
+                            if embedding_info and embedding_info.get("success"):
+                                st.info(f"✓ Vector embedding ready: {embedding_info['message']}")
+                        else:
+                            st.warning(message)
+                            if extracted_pdb_id:
+                                st.info("Note: The pipeline will attempt to generate embeddings during processing.")
+                    else:
+                        st.error(f"Failed to process PDB file: {message}")
+                        # Clear session data on failure
+                        self.session.set(SESSION_KEYS["PROTEIN_FILE_PATH"], None)
+                        self.session.set(SESSION_KEYS["PROTEIN_PDB_ID"], None)
 
                 except Exception as e:
                     logger.error(f"Error processing PDB file: {e}")
                     st.error(f"Error processing file: {str(e)}")
+                    # Clear session data on error
+                    self.session.set(SESSION_KEYS["PROTEIN_FILE_PATH"], None)
+                    self.session.set(SESSION_KEYS["PROTEIN_PDB_ID"], None)
 
         else:  # Custom Templates
             st.markdown(

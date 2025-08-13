@@ -67,7 +67,10 @@ def create_all_conformers_sdf():
     try:
         from ..core.session_manager import get_session_manager
         session = get_session_manager()
-        all_ranked_poses = session.get("all_ranked_poses")
+        # Prefer fresh in-session data
+        all_ranked_poses = st.session_state.get("all_ranked_poses")
+        if not all_ranked_poses:
+            all_ranked_poses = session.get("all_ranked_poses")
         logger.info(f"Retrieved all_ranked_poses from session manager: {type(all_ranked_poses)}")
     except Exception as e:
         logger.warning(f"Failed to get session manager, using direct access: {e}")
@@ -131,6 +134,13 @@ def create_all_conformers_sdf():
                     
                 # Create a safe copy of the molecule
                 mol_copy = Chem.Mol(mol)
+                # Ensure the copy carries current query identifier for clarity
+                try:
+                    input_smiles = st.session_state.get("input_smiles")
+                    if input_smiles:
+                        mol_copy.SetProp("Query_SMILES", input_smiles)
+                except Exception:
+                    pass
                 valid_poses_count += 1
                 
             except Exception as e:
