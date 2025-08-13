@@ -98,21 +98,25 @@ class SessionManager:
         Returns:
             Value from session state or default
         """
-        # For molecule keys, try memory manager first
+        # For large objects, handle special cases
         if key in self.large_object_keys:
             try:
-                # Try to get from memory manager
+                # Poses: prefer session state (freshest), then memory manager fallback
+                if key == SESSION_KEYS["POSES"]:
+                    poses_in_session = st.session_state.get(SESSION_KEYS["POSES"], {})
+                    if poses_in_session and isinstance(poses_in_session, dict):
+                        return poses_in_session
+
+                    pose_results = self.memory_manager.get_pose_results()
+                    if pose_results:
+                        logger.debug("Retrieved poses from memory manager fallback")
+                        return pose_results
+
+                # Other large objects first try memory manager molecule cache
                 memory_value = self.memory_manager.get_molecule(key)
                 if memory_value is not None:
                     logger.debug(f"Retrieved {key} from memory manager")
                     return memory_value
-                
-                # Try to get from memory manager for poses
-                if key == SESSION_KEYS["POSES"]:
-                    pose_results = self.memory_manager.get_pose_results()
-                    if pose_results:
-                        logger.debug(f"Retrieved poses from memory manager")
-                        return pose_results
                         
             except Exception as e:
                 logger.warning(f"Memory manager retrieval failed for {key}: {e}")
@@ -124,7 +128,7 @@ class SessionManager:
         # Return default
         return self.defaults.get(key, default)
 
-    def set(self, key: str, value: Any, track_large: bool = None) -> None:
+    def set(self, key: str, value: Any, track_large: bool = False) -> None:
         """Set value in session state with memory-aware handling
 
         Args:
@@ -163,6 +167,12 @@ class SessionManager:
                 elif key == SESSION_KEYS["POSES"] and value is not None:
                     # Always store in session state first as fallback
                     st.session_state[key] = value
+                    # Timestamp to help determine freshness
+                    try:
+                        import time as _time
+                        st.session_state["poses_timestamp"] = _time.time()
+                    except Exception:
+                        pass
                     logger.info(f"Stored poses directly in session state as primary storage")
                     
                     # Also try to store in memory manager for optimization
@@ -172,8 +182,13 @@ class SessionManager:
                             logger.info(f"Successfully stored poses in memory manager as secondary storage")
                         else:
                             logger.warning(f"Failed to store poses in memory manager, but session state storage succeeded")
+                            # Prevent stale best_poses_refs from previous runs
+                            if "best_poses_refs" in st.session_state:
+                                del st.session_state["best_poses_refs"]
                     except Exception as mem_error:
                         logger.warning(f"Memory manager storage failed for poses: {mem_error}, but session state storage succeeded")
+                        if "best_poses_refs" in st.session_state:
+                            del st.session_state["best_poses_refs"]
                     
                 else:
                     # General large object storage
@@ -234,8 +249,11 @@ class SessionManager:
 
             logger.info(f"Cleared {len(keys_to_clear)} session keys")
 
-        # Trigger memory cleanup
-        self.memory_manager.cleanup_memory()
+        # Trigger memory cleanup (optimize/clear caches)
+        try:
+            self.memory_manager.optimize_memory()
+        except Exception:
+            pass
         
         # Cleanup temporary files
         self._cleanup_temp_files()
@@ -454,7 +472,8 @@ class SessionManager:
             import glob
             
             # Get workspace directory from session
-            workspace_dir = self.get(SESSION_KEYS.get("WORKSPACE_DIR"))
+            workspace_dir_key = SESSION_KEYS.get("WORKSPACE_DIR", "workspace_dir")
+            workspace_dir = self.get(workspace_dir_key)
             if workspace_dir and os.path.exists(workspace_dir):
                 # Clean up uploaded files older than 1 hour
                 uploaded_dir = os.path.join(workspace_dir, "temp", "uploaded")

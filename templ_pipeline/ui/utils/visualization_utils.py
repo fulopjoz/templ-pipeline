@@ -296,7 +296,24 @@ def get_molecule_from_session(session_manager, key: str, fallback_smiles: str = 
         logger.error("RDKit not available for molecule retrieval")
         return None
     
-    # First try to get from session
+    # First try to reconstruct from the latest INPUT_SMILES when key is QUERY_MOL
+    try:
+        from ..config.constants import SESSION_KEYS as _SK
+        if key == _SK["QUERY_MOL"]:
+            current_smiles = session_manager.get(_SK["INPUT_SMILES"])
+            if current_smiles:
+                mol = Chem.MolFromSmiles(current_smiles)
+                if mol:
+                    try:
+                        mol.SetProp("original_smiles", current_smiles)
+                        mol.SetProp("input_method", "smiles")
+                    except Exception:
+                        pass
+                    return mol
+    except Exception:
+        pass
+
+    # Then try to get from session by key
     mol_data = session_manager.get(key)
     
     if mol_data is not None:
