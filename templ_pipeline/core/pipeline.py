@@ -117,14 +117,27 @@ class PipelineConfig:
 class TEMPLPipeline:
     """Main TEMPL pipeline for template-based pose prediction."""
     
-    def __init__(self, embedding_path: Optional[str] = None, output_dir: str = "output", run_id: Optional[str] = None, shared_embedding_cache: Optional[str] = None):
+    def __init__(self, embedding_path: Optional[str] = None, output_dir: str = "output", run_id: Optional[str] = None, shared_embedding_cache: Optional[str] = None, config: Optional[PipelineConfig] = None):
         """Initialize the pipeline with CLI interface."""
+        # Initialize config first - use provided config or create default
+        if config is not None:
+            self.config = config
+            # Use config's output_dir if provided, otherwise use parameter
+            effective_output_dir = config.output_dir if config.output_dir else output_dir
+        else:
+            # Create default config with provided parameters
+            self.config = PipelineConfig(
+                output_dir=output_dir,
+                embedding_npz=embedding_path or f"{DEFAULT_DATA_DIR}/embeddings/templ_protein_embeddings_v1.0.0.npz"
+            )
+            effective_output_dir = output_dir
+        
         # Use default embedding path if none provided
         if embedding_path is None:
             embedding_path = f"{DEFAULT_DATA_DIR}/embeddings/templ_protein_embeddings_v1.0.0.npz"
         
         self.embedding_path = embedding_path
-        self.output_dir = output_dir
+        self.output_dir = effective_output_dir
         self.run_id = run_id
         self.shared_embedding_cache = shared_embedding_cache
         self.embedding_manager = None

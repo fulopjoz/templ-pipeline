@@ -190,20 +190,28 @@ class PipelineService:
             if str(parent_dir) not in sys.path:
                 sys.path.insert(0, str(parent_dir))
 
-            from templ_pipeline.core.pipeline import TEMPLPipeline
+            from templ_pipeline.core.pipeline import TEMPLPipeline, PipelineConfig
 
             if progress_callback:
                 progress_callback("Loading TEMPL pipeline...", 20)
 
             # Initialize pipeline if not already done
             if self.pipeline is None:
-                # Always use simplified initialization to avoid Streamlit errors
-                # Previous workspace manager integration was causing parameter issues
+                # Create pipeline config with UI settings
+                pipeline_config = PipelineConfig(
+                    output_dir=self.config.paths.get("output_dir", "temp"),
+                    n_workers=getattr(self.config, 'n_workers', 0),  # 0 = auto-detect
+                    n_confs=getattr(self.config, 'n_confs', 200),
+                    sim_threshold=getattr(self.config, 'sim_threshold', 0.9)
+                )
+                
+                # Initialize pipeline with config
                 self.pipeline = TEMPLPipeline(
                     embedding_path=None,  # Auto-detect
                     output_dir=self.config.paths.get("output_dir", "temp"),
+                    config=pipeline_config
                 )
-                logger.info("Pipeline initialized with simplified configuration")
+                logger.info("Pipeline initialized with configuration support")
 
             # Prepare inputs
             smiles = molecule_data.get("input_smiles")
@@ -713,7 +721,22 @@ class PipelineService:
 
         # Ensure query molecule has original SMILES for visualization
         final_query_mol = query_mol or results.get("query_molecule")
-        
+
+        # If pipeline did not return query_mol (common for PDB-ID/file flows), rebuild from current SMILES
+        if final_query_mol is None:
+            try:
+                from rdkit import Chem
+                input_smiles_for_build = self.session.get(SESSION_KEYS["INPUT_SMILES"])
+                if input_smiles_for_build:
+                    rebuilt = Chem.MolFromSmiles(input_smiles_for_build)
+                    if rebuilt:
+                        rebuilt.SetProp("original_smiles", input_smiles_for_build)
+                        rebuilt.SetProp("input_method", "smiles")
+                        final_query_mol = rebuilt
+                        logger.info("Rebuilt query molecule from INPUT_SMILES for visualization")
+            except Exception as e:
+                logger.warning(f"Could not rebuild query molecule from SMILES: {e}")
+
         # Validate and fix query molecule if it's not a proper RDKit object
         if final_query_mol is not None:
             # If it's a dictionary, try to reconstruct the molecule from SMILES
