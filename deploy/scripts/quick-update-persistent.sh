@@ -158,11 +158,11 @@ force_pod_restart() {
     if [[ "$FORCE_RESTART" == "true" ]]; then
         step "Forcing pod restart to apply changes"
         
-        info "Deleting pod to trigger restart..."
-        kubectl delete pod "$POD_NAME" -n "$NAMESPACE"
+        info "Restarting deployment to apply changes..."
+        kubectl rollout restart deployment/templ-pipeline -n "$NAMESPACE"
         
-        info "Waiting for new pod to be ready..."
-        kubectl wait --for=condition=ready pod -l app=templ-pipeline -n "$NAMESPACE" --timeout=300s
+        info "Waiting for rollout to complete..."
+        kubectl rollout status deployment/templ-pipeline -n "$NAMESPACE" --timeout=300s
         
         # Get new pod name
         get_pod_name
