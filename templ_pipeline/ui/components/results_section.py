@@ -423,7 +423,7 @@ class ResultsSection:
 
                 with col1:
                     st.markdown("**Query Molecule**")
-                    # Use utility function with fallback SMILES
+                    # Use utility function with fallback to current INPUT_SMILES
                     input_smiles = self.session.get(SESSION_KEYS["INPUT_SMILES"])
                     query_molecule = get_molecule_from_session(
                         self.session, SESSION_KEYS["QUERY_MOL"], fallback_smiles=input_smiles
@@ -432,20 +432,19 @@ class ResultsSection:
                     if query_molecule:
                         display_molecule(query_molecule, width=400, height=400)
                     else:
-                        # Show fallback information
+                        # Always attempt to render from current SMILES directly as ultimate fallback
                         if input_smiles:
-                            st.warning("Error displaying query molecule")
-                            st.info(f"Query SMILES: `{input_smiles}`")
-                            
-                            # Try to create and display from SMILES directly
                             try:
                                 from rdkit import Chem
                                 fallback_mol = Chem.MolFromSmiles(input_smiles)
                                 if fallback_mol:
+                                    fallback_mol.SetProp("original_smiles", input_smiles)
                                     display_molecule(fallback_mol, width=400, height=400)
-                                    st.success("Displayed from SMILES fallback")
+                                else:
+                                    st.error("Query molecule data not available")
                             except Exception as e:
                                 logger.error(f"SMILES fallback visualization failed: {e}")
+                                st.error("Query molecule data not available")
                         else:
                             st.error("Query molecule data not available")
 
