@@ -13,6 +13,7 @@ from pathlib import Path
 
 from ..config.constants import SESSION_KEYS
 from .memory_manager import get_memory_manager
+from .cache_optimizer import get_cache_optimizer, auto_optimize_if_needed
 
 logger = logging.getLogger(__name__)
 
@@ -249,11 +250,19 @@ class SessionManager:
 
             logger.info(f"Cleared {len(keys_to_clear)} session keys")
 
-        # Trigger memory cleanup (optimize/clear caches)
+        # Trigger memory cleanup and cache optimization
         try:
             self.memory_manager.optimize_memory()
         except Exception:
             pass
+            
+        # Smart cache optimization for better performance
+        try:
+            cache_optimizer = get_cache_optimizer()
+            cache_optimizer.reset_for_new_calculation()
+            logger.debug("Cache optimization completed during session clear")
+        except Exception as e:
+            logger.warning(f"Cache optimization failed during clear: {e}")
         
         # Cleanup temporary files
         self._cleanup_temp_files()
@@ -406,6 +415,55 @@ class SessionManager:
             "memory_stats": self.memory_manager.get_memory_stats(),
             "state_size": len(st.session_state),
         }
+
+    def prepare_for_new_pipeline_run(self) -> Dict[str, Any]:
+        """Prepare session for a new pipeline run with smart optimization
+        
+        Returns:
+            Dictionary with preparation results
+        """
+        try:
+            # Auto-optimize caches if needed
+            optimization_result = auto_optimize_if_needed()
+            logger.info(f"Cache auto-optimization: {optimization_result.get('action', 'none')}")
+            
+            # Clear previous results to prevent confusion
+            result_keys = [
+                SESSION_KEYS["POSES"],
+                SESSION_KEYS["ALL_RANKED_POSES"], 
+                SESSION_KEYS["TEMPLATE_INFO"],
+                SESSION_KEYS["MCS_INFO"],
+                "poses_timestamp",
+                "best_poses_refs"
+            ]
+            
+            cleared_keys = []
+            for key in result_keys:
+                if key in st.session_state:
+                    del st.session_state[key]
+                    cleared_keys.append(key)
+            
+            # Increment pipeline run counter
+            current_runs = self.get("pipeline_runs", 0)
+            self.set("pipeline_runs", current_runs + 1)
+            
+            logger.info(f"Prepared for pipeline run #{current_runs + 1}, cleared {len(cleared_keys)} result keys")
+            
+            return {
+                "success": True,
+                "pipeline_run_number": current_runs + 1,
+                "cleared_result_keys": len(cleared_keys),
+                "cache_optimization": optimization_result,
+                "message": f"Session prepared for pipeline run #{current_runs + 1}"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error preparing for pipeline run: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to prepare session for pipeline run"
+            }
 
     def export_state(self) -> Dict[str, Any]:
         """Export session state for debugging or persistence

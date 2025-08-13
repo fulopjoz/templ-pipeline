@@ -152,6 +152,13 @@ class PipelineService:
             Results dictionary or None on failure
         """
         try:
+            # Prepare session for new pipeline run with cache optimization
+            preparation_result = self.session.prepare_for_new_pipeline_run()
+            if preparation_result.get("success", False):
+                logger.info(f"Session preparation: {preparation_result['message']}")
+            else:
+                logger.warning(f"Session preparation failed: {preparation_result.get('error', 'unknown')}")
+            
             # Log inputs
             logger.info("Starting pipeline execution")
             logger.info(f"Molecule data: {molecule_data.get('input_smiles', 'N/A')}")
@@ -219,6 +226,17 @@ class PipelineService:
             pdb_file = protein_data.get("file_path")
             custom_templates = molecule_data.get("custom_templates")
 
+            # If a protein input is provided (PDB ID or file), ignore any stale custom templates
+            if (pdb_id or pdb_file) and custom_templates:
+                logger.info(
+                    "Protein input provided; ignoring stale custom templates in session"
+                )
+                try:
+                    self.session.set(SESSION_KEYS["CUSTOM_TEMPLATES"], None)
+                except Exception:
+                    pass
+                custom_templates = None
+
             # Check if PDB ID exists in database first
             if pdb_id and not pdb_file:
                 embedding_manager = self.pipeline._get_embedding_manager()
@@ -260,22 +278,8 @@ class PipelineService:
                     progress_callback("Loading protein embedding from database...", 30)
 
             # Handle different input scenarios with user settings
-            if custom_templates:
-                # MCS-only workflow with custom templates
-                results = self._run_custom_template_pipeline(
-                    smiles,
-                    custom_templates,
-                    progress_callback,
-                    user_settings={
-                        "device_pref": user_device_pref,
-                        "knn_threshold": user_knn_threshold,
-                        "chain_selection": user_chain_selection,
-                        "similarity_threshold": user_similarity_threshold,
-                        "num_conformers": 200,  # Standard conformer count
-                        "n_workers": self._get_optimal_workers(),
-                    },
-                )
-            elif pdb_file:
+            # Prefer explicit protein inputs over custom templates
+            if pdb_file:
                 # Full pipeline with uploaded PDB file - generate embedding and search
                 results = self._run_uploaded_pdb_pipeline(
                     smiles,
@@ -299,6 +303,21 @@ class PipelineService:
                         "knn_threshold": user_knn_threshold,
                         "chain_selection": user_chain_selection,
                         "similarity_threshold": user_similarity_threshold,
+                    },
+                )
+            elif custom_templates:
+                # MCS-only workflow with custom templates
+                results = self._run_custom_template_pipeline(
+                    smiles,
+                    custom_templates,
+                    progress_callback,
+                    user_settings={
+                        "device_pref": user_device_pref,
+                        "knn_threshold": user_knn_threshold,
+                        "chain_selection": user_chain_selection,
+                        "similarity_threshold": user_similarity_threshold,
+                        "num_conformers": 200,  # Standard conformer count
+                        "n_workers": self._get_optimal_workers(),
                     },
                 )
             else:
