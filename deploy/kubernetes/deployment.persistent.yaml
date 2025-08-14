@@ -147,7 +147,7 @@ spec:
         - name: OMP_NUM_THREADS
           value: "4"
         - name: TORCH_HOME
-          value: "/app/temp/.torch"
+          value: "/app/data/.torch"
         - name: TEMPL_SKIP_DATA_DOWNLOAD
           value: "false"
         - name: TEMPL_ENABLE_EMBEDDINGS
@@ -194,10 +194,12 @@ spec:
             memory: "12Gi"
             cpu: "8"
             nvidia.com/mig-1g.10gb: 1
+            ephemeral-storage: "20Gi"
           limits:
             memory: "20Gi"
             cpu: "12"
             nvidia.com/mig-1g.10gb: 1
+            ephemeral-storage: "20Gi"
         
         startupProbe:
           httpGet:
@@ -235,7 +237,7 @@ spec:
           claimName: templ-data-pvc
       - name: temp-volume
         emptyDir:
-          sizeLimit: 4Gi
+          sizeLimit: 16Gi
       - name: code-volume
         persistentVolumeClaim:
           claimName: templ-code-pvc
@@ -244,6 +246,8 @@ spec:
       
       nodeSelector:
         kubernetes.io/os: linux
+        # Optional: request a specific GPU type if needed per CERIT docs
+        # nvidia.com/gpu.product: 'NVIDIA-A40'
       
       tolerations:
       - key: "nvidia.com/gpu"

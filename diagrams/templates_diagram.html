@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Templates Workflow</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11.9.0/dist/mermaid.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #000000;
+            background: #ffffff;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background-color: white;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            padding: 50px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 3em;
+            font-weight: 300;
+            margin-bottom: 15px;
+            letter-spacing: 1px;
+        }
+        
+        .content {
+            padding: 50px;
+        }
+        
+        .section-title {
+            font-size: 2.2em;
+            color: #2c3e50;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 4px solid #3498db;
+            font-weight: 400;
+        }
+        
+        .mermaid {
+            text-align: center;
+            margin: 40px 0;
+            padding: 40px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 16px;
+            border: 2px solid #dee2e6;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+        }
+        
+        .reference-section {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            padding: 50px;
+            border-radius: 16px;
+            margin-top: 50px;
+        }
+        
+        .function-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 30px;
+            margin-top: 40px;
+        }
+        
+        .function-card {
+            background: rgba(255,255,255,0.1);
+            padding: 30px;
+            border-radius: 12px;
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .function-card h3 {
+            color: #3498db;
+            margin-bottom: 20px;
+            font-size: 1.4em;
+            border-bottom: 2px solid rgba(52, 152, 219, 0.3);
+            padding-bottom: 10px;
+        }
+        
+        .function-card ul {
+            margin: 20px 0;
+            padding-left: 25px;
+        }
+        
+        .function-card li {
+            margin: 12px 0;
+            line-height: 1.6;
+        }
+        
+        .function-card strong {
+            color: #3498db;
+        }
+    </style>
+    <meta name="color-scheme" content="dark">
+    <meta name="theme-color" content="#0b0f14">
+    <meta name="supported-color-schemes" content="dark">
+    <meta name="prefers-color-scheme" content="dark">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://cdn.jsdelivr.net; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'none'">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Templates Workflow</h1>
+        </div>
+        <div class="content">
+            <h2 class="section-title">Flow</h2>
+            <div class="mermaid">
+flowchart TD
+    Start["transform_ligand<br/>Primary orchestrator"] --> Inputs["Inputs<br/>mob_pdb, lig, pid, ref_struct, ref_chains?, mob_chains?, similarity_score?"]
+    Inputs --> CheckBio{"BIOTITE_AVAILABLE?"}
+    CheckBio -->|No| FailBio["Return None"]
+    CheckBio -->|Yes| LoadMob["bsio.load_structure(mob_pdb)"]
+    LoadMob --> FilterAA["filter_amino_acids(ref_struct), filter_amino_acids(mob)"]
+    FilterAA --> ValidateChains["_validate_and_select_chains(ref_prot, mob_prot, ref_chains, mob_chains, pid)"]
+    ValidateChains --> ChainsOk{"Valid chains?"}
+    ChainsOk -->|No| FailChains["Return None"]
+    ChainsOk -->|Yes| ExtractCA["Extract CA atoms for selected chains"]
+    ExtractCA --> EnoughCA{"len(ref_ca) ≥ 3 and len(mob_ca) ≥ 3?"}
+    EnoughCA -->|No| FailCA["Return None"]
+    EnoughCA -->|Yes| LevelSelect["Choose alignment level"]
+
+    LevelSelect --> LenCheck{"Sequence length diff &lt; 30%?"}
+    LenCheck -->|Yes| TryHomologs["superimpose_homologs (BLOSUM62, gap_penalty=-10, min_anchors=3)"]
+    LenCheck -->|No| SeqAlign["_align_with_biotite_sequence"]
+    TryHomologs --> HomologsOK{"Have ≥ 3 anchors?"}
+    HomologsOK -->|Yes| RMSD1["Compute CA RMSD via superimpose"]
+    HomologsOK -->|No| SeqAlign
+    SeqAlign --> SeqOK{"Alignment success?"}
+    SeqOK -->|Yes| RMSD2["Compute CA RMSD via superimpose"]
+    SeqOK -->|No| Try3Di["_align_with_3di_structural (if STRUCTURAL_ALPHABET_AVAILABLE)"]
+    Try3Di --> DiOK{"3Di alignment success?"}
+    DiOK -->|Yes| RMSD3["Compute CA RMSD via superimpose"]
+    DiOK -->|No| Centroid["_align_with_centroid_fallback"]
+    Centroid --> RMSD4["Compute CA RMSD"]
+
+    %% After alignment path
+    RMSD1 --> HaveXform["transformation is not None?"]
+    RMSD2 --> HaveXform
+    RMSD3 --> HaveXform
+    RMSD4 --> HaveXform
+    HaveXform -->|No| FailAlign["Return None"]
+    HaveXform -->|Yes| CheckConfs{"lig.GetNumConformers() &gt; 0?"}
+    CheckConfs -->|No| FailConfs["Return None"]
+    CheckConfs -->|Yes| Apply["Apply transformation to all coords (transformation.apply)"]
+    Apply --> SetPos["Set Point3D positions in conformer"]
+    SetPos --> BondCheck["Validate bond lengths (0.5–3.0 Å), warn if outliers"]
+    BondCheck --> SetProps["Set properties: ca_rmsd, template_pid, similarity_score, ref_chains, mob_chains, alignment_method, anchor_count"]
+    SetProps --> Success["Return transformed ligand"]
+
+    classDef startEnd fill:#2ecc71,stroke:#27ae60,stroke-width:3px,color:#000
+    classDef process fill:#3498db,stroke:#2980b9,stroke-width:2px,color:#000
+    classDef decision fill:#f39c12,stroke:#e67e22,stroke-width:2px,color:#000
+    classDef error fill:#e74c3c,stroke:#c0392b,stroke-width:2px,color:#000
+    class Start,Success startEnd
+    class Inputs,LoadMob,FilterAA,ValidateChains,ExtractCA,LevelSelect,TryHomologs,SeqAlign,Try3Di,Centroid,RMSD1,RMSD2,RMSD3,RMSD4,HaveXform,Apply,SetPos,BondCheck,SetProps process
+    class CheckBio,ChainsOk,EnoughCA,LenCheck,HomologsOK,SeqOK,DiOK,CheckConfs decision
+    class FailBio,FailChains,FailCA,FailAlign,FailConfs error
+            </div>
+
+            
+
+            <div class="reference-section">
+                <h2 class="section-title">Function Reference</h2>
+                <div class="function-grid">
+                    <div class="function-card">
+                        <h3>Orchestration & Alignment</h3>
+                        <ul>
+                            <li><strong>transform_ligand()</strong>: Loads mobile protein, filters amino acids, validates chains, extracts CA atoms, runs hierarchical alignment (homologs → sequence → 3Di → centroid), transforms ligand coords, validates bonds, and sets metadata.</li>
+                            <li><strong>_validate_and_select_chains()</strong>: Validates requested chains or falls back to all available chains.</li>
+                            <li><strong>Constants</strong>: MIN_CA_ATOMS_FOR_ALIGNMENT=3, MIN_ANCHOR_RESIDUES=15, BLOSUM_GAP_PENALTY=-10.</li>
+                        </ul>
+                    </div>
+                    <div class="function-card">
+                        <h3>Alignment Levels</h3>
+                        <ul>
+                            <li><strong>superimpose_homologs()</strong>: For similar-length sequences; extracts anchors and computes RMSD.</li>
+                            <li><strong>_align_with_biotite_sequence()</strong>: Converts structures to sequences, aligns with BLOSUM62, extracts anchors, superimposes, returns transformation and RMSD.</li>
+                            <li><strong>_align_with_3di_structural()</strong>: Uses structural alphabet when available; aligns and returns transformation and RMSD.</li>
+                            <li><strong>_align_with_centroid_fallback()</strong>: Uses first N CA atoms when others fail.</li>
+                        </ul>
+                    </div>
+                    <div class="function-card">
+                        <h3>Data & Templates</h3>
+                        <ul>
+                            <li><strong>load_reference_protein()</strong>: Loads reference PDB via biotite.</li>
+                            <li><strong>load_target_data()</strong>: Builds target RDKit molecule from SMILES and adds hydrogens.</li>
+                            <li><strong>filter_templates_by_ca_rmsd()</strong>: Filters by CA RMSD threshold.</li>
+                            <li><strong>get_templates_with_progressive_fallback()</strong>: Progressive CA RMSD thresholds with central-atom fallback selection.</li>
+                            <li><strong>load_template_molecules_standardized()</strong>: Loads templates via shared cache, with optional SMILES exclusion.</li>
+                            <li><strong>pdb_path()</strong> / <strong>ligand_path()</strong>: Resolve file paths in common locations.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            
+
+                <div class="legend">
+                    <div class="legend-item"><span class="legend-swatch" style="background:#00c853"></span><span>Start/End</span></div>
+                    <div class="legend-item"><span class="legend-swatch" style="background:#0b2545"></span><span>Process</span></div>
+                    <div class="legend-item"><span class="legend-swatch" style="background:#7c2d12"></span><span>Decision</span></div>
+                    <div class="legend-item"><span class="legend-swatch" style="background:#3f1f1f"></span><span>Error/Stop</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            flowchart: {
+                useMaxWidth: true,
+                htmlLabels: true,
+                curve: 'basis',
+                nodeSpacing: 60,
+                rankSpacing: 60
+            }
+        });
+    </script>
+</body>
+</html>
+
+
