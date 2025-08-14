@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCS Workflow</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11.9.0/dist/mermaid.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #000000;
+            background: #ffffff;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background-color: white;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            padding: 50px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 3em;
+            font-weight: 300;
+            margin-bottom: 15px;
+            letter-spacing: 1px;
+        }
+        
+        .content {
+            padding: 50px;
+        }
+        
+        .section-title {
+            font-size: 2.2em;
+            color: #2c3e50;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 4px solid #3498db;
+            font-weight: 400;
+        }
+        
+        .mermaid {
+            text-align: center;
+            margin: 40px 0;
+            padding: 40px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 16px;
+            border: 2px solid #dee2e6;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+        }
+        
+        .reference-section {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            padding: 50px;
+            border-radius: 16px;
+            margin-top: 50px;
+        }
+        
+        .function-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 30px;
+            margin-top: 40px;
+        }
+        
+        .function-card {
+            background: rgba(255,255,255,0.1);
+            padding: 30px;
+            border-radius: 12px;
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .function-card h3 {
+            color: #3498db;
+            margin-bottom: 20px;
+            font-size: 1.4em;
+            border-bottom: 2px solid rgba(52, 152, 219, 0.3);
+            padding-bottom: 10px;
+        }
+        
+        .function-card ul {
+            margin: 20px 0;
+            padding-left: 25px;
+        }
+        
+        .function-card li {
+            margin: 12px 0;
+            line-height: 1.6;
+        }
+        
+        .function-card strong {
+            color: #3498db;
+        }
+    </style>
+    <meta name="color-scheme" content="dark">
+    <meta name="theme-color" content="#0b0f14">
+    <meta name="supported-color-schemes" content="dark">
+    <meta name="prefers-color-scheme" content="dark">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://cdn.jsdelivr.net; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'none'">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>MCS Workflow</h1>
+        </div>
+        <div class="content">
+            <h2 class="section-title">Flow</h2>
+            <div class="mermaid">
+flowchart TD
+    Start["find_mcs<br/>Primary MCS Finder"] --> Input["Inputs<br/>tgt: Chem.Mol, refs: List[Chem.Mol]"]
+    Input --> LogSizes["Log sizes<br/>target_atoms, max_template_atoms"]
+    LogSizes --> SetupRascal["Setup RascalMCES<br/>singleLargestFrag = True; threshold = 0.9"]
+
+    SetupRascal --> Loop["Similarity threshold loop<br/>0.9 → 0.0 step 0.1"]
+    Loop --> Search["For each template<br/>rdRascalMCES.FindMCES(tgt, RemoveHs(ref), opts)"]
+    Search --> FoundMCES{"MCES found?"}
+    FoundMCES -->|No| NextTpl[Next template]
+    FoundMCES -->|Yes| Store[Store hit<br/>size, idx, smarts, details]
+    NextTpl --> MoreTpl{"More templates?"}
+    MoreTpl -->|Yes| Search
+    MoreTpl -->|No| DecThresh["Decrease threshold by 0.1"]
+    DecThresh --> HasThresh{"threshold ≥ 0.0?"}
+    HasThresh -->|Yes| Loop
+    HasThresh -->|No| AnyHits{"Any hits?"}
+    AnyHits -->|No| CentralFallback["Central atom fallback<br/>find_best_ca_rmsd_template"]
+    AnyHits -->|Yes| Best["Select best by size"]
+    Best --> QC{"Accept?
+best_size ≥ 5 OR threshold ≤ 0.2"}
+    QC -->|Reject| DecThresh
+    QC -->|Accept| ReturnMCS["Return (idx, smarts, details?)"]
+    CentralFallback --> ReturnCentral["Return (best_idx, '*', central_details)"]
+
+    %% Constrained embedding path (in this module)
+    ReturnMCS --> Constrained["constrained_embed"]
+    Constrained --> CheckStar{"SMARTS == '*'?"}
+    CheckStar -->|Yes| Central
+    CheckStar -->|No| LargeMol{"Target atoms > 150?"}
+    LargeMol -->|Yes| Central
+    LargeMol -->|No| BuildPatt["Chem.MolFromSmarts(smarts)"]
+    BuildPatt --> Substruct["Substructure matches<br/>tgt_idxs, ref_idxs"]
+    Substruct --> ValidMatch{"Valid match and len ≥ 3?"}
+    ValidMatch -->|No| Central
+    ValidMatch -->|Yes| AddHsTarget["AddHs(target) preserving coords if present"]
+    AddHsTarget --> ReMatch["Recompute tgt_idxs on H-added mol"]
+    ReMatch --> MatchLengths{"len(tgt_idxs_h) == len(ref_idxs)?"}
+    MatchLengths -->|No| Central
+    MatchLengths -->|Yes| CoordMap["Build coordinate map from ref conformer"]
+    CoordMap --> LogMap["log_coordinate_map"]
+    LogMap --> Relax["relax_close_constraints(min_distance=1.0)"]
+    Relax --> EnoughConstraints{"len(coordMap) ≥ 3?"}
+    EnoughConstraints -->|No| Central
+    EnoughConstraints -->|Yes| ETKDG["ETKDGv3 params<br/>randomSeed=42; numThreads=1; coordMap"]
+    ETKDG --> TryEmbed["EmbedMultipleConfs(target_h, nConfs=N_CONFS)"]
+    TryEmbed --> GotConfs{"Conformers generated?"}
+    GotConfs -->|Yes| Align["rdMolAlign.AlignMol with atomMap"]
+    GotConfs -->|No| Progressive["Progressive reduction of constraints"]
+    Progressive --> TryEmbed
+    Align --> GeoCheck["validate_molecular_geometry('after_alignment')"]
+    GeoCheck --> OptCheck{"enable_optimization?"}
+    OptCheck -->|No| DoneConstrained["Return embedded molecule"]
+    OptCheck -->|Yes| Minimize["simple_minimize_molecule"]
+    Minimize --> ConnCheck["validate_molecular_connectivity('after_minimization')"]
+    ConnCheck --> DoneConstrained
+
+    %% Central atom fallback path (in this module)
+    ReturnCentral --> Central["central_atom_embed"]
+    Central --> Unconstrained["embed_with_uff_fallback (thread-limited)"]
+    Unconstrained --> PlaceAtCenter["Translate all conformers so central atom matches ref center"]
+    PlaceAtCenter --> OptCheck2{"enable_optimization?"}
+    OptCheck2 -->|No| DoneCentral["Return fallback molecule"]
+    OptCheck2 -->|Yes| Minimize2["simple_minimize_molecule"]
+    Minimize2 --> ConnCheck2["validate_molecular_connectivity('central_atom_fallback_after_minimization')"]
+    ConnCheck2 --> DoneCentral
+
+    classDef startEnd fill:#2ecc71,stroke:#27ae60,stroke-width:3px,color:#000
+    classDef process fill:#3498db,stroke:#2980b9,stroke-width:2px,color:#000
+    classDef decision fill:#f39c12,stroke:#e67e22,stroke-width:2px,color:#000
+    classDef error fill:#e74c3c,stroke:#c0392b,stroke-width:2px,color:#000
+    classDef success fill:#27ae60,stroke:#229954,stroke-width:3px,color:#000
+    classDef mcs fill:#9b59b6,stroke:#8e44ad,stroke-width:2px,color:#000
+    classDef embedding fill:#e67e22,stroke:#d35400,stroke-width:2px,color:#000
+    classDef optimization fill:#1abc9c,stroke:#16a085,stroke-width:2px,color:#000
+    classDef validation fill:#34495e,stroke:#2c3e50,stroke-width:2px,color:#000
+    classDef fallback fill:#e74c3c,stroke:#c0392b,stroke-width:2px,color:#000
+
+    class Start startEnd
+    class Input,LogSizes,SetupRascal,Loop,Search,Store,DecThresh,ReturnMCS,ReturnCentral,Constrained,BuildPatt,Substruct,AddHsTarget,ReMatch,CoordMap,LogMap,Relax,ETKDG,TryEmbed,Align,Unconstrained,PlaceAtCenter,Minimize,Minimize2,DoneConstrained,DoneCentral process
+    class FoundMCES,MoreTpl,HasThresh,AnyHits,QC,CheckStar,LargeMol,ValidMatch,MatchLengths,EnoughConstraints,GotConfs,OptCheck,OptCheck2 decision
+    class Central,CentralFallback,Progressive fallback
+    class GeoCheck,ConnCheck,ConnCheck2 validation
+    class Minimize,Minimize2 optimization
+            </div>
+
+            
+
+            <div class="reference-section">
+                <h2 class="section-title">Function Reference</h2>
+                <div class="function-grid">
+                    <div class="function-card">
+                        <h3>Core MCS</h3>
+                        <ul>
+                            <li><strong>find_mcs()</strong>: RascalMCES-only, thresholds 0.9→0.0; returns best SMARTS or central atom fallback.</li>
+                            <li><strong>rdRascalMCES.FindMCES</strong>: Finds MCES and SMARTS using Rascal options.</li>
+                            <li><strong>get_central_atom()</strong>: Chooses atom with minimal sum of shortest-path distances.</li>
+                            <li><strong>find_best_ca_rmsd_template()</strong>: Picks template with lowest <code>ca_rmsd</code> property.</li>
+                        </ul>
+                    </div>
+                    <div class="function-card">
+                        <h3>Embedding</h3>
+                        <ul>
+                            <li><strong>constrained_embed()</strong>: Builds coordMap from MCS, relaxes constraints, ETKDGv3, progressive reduction, alignment, optional minimization. Falls back for invalid matches or large targets (&gt;150 atoms).</li>
+                            <li><strong>central_atom_embed()</strong>: Unconstrained embed with UFF fallback, translate to ref central atom; optional minimization.</li>
+                            <li><strong>embed_with_uff_fallback()</strong>: Tries standard ETKDG, then UFF-friendly settings, then relaxed/minimal settings; caps threads at 3.</li>
+                        </ul>
+                    </div>
+                    <div class="function-card">
+                        <h3>Validation</h3>
+                        <ul>
+                            <li><strong>validate_molecular_geometry()</strong>: Bond-length checks and stats; flags 0.5–3.0 Å outliers.</li>
+                            <li><strong>validate_molecular_connectivity()</strong>: Fragmentation and coordinate sanity checks.</li>
+                            <li><strong>log_coordinate_map()</strong> and <strong>relax_close_constraints()</strong>: Diagnose/mitigate tight constraints.</li>
+                        </ul>
+                    </div>
+                    <div class="function-card">
+                        <h3>Optimization</h3>
+                        <ul>
+                            <li><strong>simple_minimize_molecule()</strong>: MMFF via <code>rdForceFieldHelpers.MMFFGetMoleculeForceField(...).Minimize()</code> with UFF fallback (<code>AllChem.UFFOptimizeMolecule</code>).</li>
+                            <li><strong>validate_mmff_parameters()</strong> and <strong>needs_uff_fallback()</strong>: Detect when MMFF is unavailable or organometallics present.</li>
+                        </ul>
+                    </div>
+                    <div class="function-card">
+                        <h3>Utilities</h3>
+                        <ul>
+                            <li><strong>N_CONFS = 200</strong>: Default conformer count.</li>
+                            <li><strong>safe_name()</strong>: Generates filesystem-safe names.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="legend">
+                    <div class="legend-item"><span class="legend-swatch" style="background:#00c853"></span><span>Start/End</span></div>
+                    <div class="legend-item"><span class="legend-swatch" style="background:#0b2545"></span><span>Process</span></div>
+                    <div class="legend-item"><span class="legend-swatch" style="background:#7c2d12"></span><span>Decision</span></div>
+                    <div class="legend-item"><span class="legend-swatch" style="background:#3f1f1f"></span><span>Fallback</span></div>
+                    <div class="legend-item"><span class="legend-swatch" style="background:#0f172a"></span><span>Validation</span></div>
+                    <div class="legend-item"><span class="legend-swatch" style="background:#052e16"></span><span>Optimization</span></div>
+                </div>
+            </div>
+
+            
+        </div>
+    </div>
+
+    
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            flowchart: {
+                useMaxWidth: true,
+                htmlLabels: true,
+                curve: 'basis',
+                nodeSpacing: 60,
+                rankSpacing: 60
+            }
+        });
+    </script>
+</body>
+</html>
+
+

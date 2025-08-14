@@ -25,12 +25,14 @@ RUN conda create -n templ python=3.11 -y && \
     conda install -n templ -c conda-forge \
     rdkit=2024.09.6 pandas numpy scipy scikit-learn biopython streamlit -y && \
     /opt/conda/envs/templ/bin/pip install --no-cache-dir \
-    biotite spyrmsd tabulate zenodo-get rich tqdm colorama pebble psutil && \
-    /opt/conda/envs/templ/bin/pip install --no-cache-dir \
-    --index-url https://download.pytorch.org/whl/cpu \
-    torch && \
-    /opt/conda/envs/templ/bin/pip install --no-cache-dir transformers huggingface-hub && \
+    --extra-index-url https://download.pytorch.org/whl/cu124 \
+    biotite spyrmsd tabulate zenodo-get rich tqdm colorama pebble psutil \
+    torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 \
+    transformers huggingface-hub && \
     conda clean -afy
+
+# Verify CUDA-enabled PyTorch is installed
+RUN /opt/conda/envs/templ/bin/python -c "import torch; print('Torch:', torch.__version__, 'CUDA:', torch.version.cuda); assert torch.version.cuda is not None"
 
 #==============================================================================
 # Stage 2: Production Image - Lightweight runtime environment

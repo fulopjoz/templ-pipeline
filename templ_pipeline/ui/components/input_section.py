@@ -84,7 +84,7 @@ class InputSection:
             with col_btn:
                 # Add some spacing to align with the input field
                 st.markdown("<br>", unsafe_allow_html=True)
-                example_smiles = "Cc1cn(cn1)c2cc(NC(=O)c3ccc(C)c(Nc4nccc(n4)c5cccnc5)c3)cc(c2)C(F)(F)F"
+                example_smiles = "c1ncccc1NC(=O)C1CCNCC1"
                 st.button(
                     "Use Example",
                     key="use_example_smiles",
@@ -190,7 +190,7 @@ class InputSection:
             with col_btn:
                 # Add some spacing to align with the input field
                 st.markdown("<br>", unsafe_allow_html=True)
-                example_pdb = "2hyy"
+                example_pdb = "2etr"
                 st.button(
                     "Use Example", 
                     key="use_example_pdb", 

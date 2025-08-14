@@ -381,20 +381,54 @@ def initialize_esm_model() -> Optional[Dict[str, Any]]:
 
             # Device-specific optimization
             if gpu_info["available"]:
+                # Enable TF32 for improved performance on Ampere+ GPUs
+                try:
+                    torch.backends.cuda.matmul.allow_tf32 = True
+                    # PyTorch >= 2.0 API for matmul precision
+                    if hasattr(torch, "set_float32_matmul_precision"):
+                        torch.set_float32_matmul_precision("high")
+                except Exception:
+                    pass
+
+                # Allow cuDNN to benchmark optimal algorithms
+                try:
+                    torch.backends.cudnn.benchmark = True
+                except Exception:
+                    pass
+
                 dtype = torch.float16
                 model = model.to(device=device, dtype=dtype)
                 torch.cuda.empty_cache()
                 logger.info(f"Model loaded on GPU with {dtype} precision")
             else:
-                try:
-                    dtype = torch.bfloat16
-                    model = model.to(dtype=dtype)
-                    logger.info(f"Model using {dtype} precision on CPU")
-                except RuntimeError:
-                    logger.info("Using default precision on CPU")
+                # Use float32 on CPU for maximum compatibility
+                dtype = torch.float32
+                model = model.to(dtype=dtype)
+                logger.info(f"Model using {dtype} precision on CPU")
 
             _esm_components = {"tokenizer": tokenizer, "model": model}
             logger.info(f"ESM model initialization complete: {model_id}")
+
+            # Lightweight warm-up to reduce first-inference latency (optional)
+            try:
+                if gpu_info["available"]:
+                    _warmup_seq = "M" * 64
+                    _inputs = tokenizer(
+                        _warmup_seq,
+                        return_tensors="pt",
+                        truncation=True,
+                        max_length=ESM_MAX_SEQUENCE_LENGTH,
+                    )
+                    _device = next(model.parameters()).device
+                    _inputs = {k: v.to(_device) for k, v in _inputs.items()}
+                    with torch.no_grad():
+                        with torch.autocast(device_type="cuda", dtype=torch.float16):
+                            _ = model(**_inputs)
+                    torch.cuda.synchronize()
+                    logger.debug("ESM GPU warm-up completed")
+            except Exception:
+                # Warm-up is best-effort; ignore failures
+                pass
 
         except Exception as e:
             logger.error(f"Failed to initialize ESM model: {str(e)}")
@@ -425,9 +459,12 @@ def calculate_embedding_single(sequence: str, esm_components: Dict[str, Any]) ->
     inputs = {k: v.to(device) for k, v in inputs.items()}
 
     with torch.no_grad():
-        with torch.autocast(
-            device_type=device.type, enabled=torch.cuda.is_available()
-        ):
+        if torch.cuda.is_available():
+            # Mixed precision on GPU
+            with torch.autocast(device_type="cuda", dtype=torch.float16):
+                outputs = model(**inputs)
+        else:
+            # Full precision on CPU
             outputs = model(**inputs)
 
     # Mean pool over sequence length dimension to get fixed-size vector

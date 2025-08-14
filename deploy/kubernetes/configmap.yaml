@@ -31,5 +31,10 @@ data:
   # TEMPL Pipeline configuration - clean settings only
   TEMPL_WORKERS: "auto"
   
+  # Hugging Face / Transformers caches on persistent volume to avoid temp overflow
+  TRANSFORMERS_CACHE: "/app/data/.transformers"
+  HF_HOME: "/app/data/.huggingface"
+  TEMPL_CACHE_DIR: "/app/data/.cache"
+  
   # Display configuration for RDKit
   DISPLAY: ":0"

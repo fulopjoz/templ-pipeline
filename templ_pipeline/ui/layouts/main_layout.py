@@ -155,7 +155,7 @@ class MainLayout:
                 * **Constrained embedding** - ETKDG v3 conformer generation  
                 * **Shape scoring** - Pharmacophore-based pose selection
                 * **Built-in benchmarks** - Polaris and time-split PDBbind
-                * **CPU-optimized** - Optional GPU acceleration available
+                * **CPU & GPU support** - Works on both CPU and GPU hardware
                 """)
                 
             
@@ -168,33 +168,6 @@ class MainLayout:
                 4. **Pose Ranking** - Score using shape and pharmacophore alignment
                 5. **Limitations**: Novel scaffolds, allosteric sites, insufficient templates
                 """)
-            
-            st.markdown("---")
-            
-            # Compact system status at bottom
-            st.markdown("**System Status**")
-            hardware_status = self.hardware_manager.get_status_summary()
-            hw = hardware_status["hardware"]
-            perf = hardware_status["performance"]
-            
-            status_col1, status_col2, status_col3 = st.columns(3)
-            
-            with status_col1:
-                st.markdown(f"**Hardware:** {hw['cpu_cores']} cores, {hw['ram_gb']} GB RAM")
-                if hw["gpu"] != "Not available":
-                    st.markdown(f"**GPU:** {hw['gpu_memory_gb']} GB VRAM")
-            
-            with status_col2:
-                caps = hardware_status["capabilities"]
-                embedding_status = "✓" if caps["embedding_available"] else "✗"
-                st.markdown(f"**Embeddings:** {embedding_status}")
-                st.markdown(f"**Device:** {perf['device'].upper()}")
-            
-            with status_col3:
-                st.markdown(f"**Workers:** {perf['max_workers']}")
-                # Subtle cleanup button
-                if st.button("Clean Up", key="cleanup_btn", help="Clear caches and free up memory"):
-                    self._cleanup_application()
 
     def _cleanup_application(self):
         """Perform comprehensive application cleanup with user feedback"""
@@ -270,6 +243,16 @@ class MainLayout:
                     "Automatically switched to Results tab after prediction completion"
                 )
 
+            # Custom CSS to make tab text larger
+            st.markdown("""
+            <style>
+            .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
+                font-size: 1.2rem;
+                font-weight: 600;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
             # Use native Streamlit tabs - eliminates button visibility issues
             tab1, tab2 = st.tabs(["New Prediction", "Results"])
 
