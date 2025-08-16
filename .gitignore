@@ -194,6 +194,9 @@ secrets.yaml
 config/datasets.yaml
 SETUP_PRIVATE.md
 
+# Environment template (to prevent PDBBind references in public repo)
+.env.template
+
 # Git history cleanup artifacts
 bfg.jar
 git-cleanup-log.txt
