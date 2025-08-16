@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch, call
 from datetime import datetime
 
 try:
+    from templ_pipeline.cli import workspace_cli
     from templ_pipeline.cli.workspace_cli import (
         setup_logging,
         list_workspaces,
@@ -147,9 +148,14 @@ class TestWorkspaceCLI(unittest.TestCase):
         (old_workspace / "old_file.txt").write_text("old content")
         
         # Mock the cleanup function since we may not have full workspace manager
-        with patch('templ_pipeline.cli.workspace_cli.cleanup_old_workspaces') as mock_cleanup:
-            mock_cleanup.return_value = {"cleaned": 1, "errors": 0}
-            
+        # We need to add the function to the module namespace since it might not exist
+        mock_cleanup = Mock(return_value={"cleaned": 1, "errors": 0})
+        
+        # Add the missing function to the module temporarily
+        original_func = getattr(workspace_cli, 'cleanup_old_workspaces', None)
+        setattr(workspace_cli, 'cleanup_old_workspaces', mock_cleanup)
+        
+        try:
             result = cleanup_workspaces(
                 workspace_root=str(self.workspace_root),
                 max_age_days=1,
@@ -158,6 +164,12 @@ class TestWorkspaceCLI(unittest.TestCase):
             
             self.assertIsInstance(result, dict)
             mock_cleanup.assert_called_once()
+        finally:
+            # Restore original state
+            if original_func is None:
+                delattr(workspace_cli, 'cleanup_old_workspaces')
+            else:
+                setattr(workspace_cli, 'cleanup_old_workspaces', original_func)
 
     @patch('templ_pipeline.cli.workspace_cli.WORKSPACE_AVAILABLE', False)
     def test_cleanup_workspaces_unavailable(self):
@@ -191,6 +203,7 @@ class TestWorkspaceCLI(unittest.TestCase):
 
     @patch('templ_pipeline.cli.workspace_cli.argparse.ArgumentParser.parse_args')
     @patch('templ_pipeline.cli.workspace_cli.setup_logging')
+    @patch('templ_pipeline.cli.workspace_cli.WORKSPACE_AVAILABLE', True)
     def test_main_list_command(self, mock_setup_logging, mock_parse_args):
         """Test main function with list command."""
         # Mock command line arguments
@@ -216,6 +229,7 @@ class TestWorkspaceCLI(unittest.TestCase):
 
     @patch('templ_pipeline.cli.workspace_cli.argparse.ArgumentParser.parse_args')
     @patch('templ_pipeline.cli.workspace_cli.setup_logging')
+    @patch('templ_pipeline.cli.workspace_cli.WORKSPACE_AVAILABLE', True)
     def test_main_stats_command(self, mock_setup_logging, mock_parse_args):
         """Test main function with stats command."""
         mock_args = Mock()
@@ -234,8 +248,7 @@ class TestWorkspaceCLI(unittest.TestCase):
     @patch('templ_pipeline.cli.workspace_cli.argparse.ArgumentParser.parse_args')
     @patch('templ_pipeline.cli.workspace_cli.setup_logging')
     @patch('templ_pipeline.cli.workspace_cli.WORKSPACE_AVAILABLE', True)
-    @patch('templ_pipeline.cli.workspace_cli.cleanup_old_workspaces')
-    def test_main_cleanup_command(self, mock_cleanup, mock_setup_logging, mock_parse_args):
+    def test_main_cleanup_command(self, mock_setup_logging, mock_parse_args):
         """Test main function with cleanup command."""
         mock_args = Mock()
         mock_args.command = 'cleanup'
@@ -245,15 +258,27 @@ class TestWorkspaceCLI(unittest.TestCase):
         mock_args.log_level = 'INFO'
         mock_parse_args.return_value = mock_args
         
-        mock_cleanup.return_value = {"cleaned": 2, "errors": 0}
+        # Mock the cleanup function since it might not exist
+        mock_cleanup = Mock(return_value={"cleaned": 2, "errors": 0})
+        
+        # Add the missing function to the module temporarily
+        original_func = getattr(workspace_cli, 'cleanup_old_workspaces', None)
+        setattr(workspace_cli, 'cleanup_old_workspaces', mock_cleanup)
         
         try:
-            result = workspace_main()
-        except SystemExit as e:
-            self.assertEqual(e.code, 0)
-        
-        mock_setup_logging.assert_called_once_with('INFO')
-        mock_cleanup.assert_called_once()
+            try:
+                result = workspace_main()
+            except SystemExit as e:
+                self.assertEqual(e.code, 0)
+            
+            mock_setup_logging.assert_called_once_with('INFO')
+            mock_cleanup.assert_called_once()
+        finally:
+            # Restore original state
+            if original_func is None:
+                delattr(workspace_cli, 'cleanup_old_workspaces')
+            else:
+                setattr(workspace_cli, 'cleanup_old_workspaces', original_func)
 
     @patch('sys.argv', ['workspace_cli.py', 'list'])
     def test_main_integration_list(self):

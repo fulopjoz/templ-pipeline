@@ -1,2 +1,0 @@
-{"pdb_id": "1test", "error_message": "Missing PDB file", "context": {"reason": "protein_file_not_found", "details": "Protein file not found for 1test in any of the search paths", "file_type": "protein"}, "timestamp": "2025-08-14T16:59:22.007385"}
-{"pdb_id": "1test", "error_message": "Invalid input data: Protein file not found for 1test: Protein file not found for 1test in any of the search paths", "context": null, "timestamp": "2025-08-14T16:59:22.007453"}

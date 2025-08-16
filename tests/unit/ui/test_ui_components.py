@@ -120,8 +120,13 @@ class TestStatusBarComponent(unittest.TestCase):
         """Set up test fixtures."""
         self.mock_session = Mock(spec=SessionManager)
         
-        # Mock the columns return value
-        self.mock_columns = [Mock(), Mock(), Mock(), Mock()]
+        # Mock the columns return value with context manager support
+        self.mock_columns = []
+        for i in range(4):
+            mock_col = MagicMock()
+            mock_col.__enter__ = Mock(return_value=mock_col)
+            mock_col.__exit__ = Mock(return_value=None)
+            self.mock_columns.append(mock_col)
 
     @patch('templ_pipeline.ui.components.status_bar.st')
     def test_render_status_bar_idle(self, mock_st):
@@ -219,8 +224,13 @@ class TestUIComponentsIntegration(unittest.TestCase):
         # Mock session info for status bar
         self.mock_session.get_session_info.return_value = {"session_id": "test"}
         
-        # Mock st.columns for status bar
-        mock_columns = [Mock(), Mock(), Mock(), Mock()]
+        # Mock st.columns for status bar with context manager support
+        mock_columns = []
+        for i in range(4):
+            mock_col = MagicMock()
+            mock_col.__enter__ = Mock(return_value=mock_col)
+            mock_col.__exit__ = Mock(return_value=None)
+            mock_columns.append(mock_col)
         mock_status_st.columns.return_value = mock_columns
         
         # Render both components

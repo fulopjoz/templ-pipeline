@@ -54,19 +54,18 @@ class ResultsSection:
 
         st.header("Prediction Results")
 
-        # Template Information Badge (NEW)
-        self._render_template_badge()
-
         # Find best pose
         best_method, best_data = self._find_best_pose(poses)
 
         if best_method and best_data:
             mol, scores = best_data
-            self._render_best_pose(best_method, scores)
+            
+            # Create unified single-line layout: Template info (left) | Tanimoto scores (right)
+            self._render_unified_results_layout(scores)
             self._render_score_details(scores)
 
-            # Template Details Section (NEW) - Show first and expanded
-            with st.expander("Template Details", expanded=True):
+            # Template Details Section - More compact and focused
+            with st.expander("Template Analysis", expanded=True):
                 self._render_template_comparison()
 
             # Downloads with actual functionality
@@ -76,14 +75,192 @@ class ResultsSection:
 
 
 
-    def _render_template_badge(self):
-        """Display template information prominently"""
-        # Use the standardized session key for template info
+    def _render_consolidated_template_header(self):
+        """Display template information using native Streamlit components"""
         template_info = self.session.get(SESSION_KEYS["TEMPLATE_INFO"])
-        if template_info:
-            template_pdb = template_info.get("name", "Unknown")
-            # Minimal, clean badge without rank/atoms details
-            st.info(f"Poses generated using template: {template_pdb}")
+        
+        if template_info and isinstance(template_info, dict):
+            # Extract template data
+            template_name = template_info.get("name", "Unknown")
+            ca_rmsd_value = template_info.get("ca_rmsd")
+            mcs_smarts = template_info.get("mcs_smarts")
+            
+            # Process RMSD value and quality
+            rmsd_display = "N/A"
+            quality_indicator = "⚪ Unknown"
+            if ca_rmsd_value:
+                try:
+                    rmsd_val = float(ca_rmsd_value)
+                    rmsd_display = f"{rmsd_val:.2f} Å"
+                    if rmsd_val <= 2.0:
+                        quality_indicator = "🟢 High Quality"
+                    elif rmsd_val <= 5.0:
+                        quality_indicator = "🟡 Moderate"
+                    else:
+                        quality_indicator = "🔴 Low Quality"
+                except (ValueError, TypeError):
+                    rmsd_display = f"{ca_rmsd_value} Å"
+            
+            # Process MCS status
+            mcs_status = "✅ Found" if mcs_smarts and len(mcs_smarts.strip()) > 0 else "❌ None"
+            
+            # Create simple, clean display using native Streamlit components
+            st.markdown("#### Template Context")
+            
+            # Use columns for horizontal layout
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.markdown(f"**Template:** `{template_name}`")
+                
+            with col2:
+                st.markdown(f"**Cα RMSD:** `{rmsd_display}`")
+                
+            with col3:
+                st.markdown(f"**MCS:** {mcs_status}")
+                
+            with col4:
+                st.markdown(f"**Quality:** {quality_indicator}")
+            
+            st.markdown("---")  # Clean separator
+        else:
+            # Fallback for cases without template info
+            st.info("Template information not available")
+
+    def _render_unified_results_layout(self, scores: Dict):
+        """Create unified single-line layout with Tanimoto scores (left) and template info (right)"""
+        
+        # Create two-column layout for the unified display - scores first, template second
+        left_col, right_col = st.columns([5, 4], gap="medium")
+        
+        with left_col:
+            # Tanimoto scores section with TanimotoCombo highlighted and first
+            # Extract score values
+            shape_score = scores.get("shape_score", scores.get("shape", 0))
+            color_score = scores.get("color_score", scores.get("color", 0))
+            combo_score = scores.get("combo_score", scores.get("combo", 0))
+            
+            # Create three columns for scores with TanimotoCombo first and highlighted
+            score_cols = st.columns(3, gap="small")
+            
+            # TanimotoCombo first with highlighting
+            with score_cols[0]:
+                # Determine highlighting based on score quality
+                combo_delta = None
+                combo_color = "normal"
+                if combo_score >= SCORE_EXCELLENT:
+                    combo_delta = "Excellent pose"
+                    combo_color = "normal"
+                elif combo_score >= SCORE_GOOD:
+                    combo_delta = "Good pose"
+                    combo_color = "normal"
+                elif combo_score >= SCORE_FAIR:
+                    combo_delta = "Fair pose"
+                    combo_color = "normal"
+                else:
+                    combo_delta = "Poor pose"
+                    combo_color = "inverse"
+                
+                st.metric("TanimotoCombo", f"{combo_score:.3f}", 
+                         delta=combo_delta, delta_color=combo_color,
+                         help="Primary quality metric - combined shape and pharmacophore similarity (normalized)")
+            
+            # Shape and Color scores
+            with score_cols[1]:
+                st.metric("ShapeTanimoto", f"{shape_score:.3f}", 
+                         help="3D molecular shape similarity to template")
+            with score_cols[2]:
+                st.metric("ColorTanimoto", f"{color_score:.3f}", 
+                         help="Pharmacophore feature similarity to template")
+        
+        with right_col:
+            # Template information section using consistent st.metric components
+            template_info = self.session.get(SESSION_KEYS["TEMPLATE_INFO"])
+            
+            if template_info and isinstance(template_info, dict):
+                # Extract and process template data
+                template_name = template_info.get("name", "Unknown")
+                ca_rmsd_value = template_info.get("ca_rmsd")
+                mcs_smarts = template_info.get("mcs_smarts")
+                
+                # Process RMSD and quality
+                rmsd_display = "N/A"
+                rmsd_delta = None
+                rmsd_color = "normal"
+                quality_label = "Unknown"
+                quality_delta = None
+                quality_color = "normal"
+                
+                if ca_rmsd_value:
+                    try:
+                        rmsd_val = float(ca_rmsd_value)
+                        rmsd_display = f"{rmsd_val:.2f} Å"
+                        if rmsd_val <= 2.0:
+                            quality_label = "High"
+                            quality_delta = "Excellent template"
+                            quality_color = "normal"
+                            rmsd_delta = "Good alignment"
+                        elif rmsd_val <= 5.0:
+                            quality_label = "Moderate"
+                            quality_delta = "Acceptable"
+                            quality_color = "normal"
+                        else:
+                            quality_label = "Low"
+                            quality_delta = "Poor alignment"
+                            quality_color = "inverse"
+                            rmsd_delta = "High deviation"
+                            rmsd_color = "inverse"
+                    except (ValueError, TypeError):
+                        rmsd_display = str(ca_rmsd_value)
+                
+                # Process MCS status - extract atom count instead of Found/None
+                mcs_atom_count = "N/A"
+                mcs_delta = "No common structure"
+                mcs_color = "inverse"
+                
+                if mcs_smarts and len(mcs_smarts.strip()) > 0:
+                    try:
+                        # Try to get atom count from MCS info
+                        mcs_info = self.session.get(SESSION_KEYS["MCS_INFO"])
+                        if mcs_info and hasattr(mcs_info, 'GetNumAtoms'):
+                            mcs_atom_count = str(mcs_info.GetNumAtoms())
+                            mcs_delta = f"{mcs_atom_count} atoms matched"
+                            mcs_color = "normal"
+                        else:
+                            # Fallback: create molecule from SMARTS to get atom count
+                            from rdkit import Chem
+                            mcs_mol = Chem.MolFromSmarts(mcs_smarts)
+                            if mcs_mol:
+                                atom_count = mcs_mol.GetNumAtoms()
+                                mcs_atom_count = str(atom_count)
+                                mcs_delta = f"{atom_count} atoms matched"
+                                mcs_color = "normal"
+                            else:
+                                mcs_atom_count = "Found"
+                                mcs_delta = "Common structure identified"
+                                mcs_color = "normal"
+                    except Exception as e:
+                        # If anything fails, fallback to simple "Found"
+                        mcs_atom_count = "Found"
+                        mcs_delta = "Common structure identified"
+                        mcs_color = "normal"
+                
+                # Create unified template metrics layout
+                template_cols = st.columns(4, gap="small")
+                
+                with template_cols[0]:
+                    st.metric("Template", template_name, help="Template structure used for pose prediction")
+                with template_cols[1]:
+                    st.metric("Cα RMSD", rmsd_display, delta=rmsd_delta, delta_color=rmsd_color, 
+                             help="Root Mean Square Deviation of template alignment")
+                with template_cols[2]:
+                    st.metric("MCS", mcs_atom_count, delta=mcs_delta, delta_color=mcs_color,
+                             help="Maximum Common Substructure atom count between query and template")
+                with template_cols[3]:
+                    st.metric("Quality", quality_label, delta=quality_delta, delta_color=quality_color,
+                             help="Overall template quality assessment")
+            else:
+                st.info("Template information not available")
 
     def _find_best_pose(self, poses: Dict) -> tuple:
         """Find the best pose by combo score
@@ -111,7 +288,7 @@ class ResultsSection:
         return best_method, best_data
 
     def _render_best_pose(self, method: str, scores: Dict):
-        """Render best pose information
+        """Render best pose information using native Streamlit components
 
         Args:
             method: Method name
@@ -119,51 +296,41 @@ class ResultsSection:
         """
         st.markdown("### Best Predicted Pose")
 
-        # Score metrics
-        col1, col2, col3 = st.columns(3)
-
+        # Extract score values
         shape_score = scores.get("shape_score", scores.get("shape", 0))
         color_score = scores.get("color_score", scores.get("color", 0))
         combo_score = scores.get("combo_score", scores.get("combo", 0))
 
+        # Use native Streamlit metric components for clean, consistent display
+        col1, col2, col3 = st.columns(3)
+        
         with col1:
             st.metric("ShapeTanimoto", f"{shape_score:.3f}")
         with col2:
             st.metric("ColorTanimoto", f"{color_score:.3f}")
         with col3:
-            st.metric("TanimotoCombo (Normalized)", f"{combo_score:.3f}")
+            st.metric("TanimotoCombo", f"{combo_score:.3f}")
 
     def _render_score_details(self, scores: Dict):
-        """Render detailed score interpretation for pose prediction with scientific explanations
+        """Render scientific methodology information (quality assessment now in unified layout)
 
         Args:
             scores: Score dictionary
         """
         combo_score = scores.get("combo_score", scores.get("combo", 0))
 
-        # Determine quality level using pose prediction standards
+        # Determine explanation for methodology section
         if combo_score >= SCORE_EXCELLENT:
-            quality = "Excellent - High confidence pose"
-            color = "green"
-            explanation = "High confidence pose - proceed with confidence"
+            explanation = "High confidence pose"
         elif combo_score >= SCORE_GOOD:
-            quality = "Good - Reliable pose prediction"
-            color = "blue"
-            explanation = "Reliable pose prediction - suitable for drug design"
+            explanation = "Reliable pose prediction"
         elif combo_score >= SCORE_FAIR:
-            quality = "Fair - Moderate confidence"
-            color = "orange"
-            explanation = "Moderate confidence - consider additional validation"
+            explanation = "Moderate confidence"
         else:
-            quality = "Poor - Low confidence, consider alternatives"
-            color = "red"
-            explanation = "Low confidence - try alternative approaches"
-
-        # Display quality assessment with enhanced help
-        st.markdown(f"**Quality Assessment:** :{color}[{quality}]")
+            explanation = "Low confidence"
         
-        # Enhanced help section with modern UI/UX - moved after template details
-        with st.expander("Scoring Guide & Scientific References", expanded=False):
+        # Scientific methodology section (quality assessment now integrated in unified layout)
+        with st.expander("Scientific Assessment & Methodology", expanded=False):
             self._render_enhanced_help_content(combo_score, explanation)
 
     def _render_enhanced_help_content(self, combo_score: float, explanation: str):
@@ -173,215 +340,123 @@ class ResultsSection:
             combo_score: Current combo score
             explanation: Context-specific explanation
         """
-        # Add custom CSS for better styling
-        st.markdown("""
-        <style>
-        .help-tab-content {
-            padding: 10px 0;
-            line-height: 1.6;
-        }
-        .help-metric {
-            background-color: #f0f2f6;
-            padding: 8px 12px;
-            border-radius: 6px;
-            margin: 5px 0;
-            border-left: 4px solid #1f77b4;
-        }
-        .help-link {
-            color: #1f77b4;
-            text-decoration: none;
-            font-weight: 500;
-        }
-        .help-link:hover {
-            text-decoration: underline;
-            color: #0d5aa7;
-        }
-        </style>
-        """, unsafe_allow_html=True)
         
-        # Create tabbed interface for organized information
-        tab1, tab2, tab3, tab4 = st.tabs([
-            "Quick Guide",
-            "Methodology", 
-            "References",
-            "Thresholds"
+        # Create simplified 2-section interface for better user experience
+        tab1, tab2 = st.tabs([
+            "Methodology & Assessment",
+            "Scientific Basis"
         ])
         
         with tab1:
-            self._render_quick_guide(combo_score, explanation)
-        
+            self._render_methodology_and_assessment(combo_score, explanation)
+            
         with tab2:
-            self._render_methodology_section()
-            
-        with tab3:
-            self._render_references_section()
-            
-        with tab4:
-            self._render_thresholds_section(combo_score)
+            self._render_scientific_basis()
 
-    def _render_quick_guide(self, combo_score: float, explanation: str):
-        """Render quick guide tab with essential information"""
-        st.markdown('<div class="help-tab-content">', unsafe_allow_html=True)
+    def _render_methodology_and_assessment(self, combo_score: float, explanation: str):
+        """Render consolidated methodology and assessment section using native Streamlit components"""
         
-        st.markdown("### Your Result")
-        st.info(f"**Current Score: {combo_score:.3f}** - {explanation}")
+        # Current Assessment - Clean, minimal presentation
+        st.markdown("#### Current Assessment")
         
-        st.markdown("### Quick Interpretation")
-        if combo_score >= SCORE_EXCELLENT:
-            st.success("**Excellent**: Top-tier pose quality - proceed with confidence")
-        elif combo_score >= SCORE_GOOD:
-            st.info("**Good**: Reliable pose prediction - suitable for drug design")
-        elif combo_score >= SCORE_FAIR:
-            st.warning("**Fair**: Moderate confidence - consider additional validation")
-        else:
-            st.error("**Poor**: Low confidence - try alternative approaches")
+        # Create containers for clean layout
+        assessment_container = st.container()
         
-        st.markdown("### Key Points")
-        st.markdown("""
-        - **Higher scores** indicate better pose accuracy
-        - **RMSD** measures deviation from experimental structure
-        - **Validation** recommended for critical applications
-        - **Literature** thresholds guide interpretation
-        """)
-        
-        st.markdown('</div>', unsafe_allow_html=True)
+        with assessment_container:
+            # TanimotoCombo Score
+            st.markdown(f"**TanimotoCombo Score:** `{combo_score:.3f}` - {explanation}")
+            
+            # Cα RMSD information now displayed in consolidated header above
+            
+            # Quality indicator
+            if combo_score >= SCORE_EXCELLENT:
+                quality_desc = "Excellent - High confidence"
+            elif combo_score >= SCORE_GOOD:
+                quality_desc = "Good - Reliable prediction"
+            elif combo_score >= SCORE_FAIR:
+                quality_desc = "Fair - Moderate confidence"
+            else:
+                quality_desc = "Poor - Low confidence"
+            
+            st.markdown(f"**Quality Assessment:** {quality_desc}")
 
-    def _render_methodology_section(self):
-        """Render methodology tab with scientific explanation"""
-        st.markdown('<div class="help-tab-content">', unsafe_allow_html=True)
+        st.divider()
         
+        # Methodology
         st.markdown("### TEMPL Scoring Methodology")
+        st.markdown("**Template-based pose prediction** using 3D molecular similarity and constrained conformer generation.")
         
-        st.markdown("""
-        **Template-Based Pose Prediction** leverages 3D molecular similarity 
-        to predict binding conformations from known ligand-protein complexes.
-        """)
+        st.markdown("")  # Add some spacing
         
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown('<div class="help-metric">', unsafe_allow_html=True)
-            st.markdown("""
-            **Shape Tanimoto (ST)**
-            - Volumetric overlap coefficient
-            - Measures 3D shape complementarity
-            - Score: 0.0 (no overlap) → 1.0 (identical)
-            """)
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("**TanimotoCombo Score**")
+            st.markdown("- Combined shape and pharmacophore similarity")
+            st.markdown("- Normalized scale: 0.0 → 1.0") 
+            st.markdown("- Formula: (ShapeTanimoto + ColorTanimoto) / 2")
             
         with col2:
-            st.markdown('<div class="help-metric">', unsafe_allow_html=True)
-            st.markdown("""
-            **Color Tanimoto (CT)**
-            - Pharmacophoric feature similarity
-            - Score: 0.0 (dissimilar) → 1.0 (identical)
-            """)
-            st.markdown('</div>', unsafe_allow_html=True)
-
+            st.markdown("**Cα RMSD Context**")
+            st.markdown("- Measures template alignment quality")
+            st.markdown("- Lower values indicate better structural match")
+            st.markdown("- >5 Å may compromise pose accuracy")
         
-        st.markdown("### TanimotoCombo Score")
-        st.markdown("""
-        **Combined 3D Similarity Metric** integrating both shape and pharmacophoric features:
-        """)
-
-        # Use LaTeX for better formula rendering
-        st.latex(r'''
-        \text{TanimotoCombo} = \frac{\text{Shape}_T + \text{Color}_T}{2}
-        ''')
-
-        st.info("""
-        **Interpretation:** Scores > 0.7 indicate high 3D similarity and reliable pose prediction
-        """)
-
+        st.divider()
         
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    def _render_references_section(self):
-        """Render references tab with hyperlinked scientific papers"""
-        st.markdown('<div class="help-tab-content">', unsafe_allow_html=True)
+        # Quality Thresholds
+        st.markdown("### Quality Thresholds & Expected Performance")
         
-        st.markdown("### Key Scientific References")
-        
-        st.markdown("""
-        Studies used to determine final TEMPL score thresholds:
-        """)
-        
-        # Reference 1: CB-Dock2
-        st.markdown("""
-        **1. CB-Dock2: Improved Protein-Ligand Blind Docking**
-        - 85% success rate at RMSD < 2.0 Å
-        - Protein-ligand blind docking
-        - [Read Paper](https://academic.oup.com/nar/article/50/W1/W159/6591526)
-        - *Nucleic Acids Research, 2022*
-        """)
-        
-        # Reference 2: Uni-Mol Docking V2
-        st.markdown("""
-        **2. Uni-Mol Docking V2: Realistic Binding Pose Prediction**
-        - 77% accuracy for poses with RMSD < 2.0 Å
-        - Modern benchmark for pose prediction
-        - [Read Paper](https://arxiv.org/abs/2405.11769)
-        - *arXiv preprint, 2024*
-        """)
-        
-        # Reference 3: POSIT
-        st.markdown("""
-        **3. POSIT: Flexible Shape-Guided Docking**
-        - Largest prospective validation (71 structures)
-        - Shape-guided pose prediction emphasis
-        - [Read Paper](https://pubs.acs.org/doi/full/10.1021/acs.jcim.5b00142)
-        - *J. Chem. Inf. Model., 2015*
-        """)
-        
-        # Reference 4: DeepBSP
-        st.markdown("""
-        **4. DeepBSP: Machine Learning Pose Quality Assessment**
-        - Direct RMSD prediction methodology
-        - Validates RMSD-based quality assessment
-        - [Read Paper](https://pubs.acs.org/doi/10.1021/acs.jcim.1c00334)
-        - *J. Chem. Inf. Model., 2021*
-        """)
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    def _render_thresholds_section(self, combo_score: float):
-        """Render thresholds tab with quality assessment details"""
-        st.markdown('<div class="help-tab-content">', unsafe_allow_html=True)
-        
-        st.markdown("### TEMPL Quality Thresholds")
-        
-        # Visual indicators for each threshold
-        st.success("**Excellent (≥ 0.80)**: High confidence pose")
-        st.markdown("Proceed with confidence")
-        
-        st.info("**Good (≥ 0.65)**: Reliable pose prediction") 
-        st.markdown("Suitable for drug design")
-        
-        st.warning("**Fair (≥ 0.45)**: Moderate confidence")
-        st.markdown("Consider additional validation")
-        
-        st.error("**Poor (< 0.45)**: Low confidence")
-        st.markdown("Try alternative approaches")
-        
-        st.markdown("### Current Assessment")
+        # Current assessment summary at the top
         current_quality = self._get_quality_label(combo_score)
         expected_rmsd = self._get_expected_rmsd(combo_score)
+        st.markdown(f"**Your prediction:** {current_quality} - {expected_rmsd}")
         
-        st.markdown(f"""
-        **Your Score: {combo_score:.3f}**
-        - Quality: {current_quality}
-        - {expected_rmsd}
-        """)
+        st.markdown("")  # Add spacing
         
-        st.markdown("### Performance Standards")
-        st.markdown("""
-        Based on literature benchmarks:
-        - **Success Criterion**: RMSD ≤ 2.0 Å from experimental structure
-        - **High Performance**: 75-85% success rate (modern tools)
-        - **Typical Performance**: 60-75% success rate (traditional methods)
-        """)
+        # Use 2x2 grid layout for thresholds
+        row1_col1, row1_col2 = st.columns(2)
+        row2_col1, row2_col2 = st.columns(2)
         
-        st.markdown('</div>', unsafe_allow_html=True)
+        with row1_col1:
+            st.markdown("**Excellent (≥ 0.80)**")
+            st.text("RMSD ≤ 1.0 Å expected")
+            
+        with row1_col2:
+            st.markdown("**Good (≥ 0.65)**")
+            st.text("RMSD ≤ 2.0 Å expected")
+            
+        with row2_col1:
+            st.markdown("**Fair (≥ 0.45)**")
+            st.text("RMSD 2.0-3.0 Å expected")
+            
+        with row2_col2:
+            st.markdown("**Poor (< 0.45)**")
+            st.text("RMSD > 3.0 Å expected")
+
+    def _render_scientific_basis(self):
+        """Render simplified scientific basis section focusing on POSIT"""
+        
+        st.markdown("### Scientific Foundation")
+        
+        st.markdown("TEMPL's scoring methodology is inspired by **Figure 4** from the POSIT paper.")
+        
+        st.markdown("")
+        
+        # Primary reference
+        st.markdown("**POSIT: Flexible Shape-Guided Docking For Pose Prediction**")
+        st.markdown("- [Read Paper](https://pubs.acs.org/doi/full/10.1021/acs.jcim.5b00142) | *J. Chem. Inf. Model., 2015*")
+        
+        st.markdown("")
+        
+        st.markdown("### TEMPL Implementation")
+        st.markdown("- **3D similarity scoring** based on shape and pharmacophore alignment")
+        st.markdown("- **Template-guided approach** leveraging known protein-ligand complexes") 
+        st.markdown("- **Conservative thresholds** ensuring meaningful quality discrimination")
+        st.markdown("- **Cα RMSD integration** for template alignment quality assessment")
+
+
+
 
     def _get_quality_label(self, score: float) -> str:
         """Get quality label for a given score"""
@@ -407,17 +482,16 @@ class ResultsSection:
 
 
     def _render_template_comparison(self):
-        """Render template molecule comparison in details section"""
+        """Render compact template molecule comparison"""
         try:
             template_mol = self.session.get(SESSION_KEYS["TEMPLATE_USED"])
             query_mol = self.session.get(SESSION_KEYS["QUERY_MOL"])
             mcs_info = self.session.get(SESSION_KEYS["MCS_INFO"])
+            template_info = self.session.get(SESSION_KEYS["TEMPLATE_INFO"])
 
-            # Debug: Check what type of objects we have
-            logger.info(f"template_mol type: {type(template_mol)}")
-            logger.info(f"query_mol type: {type(query_mol)}")
-            logger.info(f"mcs_info type: {type(mcs_info)}")
+            # Template information now consolidated in header - proceed directly to molecular visualization
 
+            # Molecular visualization section
             if template_mol or query_mol:
                 col1, col2, col3 = st.columns(3)
 
@@ -430,7 +504,7 @@ class ResultsSection:
                     )
                     
                     if query_molecule:
-                        display_molecule(query_molecule, width=400, height=400)
+                        display_molecule(query_molecule, width=300, height=300)
                     else:
                         # Always attempt to render from current SMILES directly as ultimate fallback
                         if input_smiles:
@@ -439,14 +513,14 @@ class ResultsSection:
                                 fallback_mol = Chem.MolFromSmiles(input_smiles)
                                 if fallback_mol:
                                     fallback_mol.SetProp("original_smiles", input_smiles)
-                                    display_molecule(fallback_mol, width=400, height=400)
+                                    display_molecule(fallback_mol, width=300, height=300)
                                 else:
-                                    st.error("Query molecule data not available")
+                                    st.info("Query structure not available")
                             except Exception as e:
                                 logger.error(f"SMILES fallback visualization failed: {e}")
-                                st.error("Query molecule data not available")
+                                st.info("Query structure not available")
                         else:
-                            st.error("Query molecule data not available")
+                            st.info("Query structure not available")
 
                 with col2:
                     st.markdown("**Template**")
@@ -456,10 +530,9 @@ class ResultsSection:
                     )
                     
                     if template_molecule:
-                        display_molecule(template_molecule, width=400, height=400)
+                        display_molecule(template_molecule, width=300, height=300)
                     else:
                         # Enhanced fallback with template info
-                        template_info = self.session.get(SESSION_KEYS["TEMPLATE_INFO"])
                         if template_info and isinstance(template_info, dict):
                             template_name = template_info.get("name", "Unknown")
                             template_smiles = template_info.get("template_smiles")
@@ -470,20 +543,16 @@ class ResultsSection:
                                     from rdkit import Chem
                                     fallback_template_mol = Chem.MolFromSmiles(template_smiles)
                                     if fallback_template_mol:
-                                        display_molecule(fallback_template_mol, width=400, height=400)
-                                        st.success(f"Template: {template_name}")
+                                        display_molecule(fallback_template_mol, width=300, height=300)
                                     else:
-                                        st.warning(f"Template: {template_name}")
-                                        st.code(f"SMILES: {template_smiles}")
+                                        st.info(f"Template: {template_name}")
                                 except Exception as e:
                                     logger.error(f"Template SMILES fallback visualization failed: {e}")
-                                    st.warning(f"Template: {template_name}")
-                                    st.code(f"SMILES: {template_smiles}")
+                                    st.info(f"Template: {template_name}")
                             else:
-                                st.warning(f"Template: {template_name}")
-                                st.info("No molecular structure available")
+                                st.info(f"Template: {template_name}")
                         else:
-                            st.error("Template information not available")
+                            st.info("Template not available")
 
                 with col3:
                     st.markdown("**Common Substructure**")
@@ -492,16 +561,9 @@ class ResultsSection:
                     mcs_molecule = create_mcs_molecule_from_info(mcs_info)
                     
                     if mcs_molecule:
-                        display_molecule(mcs_molecule, width=400, height=400)
-                        # Show atom count if available
-                        try:
-                            atom_count = mcs_molecule.GetNumAtoms()
-                            st.success(f"MCS found ({atom_count} atoms)")
-                        except:
-                            st.success("MCS structure displayed")
+                        display_molecule(mcs_molecule, width=300, height=300)
                     else:
                         # Try to get MCS from template_info as fallback
-                        template_info = self.session.get(SESSION_KEYS["TEMPLATE_INFO"])
                         mcs_found = False
                         
                         if template_info and isinstance(template_info, dict):
@@ -509,94 +571,19 @@ class ResultsSection:
                             if mcs_smarts and len(mcs_smarts.strip()) > 0:
                                 mcs_mol_fallback = create_mcs_molecule_from_info(mcs_smarts)
                                 if mcs_mol_fallback:
-                                    display_molecule(mcs_mol_fallback, width=400, height=400)
-                                    try:
-                                        atom_count = mcs_mol_fallback.GetNumAtoms()
-                                        st.success(f"MCS found ({atom_count} atoms)")
-                                    except:
-                                        st.success("MCS structure displayed")
+                                    display_molecule(mcs_mol_fallback, width=300, height=300)
                                     mcs_found = True
                         
                         if not mcs_found:
-                            # Show informative message about MCS status
-                            if mcs_info is None:
-                                st.info("No MCS analysis performed")
-                            elif isinstance(mcs_info, dict) and not any(mcs_info.get(key) for key in ["smarts", "mcs_smarts"]):
-                                st.info("No significant common substructure found")
-                            else:
-                                st.warning("Could not display MCS structure")
+                            st.info("No significant MCS found")
 
-                # Additional template information
-                template_info = self.session.get(SESSION_KEYS["TEMPLATE_INFO"])
-                if template_info:
-                    st.markdown("---")
-                    
-                    # Display MCS SMARTS if available
-                    if isinstance(template_info, dict):
-                        mcs_smarts = template_info.get("mcs_smarts")
-                        if mcs_smarts and len(mcs_smarts.strip()) > 0:
-                            st.markdown(f"**MCS SMARTS:** `{mcs_smarts}`")
-                        
-                        # Display additional template info in columns
-                        info_col1, info_col2 = st.columns(2)
-                        
-                        with info_col1:
-                            if template_info.get("name"):
-                                st.markdown(f"**Template:** {template_info['name']}")
-                        
-                        with info_col2:
-                            if template_info.get("ca_rmsd"):
-                                try:
-                                    ca_rmsd_value = float(template_info['ca_rmsd'])
-                                    st.markdown(f"**CA RMSD:** {ca_rmsd_value:.2f} Å")
-                                except (ValueError, TypeError):
-                                    st.markdown(f"**CA RMSD:** {template_info['ca_rmsd']} Å")
+                # Compact additional information
+                if template_info and isinstance(template_info, dict):
+                    mcs_smarts = template_info.get("mcs_smarts")
+                    if mcs_smarts and len(mcs_smarts.strip()) > 0:
+                        with st.expander("MCS Details", expanded=False):
+                            st.code(f"SMARTS: {mcs_smarts}")
                             
-                # Debug info display for troubleshooting (only in debug mode)
-                if st.session_state.get("debug_mode", False):
-                    with st.expander("🔍 Debug Info - Molecule Data"):
-                        st.markdown("**Session Data Types:**")
-                        st.write(f"- Template: {type(template_mol)}")
-                        st.write(f"- Query: {type(query_mol)}")
-                        st.write(f"- MCS Info: {type(mcs_info)}")
-                        st.write(f"- Template Info: {type(template_info)}")
-                        
-                        if template_info and isinstance(template_info, dict):
-                            st.markdown("**Template Info Contents:**")
-                            for key, value in template_info.items():
-                                st.write(f"  - {key}: {value}")
-                        
-                        if mcs_info:
-                            st.markdown("**MCS Info Contents:**")
-                            if isinstance(mcs_info, dict):
-                                for key, value in mcs_info.items():
-                                    if key == "smarts" or key == "mcs_smarts":
-                                        st.write(f"  - {key}: `{value}`")
-                                    else:
-                                        st.write(f"  - {key}: {value} ({type(value)})")
-                            else:
-                                st.write(f"  - Type: {type(mcs_info)}")
-                                st.write(f"  - Value: {str(mcs_info)[:200]}...")
-                        
-                        # Test molecule retrieval functions
-                        st.markdown("**Retrieval Function Tests:**")
-                        try:
-                            # Test template retrieval (functions already imported at top)
-                            test_template = get_molecule_from_session(self.session, SESSION_KEYS["TEMPLATE_USED"])
-                            st.write(f"  - Template retrieval test: {type(test_template)} ({'success' if test_template else 'failed'})")
-                            
-                            # Test MCS creation
-                            test_mcs = create_mcs_molecule_from_info(mcs_info)
-                            st.write(f"  - MCS creation test: {type(test_mcs)} ({'success' if test_mcs else 'failed'})")
-                            
-                            if test_mcs:
-                                try:
-                                    st.write(f"  - MCS atoms: {test_mcs.GetNumAtoms()}")
-                                except:
-                                    st.write("  - Could not get MCS atom count")
-                                    
-                        except Exception as debug_error:
-                            st.write(f"  - Debug test error: {debug_error}")
             else:
                 st.info("Template comparison not available")
                 logger.debug("No template or query molecule data available for comparison")

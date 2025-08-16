@@ -332,7 +332,12 @@ class PipelineService:
                 return None
 
             if progress_callback:
-                progress_callback("Predicting poses...", 80)
+                progress_callback("Searching for template structures...", 35)
+                progress_callback("Predicting molecular poses...", 45)
+                progress_callback("Generating conformations...", 55)
+                progress_callback("Optimizing pose geometry...", 65)
+                progress_callback("Scoring predicted poses...", 75)
+                progress_callback("Ranking pose solutions...", 85)
                 progress_callback("Finalizing results...", 95)
                 progress_callback("Complete!", 100)
 

@@ -135,24 +135,55 @@ def mock_streamlit():
     return mock_st
 
 
-@pytest.fixture(scope="session")
-def ui_test_environment(mock_streamlit):
+@pytest.fixture(scope="function")
+def ui_test_environment():
     """
     Set up UI testing environment with proper mocks.
-
-    Args:
-        mock_streamlit: Mock streamlit fixture
 
     Yields:
         dict: UI test environment configuration
     """
+    # Create session-wide streamlit mock
+    mock_st = MagicMock()
+
+    # Configure cache decorators
+    def mock_cache_data(*args, **kwargs):
+        if len(args) == 1 and callable(args[0]) and not kwargs:
+            return args[0]
+        else:
+            def decorator(func):
+                return func
+            return decorator
+
+    def mock_cache_resource(*args, **kwargs):
+        if len(args) == 1 and callable(args[0]) and not kwargs:
+            return args[0]
+        else:
+            def decorator(func):
+                return func
+            return decorator
+
+    # Configure mock attributes
+    mock_st.cache_data = mock_cache_data
+    mock_st.cache_resource = mock_cache_resource
+    mock_st.session_state = {}
+    mock_st.set_page_config = MagicMock()
+    mock_st.markdown = MagicMock()
+    mock_st.title = MagicMock()
+    mock_st.sidebar = MagicMock()
+    mock_st.columns = MagicMock(return_value=[MagicMock(), MagicMock()])
+    mock_st.button = MagicMock(return_value=False)
+    mock_st.text_input = MagicMock(return_value="")
+    mock_st.selectbox = MagicMock(return_value="")
+    mock_st.file_uploader = MagicMock(return_value=None)
+
     # Set up module mocks
     with patch.dict(
         "sys.modules",
-        {"streamlit": mock_streamlit, "py3Dmol": MagicMock(), "stmol": MagicMock()},
+        {"streamlit": mock_st, "py3Dmol": MagicMock(), "stmol": MagicMock()},
     ):
         yield {
-            "streamlit": mock_streamlit,
+            "streamlit": mock_st,
             "py3Dmol": sys.modules["py3Dmol"],
             "stmol": sys.modules["stmol"],
         }
@@ -408,8 +439,8 @@ def sample_mol():
     return Chem.MolFromSmiles("CCO")
 
 
-@pytest.fixture
-def mock_streamlit():
+@pytest.fixture(scope="function")
+def mock_streamlit_state():
     """Mock Streamlit session state for UI tests"""
     if not STREAMLIT_AVAILABLE:
         # Create a mock session state when streamlit is not available
