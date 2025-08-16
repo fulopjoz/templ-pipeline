@@ -1,0 +1,46 @@
+# PDBBind Dataset Configuration Template
+# Copy this file to 'datasets.yaml' and fill in your authorized URLs
+# 
+# IMPORTANT: The actual 'datasets.yaml' file should NOT be committed to git
+# as it contains restricted dataset download URLs that cannot be publicly shared
+# due to PDBBind licensing restrictions.
+#
+# To obtain proper access to PDBBind datasets:
+# 1. Visit the official PDBBind website: http://www.pdbbind.org.cn/
+# 2. Register for authorized access
+# 3. Follow the official download procedures
+# 4. Fill in your authorized URLs below
+
+pdbind:
+  # PDBBind v2020 configuration
+  v2020:
+    # Base directory for downloads (relative to container or absolute path)
+    base_dir: "/app/data/PDBBind"
+    
+    # Dataset URLs - Replace with your authorized download URLs
+    datasets:
+      refined:
+        # URL for PDBBind v2020 refined set
+        url: "YOUR_AUTHORIZED_REFINED_DATASET_URL"
+        filename: "PDBbind_v2020_refined.tar.gz"
+        extract_dir: "PDBbind_v2020_refined"
+        description: "PDBBind v2020 refined set - high quality protein-ligand complexes"
+        
+      other_pl:
+        # URL for PDBBind v2020 other PL set  
+        url: "YOUR_AUTHORIZED_OTHER_PL_DATASET_URL"
+        filename: "PDBbind_v2020_other_PL.tar.gz"
+        extract_dir: "PDBbind_v2020_other_PL"
+        description: "PDBBind v2020 other PL set - additional protein-ligand complexes"
+
+# Environment variable fallbacks (optional)
+# These can be set as environment variables:
+# - PDBIND_REFINED_URL
+# - PDBIND_OTHER_PL_URL
+# - PDBIND_BASE_DIR
+
+# Licensing Information:
+# PDBBind dataset is provided under specific licensing terms
+# Users must obtain proper authorization before downloading
+# Public redistribution of download URLs is prohibited
+# Please respect the dataset creators' licensing terms
