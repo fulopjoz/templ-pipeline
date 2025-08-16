@@ -190,6 +190,15 @@ secrets.yaml
 *.p12
 *.pfx
 
+# Dataset configuration with sensitive URLs
+config/datasets.yaml
+SETUP_PRIVATE.md
+
+# Git history cleanup artifacts
+bfg.jar
+git-cleanup-log.txt
+url-replacements.txt
+
 # Docker and deployment
 Dockerfile.optimized
 templ-app-optimized.yaml
