@@ -11,30 +11,20 @@ This directory contains the GitHub Actions workflows for the TEMPL Pipeline proj
    - Includes linting (black, isort, flake8, mypy)
    - Security checks (bandit, safety)
    - Coverage reporting to Codecov
+   - SonarCloud analysis (on master/dev pushes)
    - Artifact uploads for test results
 
 ### Specialized Workflows
 
-3. **`sonarcloud.yml`** - Code quality analysis
-   - Runs SonarCloud analysis
-   - Generates coverage reports
-   - Quality gate enforcement
-
-4. **`cffconvert.yml`** - Citation file management
+2. **`cffconvert.yml`** - Citation file management
    - Validates and converts citation.cff
    - Generates multiple citation formats
    - Runs on citation file changes
 
-5. **`livetests.yml`** - Manual test execution
+3. **`livetests.yml`** - Manual test execution
    - Workflow dispatch for manual testing
    - Integration, performance, and UI test options
    - Useful for debugging and validation
-
-### Legacy Workflows (Deprecated)
-
-- **`tests.yml`** - Replaced by `ci.yml`
-  - Kept for backward compatibility
-  - Will be removed in future releases
 
 ## Best Practices Implemented
 
@@ -48,6 +38,7 @@ This directory contains the GitHub Actions workflows for the TEMPL Pipeline proj
 - **Security Scanning**: Bandit and Safety checks for vulnerabilities
 - **Code Quality**: Black, isort, flake8, and mypy for code standards
 - **Coverage Tracking**: Comprehensive coverage reporting
+- **SonarCloud Integration**: Automated code quality analysis
 - **Artifact Retention**: Configurable retention periods
 
 ### Maintainability
@@ -70,8 +61,8 @@ This directory contains the GitHub Actions workflows for the TEMPL Pipeline proj
 ## Usage
 
 ### Automatic Triggers
-- Push to master/dev: Runs CI, SonarCloud
-- Pull requests: Runs CI and SonarCloud
+- Push to master/dev: Runs CI (includes SonarCloud)
+- Pull requests: Runs CI (without SonarCloud)
 - Citation changes: Runs cffconvert
 
 ### Manual Triggers
