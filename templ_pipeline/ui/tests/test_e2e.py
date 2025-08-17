@@ -249,15 +249,18 @@ class TestStreamlitE2E:
 ATOM      1  CA  ALA A   1      20.0  16.0  10.0  1.00 20.00           C
 END
 """
-                    with tempfile.NamedTemporaryFile(
-                        mode="w", suffix=".pdb", delete=False
-                    ) as f:
-                        f.write(test_file_content)
-                        test_file_path = f.name
-
+                    # Use async-compatible file creation
+                    test_file_path = None
                     try:
+                        # Create temp file with unique name
+                        temp_dir = Path(tempfile.gettempdir())
+                        test_file_path = temp_dir / f"test_protein_{os.getpid()}_{time.time()}.pdb"
+                        
+                        # Write file content
+                        test_file_path.write_text(test_file_content)
+
                         # Upload file to the first file upload widget
-                        await file_uploads[0].set_input_files(test_file_path)
+                        await file_uploads[0].set_input_files(str(test_file_path))
 
                         # Wait for processing
                         await self.test_base.page.wait_for_timeout(2000)
@@ -278,7 +281,9 @@ END
                         )
 
                     finally:
-                        os.unlink(test_file_path)
+                        # Clean up the temporary file
+                        if test_file_path and test_file_path.exists():
+                            test_file_path.unlink()
 
             finally:
                 await self.test_base.teardown_browser()
