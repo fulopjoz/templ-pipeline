@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
 """Layout modules for TEMPL Pipeline UI"""
 
 from .main_layout import MainLayout

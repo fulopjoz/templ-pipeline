@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
 """Utility modules for TEMPL Pipeline UI"""
 
 from .performance_monitor import PerformanceMonitor

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
 """
 TEMPL Pipeline: Template-based Protein-Ligand pose prediction
 
@@ -12,7 +14,7 @@ Main components:
 - benchmark: Benchmarking tools
 - ui: Streamlit web application
 
-Author: Cursor AI, 2025
+Author: TEMPL Team, 2025
 """
 
 import importlib

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
 """Core modules for TEMPL Pipeline UI"""
 
 from .session_manager import SessionManager, get_session_manager

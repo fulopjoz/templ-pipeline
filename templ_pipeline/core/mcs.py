@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
 #!/usr/bin/env python3
 """Maximum Common Substructure (MCS) functionality for template-based pose prediction."""
 

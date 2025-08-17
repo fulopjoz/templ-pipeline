@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
 """Dataset utilities for time-split management in the TEMPL pipeline.
 
 This module provides utilities for handling dataset splits and filtering:

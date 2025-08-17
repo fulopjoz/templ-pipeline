@@ -1,0 +1,59 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: templ-pipeline
+Upstream-Contact: TEMPL Team
+Source: https://github.com/fulopjoz/templ-pipeline
+
+# Main project files
+Files: *.py
+Copyright: 2025 TEMPL Team
+License: MIT
+
+Files: *.md
+Copyright: 2025 TEMPL Team
+License: MIT
+
+Files: *.sh
+Copyright: 2025 TEMPL Team
+License: MIT
+
+Files: *.yaml
+Copyright: 2025 TEMPL Team
+License: MIT
+
+Files: *.yml
+Copyright: 2025 TEMPL Team
+License: MIT
+
+Files: *.json
+Copyright: 2025 TEMPL Team
+License: MIT
+
+Files: *.cff
+Copyright: 2025 TEMPL Team
+License: MIT
+
+Files: *.txt
+Copyright: 2025 TEMPL Team
+License: MIT
+
+Files: *.toml
+Copyright: 2025 TEMPL Team
+License: MIT
+
+# License files
+Files: LICENSES/MIT.txt
+Copyright: 2025 TEMPL Team
+License: MIT
+
+# Exclude third-party files
+Files: data/PDBBind/*
+Copyright: PDBbind
+License: PDBbind-License
+
+Files: .templ/*
+Copyright: Various
+License: Various
+
+Files: __pycache__/*
+Copyright: Various
+License: Various

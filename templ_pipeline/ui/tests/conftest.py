@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
 """
 Pytest configuration and fixtures for TEMPL Pipeline UI tests.
 """

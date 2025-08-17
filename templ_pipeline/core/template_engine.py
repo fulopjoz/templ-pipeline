@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
 """Template Engine Module for TEMPL Pipeline."""
 
 from typing import Dict, List, Any

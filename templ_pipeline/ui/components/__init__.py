@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
 """UI Components for TEMPL Pipeline"""
 
 from .header import render_header

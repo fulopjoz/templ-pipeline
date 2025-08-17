@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
 """
 TEMPL Pipeline Authentication Module
 Provides secure password authentication for Streamlit web interface

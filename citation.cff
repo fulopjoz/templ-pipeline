@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+title: "TEMPL: Template-based protein-ligand pose prediction"
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: "Fülöp"
+    given-names: "J."
+  - family-names: "Šícho"
+    given-names: "M."
+  - family-names: "Dehaen"
+    given-names: "W."
+abstract: "TEMPL is a template-based method for rapid protein-ligand pose prediction that leverages ligand similarity and template superposition. The method uses maximal common substructure (MCS) alignment and constrained conformer generation (ETKDG v3) for pose generation within known chemical space."
+keywords:
+  - "protein-ligand docking"
+  - "pose prediction"
+  - "template-based"
+  - "molecular dynamics"
+  - "cheminformatics"
+  - "drug discovery"
+license: MIT
+repository: "https://github.com/fulopjoz/templ-pipeline"
+repository-code: "https://github.com/fulopjoz/templ-pipeline"
+url: "https://templ.dyn.cloud.e-infra.cz/"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.15813500"
+  - type: url
+    value: "https://github.com/fulopjoz/templ-pipeline"
+version: "1.0.0"
+date-released: 2025-01-XX

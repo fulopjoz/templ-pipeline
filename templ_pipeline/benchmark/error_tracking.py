@@ -1,5 +1,7 @@
 
 
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
 import json
 import logging
 from pathlib import Path

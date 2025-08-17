@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # run_custom_split_benchmark.py - Run benchmarking using custom, pre-defined splits
 
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
 import os
 import json
 import logging

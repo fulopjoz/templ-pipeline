@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
 """
 Smart test execution script with automatic configuration selection.
 Provides optimized testing configurations for different scenarios.

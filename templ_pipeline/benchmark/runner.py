@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
 """
 Internal benchmark runner for TEMPL pipeline.
 Provides benchmark-specific interface to core TEMPL functionality.

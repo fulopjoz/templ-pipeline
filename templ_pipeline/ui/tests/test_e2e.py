@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
 """
 End-to-End Testing Framework for TEMPL Pipeline Streamlit App
 

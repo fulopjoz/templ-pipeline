@@ -2,6 +2,8 @@
 
 [![Live App](https://img.shields.io/badge/Live_App-templ.dyn.cloud.e--infra.cz-2ea44f?logo=google-chrome&logoColor=white)](https://templ.dyn.cloud.e-infra.cz/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![FAIR](https://img.shields.io/badge/FAIR-Compliant-brightgreen)](https://www.go-fair.org/fair-principles/)
+[![Open Science](https://img.shields.io/badge/Open_Science-Compliant-blue)](https://openscience.org/)
 
 Template-based protein–ligand pose prediction with command-line interface and web application.
 
@@ -179,6 +181,39 @@ Computational resources were provided by the e-INFRA CZ project (ID:90254), supp
 
 
 ---
+
+## FAIR and Open Science Compliance
+
+TEMPL Pipeline follows FAIR (Findable, Accessible, Interoperable, Reusable) principles and Open Science conventions:
+
+### Findable
+- **Persistent identifiers**: DOI: [10.5281/zenodo.15813500](https://doi.org/10.5281/zenodo.15813500)
+- **Rich metadata**: `codemeta.json` and `citation.cff` files
+- **Clear description**: Comprehensive documentation and examples
+
+### Accessible
+- **Open source**: MIT license with clear terms
+- **Multiple access points**: GitHub repository, Zenodo archive, live web app
+- **Documentation**: Extensive README, examples, and API documentation
+
+### Interoperable
+- **Standard formats**: SDF, PDB, SMILES, NPZ
+- **Machine-readable metadata**: SPDX headers, CodeMeta schema
+- **API compatibility**: Standard Python package structure
+
+### Reusable
+- **Clear licensing**: MIT license with SPDX identifiers
+- **Attribution**: AUTHORS file and citation guidelines
+- **Reproducibility**: Versioned releases and benchmark datasets
+
+### Additional Files
+- `citation.cff` - Academic citation information
+- `codemeta.json` - Machine-readable metadata
+- `AUTHORS` - Contributor attribution
+- `LICENSES/` - SPDX-named license files
+- `CONTRIBUTING.md` - Contribution guidelines
+- `CODE_OF_CONDUCT.md` - Community standards
+- `CHANGELOG.md` - Version history
 
 ## License
 
