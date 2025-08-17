@@ -554,12 +554,6 @@ class BenchmarkSummaryGenerator:
             return "mcs_too_small"
         elif "rascal" in error_msg_lower and "failed" in error_msg_lower:
             return "rascal_mcs_failed"
-        elif (
-            "rascal" in error_msg_lower
-            and "search" in error_msg_lower
-            and "failed" in error_msg_lower
-        ):
-            return "rascal_search_failed"
         elif "extremely large molecule" in error_msg_lower:
             return "molecule_too_large"
         elif "invalid smarts pattern" in error_msg_lower:
@@ -590,8 +584,6 @@ class BenchmarkSummaryGenerator:
             return "zero_conformers_generated"
         elif "molecular distortion detected" in error_msg_lower:
             return "molecular_distortion"
-        elif "index length mismatch during alignment" in error_msg_lower:
-            return "alignment_index_mismatch"
         elif "rdkit alignmol failed" in error_msg_lower:
             return "rdkit_alignment_failed"
         elif "continuing without post-embedding alignment" in error_msg_lower:
