@@ -425,6 +425,11 @@ def setup_parser():
         default=None,
         help="Shared embedding cache name for multiprocessing (internal use)",
     )
+    run_parser.add_argument(
+        "--json-output",
+        action="store_true",
+        help="Output structured JSON results (useful for programmatic parsing)",
+    )
 
     # Benchmark command ---------------------------------------------------
     benchmark_parser = subparsers.add_parser(
@@ -1110,8 +1115,9 @@ def run_command(args):
         import json
         import numpy as np
         
-        # Output JSON on a single line for easy parsing
-        print("TEMPL_JSON_RESULT:" + json.dumps(json_output, default=lambda x: float(x) if isinstance(x, np.floating) else x))
+        # Output JSON on a single line for easy parsing (only if requested)
+        if getattr(args, "json_output", False):
+            print("TEMPL_JSON_RESULT:" + json.dumps(json_output, default=lambda x: float(x) if isinstance(x, np.floating) else x))
         
         # Also output human-readable summary for backwards compatibility
         print(f"Pipeline completed successfully!")

@@ -7,9 +7,6 @@
 [![Coverage](https://img.shields.io/badge/coverage-XX%25-green.svg)](https://codecov.io/gh/fulopjoz/templ-pipeline)
 [![Code Quality](https://img.shields.io/badge/code%20quality-A-brightgreen.svg)](https://sonarcloud.io/dashboard?id=fulopjoz_templ-pipeline)
 [![Docker Pulls](https://img.shields.io/docker/pulls/fulopjoz/templ-pipeline)](https://hub.docker.com/r/fulopjoz/templ-pipeline)
-[![RSD](https://img.shields.io/badge/rsd-templ--pipeline-00a3e0.svg)](https://research-software-directory.org/software/templ-pipeline)
-[![fair-software.eu](https://img.shields.io/badge/fair--software.eu-%E2%97%8F%20%20%E2%97%8F%20%20%E2%97%8F%20%20%E2%97%8F%20%20%E2%97%8F-orange)](https://fair-software.eu)
-[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.XXXXXXX-blue)](https://doi.org/10.5281/zenodo.XXXXXXX)
 
 Template-based protein–ligand pose prediction with command-line interface and web application.
 
@@ -25,7 +22,7 @@ TEMPL is a template-based method for rapid protein–ligand pose prediction that
 - Alignment driven by maximal common substructure (MCS)
 - Shape and pharmacophore scoring for pose selection
 - Built-in benchmarks (Polaris, time-split PDBbind)
-- CPU-only by default with optional GPU acceleration
+- CPU/GPU adaptive
 
 **⚠️ Scope:**
 
@@ -184,7 +181,6 @@ If you use TEMPL in your research, please cite the software:
   author={J. Fülöp and M. Šícho and W. Dehaen},
   institution={University of Chemistry and Technology, Prague},
   url={https://github.com/fulopjoz/templ-pipeline},
-  doi={10.5281/zenodo.XXXXXXX},
   year={2025}
 }
 ```
