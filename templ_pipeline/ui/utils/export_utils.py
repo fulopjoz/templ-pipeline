@@ -9,7 +9,6 @@ Contains SDF export and molecular data extraction functions.
 import io
 import logging
 import re
-from typing import Any, Dict, Optional, Tuple
 
 # Import streamlit for session state access
 import streamlit as st
@@ -25,7 +24,6 @@ def create_best_poses_sdf(poses):
     remapped back to the original conformer before writing).
     """
     try:
-        import os
         import tempfile
         from pathlib import Path
 

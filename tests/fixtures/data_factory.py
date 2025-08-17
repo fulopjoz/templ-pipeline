@@ -7,9 +7,8 @@ This module provides centralized test data creation with standardized
 patterns for molecules, proteins, embeddings, and pipeline results.
 """
 
-import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 from rdkit import Chem

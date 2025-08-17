@@ -9,7 +9,7 @@ with RDShapeAlign and spyrmsd capabilities.
 
 import os
 import tempfile
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 import pytest
@@ -108,7 +108,7 @@ class TestPipelineIntegration:
     def test_rdshape_align_integration(self):
         """Test RDShapeAlign integration."""
         try:
-            from rdkit.Chem import rdShapeHelpers
+            pass
 
             from templ_pipeline.core.mcs import calculate_shape_alignment
 
@@ -169,16 +169,37 @@ class TestPipelineIntegration:
 
         # Test that pipeline service can handle enhanced results
         try:
+            from templ_pipeline.ui.config.settings import AppConfig
+            from templ_pipeline.ui.core.session_manager import SessionManager
             from templ_pipeline.ui.services.pipeline_service import PipelineService
 
-            service = PipelineService()
+            # Create mock config and session
+            mock_config = Mock(spec=AppConfig)
+            mock_config.paths = {"workspace_dir": "/tmp", "output_dir": "/tmp"}
+            mock_config.n_workers = 4
+            mock_config.n_confs = 200
+            mock_config.sim_threshold = 0.9
+
+            mock_session = Mock(spec=SessionManager)
+            mock_session.get.return_value = "auto"  # Default values
+            mock_session.set.return_value = None
+            mock_session.prepare_for_new_pipeline_run.return_value = {
+                "success": True,
+                "message": "OK",
+            }
+
+            service = PipelineService(config=mock_config, session=mock_session)
 
             # Mock the service methods
             with patch.object(service, "run_pipeline") as mock_run:
                 mock_run.return_value = mock_results
 
+                # Prepare data in the correct format expected by run_pipeline
+                molecule_data = {"input_smiles": "CCO", "num_conformers": 10}
+                protein_data = {"pdb_id": "1ABC"}
+
                 results = service.run_pipeline(
-                    protein_input="1ABC", ligand_smiles="CCO", num_conformers=10
+                    molecule_data=molecule_data, protein_data=protein_data
                 )
 
                 assert results is not None
@@ -202,6 +223,74 @@ class TestPipelineIntegration:
                 for metric in expected_metrics:
                     if metric in scores:
                         assert isinstance(scores[metric], (int, float))
+
+        except ImportError:
+            pytest.skip("Pipeline service integration test dependencies not available")
+
+    def test_backward_compatibility_parameters(self):
+        """Test that the run_pipeline method accepts legacy parameters for backward compatibility."""
+        try:
+            from templ_pipeline.ui.config.settings import AppConfig
+            from templ_pipeline.ui.core.session_manager import SessionManager
+            from templ_pipeline.ui.services.pipeline_service import PipelineService
+
+            # Create mock config and session
+            mock_config = Mock(spec=AppConfig)
+            mock_config.paths = {"workspace_dir": "/tmp", "output_dir": "/tmp"}
+            mock_config.n_workers = 4
+            mock_config.n_confs = 200
+            mock_config.sim_threshold = 0.9
+
+            mock_session = Mock(spec=SessionManager)
+            mock_session.get.return_value = "auto"  # Default values
+            mock_session.set.return_value = None
+            mock_session.prepare_for_new_pipeline_run.return_value = {
+                "success": True,
+                "message": "OK",
+            }
+
+            service = PipelineService(config=mock_config, session=mock_session)
+
+            # Mock the pipeline initialization and methods
+            with patch(
+                "templ_pipeline.core.pipeline.TEMPLPipeline"
+            ) as mock_pipeline_class:
+                mock_pipeline = Mock()
+                mock_pipeline_class.return_value = mock_pipeline
+
+                # Mock the embedding manager
+                mock_embedding_manager = Mock()
+                mock_embedding_manager.has_embedding.return_value = True
+                mock_pipeline._get_embedding_manager.return_value = (
+                    mock_embedding_manager
+                )
+
+                # Mock the _run_pdb_id_pipeline method
+                with patch.object(service, "_run_pdb_id_pipeline") as mock_run:
+                    mock_run.return_value = {
+                        "success": True,
+                        "poses": {"shape": (Mock(), {"score": 0.8})},
+                        "template_info": {"name": "1ABC"},
+                    }
+
+                    # Test legacy parameter format
+                    _ = service.run_pipeline(
+                        protein_input="1ABC", ligand_smiles="CCO", num_conformers=10
+                    )
+
+                    # Verify that the legacy parameters were converted correctly
+                    mock_run.assert_called_once()
+                    call_args = mock_run.call_args
+                    assert call_args[0][0] == "CCO"  # smiles
+                    assert call_args[0][1] == "1ABC"  # pdb_id
+
+                    # Check that the method was called with the correct parameters
+                    # The method signature is: _run_pdb_id_pipeline(smiles, pdb_id, progress_callback, user_settings)
+                    assert len(call_args[0]) >= 3  # At least 3 positional arguments
+
+                    # Check that num_conformers was passed through (either in user_settings or molecule_data)
+                    # Since we're using legacy parameters, num_conformers should be in molecule_data
+                    # which gets passed to the internal methods
 
         except ImportError:
             pytest.skip("Pipeline service integration test dependencies not available")

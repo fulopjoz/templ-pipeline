@@ -3,7 +3,6 @@
 """Command validation tests for TEMPL CLI."""
 
 import tempfile
-from unittest.mock import MagicMock, patch
 
 import pytest
 

@@ -9,7 +9,7 @@ import shutil
 import tempfile
 import time
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import numpy as np
 import psutil
@@ -66,7 +66,7 @@ class TestCoreFunctionPerformance:
     def test_scoring_performance(self, sample_molecules):
         """Test scoring performance using actual scoring functions."""
         try:
-            from templ_pipeline.core.scoring import rmsd_raw, score_and_align
+            from templ_pipeline.core.scoring import rmsd_raw
         except ImportError:
             pytest.skip("Scoring module not available")
 
@@ -177,7 +177,7 @@ class TestMemoryUsage:
                 if mol:
                     molecules.append(Chem.Mol(mol))
 
-        peak_memory = self.get_memory_usage()
+        self.get_memory_usage()
         del molecules
 
         final_memory = self.get_memory_usage()
@@ -195,7 +195,7 @@ class TestMemoryUsage:
         # Create large data structure
         large_data = np.random.rand(1000, 1000)  # ~8MB array
 
-        peak_memory = self.get_memory_usage()
+        self.get_memory_usage()
         del large_data
 
         final_memory = self.get_memory_usage()
@@ -230,7 +230,7 @@ class TestScalabilityLimits:
             ref_mols = sample_molecules[1 : count + 1]
 
             start_time = time.time()
-            result = find_mcs(target_mol, ref_mols)
+            find_mcs(target_mol, ref_mols)
             elapsed = time.time() - start_time
 
             times.append(elapsed)

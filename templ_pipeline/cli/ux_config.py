@@ -21,11 +21,10 @@ Design Philosophy:
 
 import json
 import logging
-import os
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -510,12 +509,10 @@ def configure_logging_for_verbosity(
         console_handler.setLevel(logging.WARNING)
         console_handler.setFormatter(minimal_formatter)
     elif verbosity == VerbosityLevel.NORMAL:
-        root_logger.setLevel(logging.CRITICAL)  # Suppress all logging except critical
-        cli_logger.setLevel(logging.INFO)
-        console_handler.setLevel(
-            logging.CRITICAL
-        )  # Only show critical errors on console
-        console_handler.setFormatter(normal_formatter)
+        root_logger.setLevel(logging.ERROR)  # Only show errors
+        cli_logger.setLevel(logging.ERROR)
+        console_handler.setLevel(logging.ERROR)  # Only show errors
+        console_handler.setFormatter(minimal_formatter)
     elif verbosity == VerbosityLevel.DETAILED:
         root_logger.setLevel(logging.INFO)
         cli_logger.setLevel(logging.DEBUG)

@@ -16,11 +16,10 @@ Features:
 
 import logging
 import os
-import sys
 import warnings
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 
 class BenchmarkLoggingConfig:
@@ -109,7 +108,7 @@ class BenchmarkLoggingConfig:
         root_logger.setLevel(self.log_level)
 
         # Configure specific loggers
-        benchmark_logger = logging.getLogger(f"templ_pipeline.benchmark")
+        benchmark_logger = logging.getLogger("templ_pipeline.benchmark")
         benchmark_logger.setLevel(self.log_level)
 
         cli_logger = logging.getLogger("templ-cli")
@@ -254,7 +253,7 @@ def suppress_worker_logging():
     # Also suppress any remaining print statements by redirecting stdout/stderr
     # Redirect stdout and stderr to devnull for worker processes
     try:
-        devnull = open(os.devnull, "w")
+        open(os.devnull, "w")
         # Don't redirect stdout/stderr completely as this might break tqdm
         # sys.stdout = devnull
         # sys.stderr = devnull

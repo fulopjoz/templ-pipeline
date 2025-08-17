@@ -11,15 +11,17 @@ This module handles pose scoring and selection:
 5. RMSD calculation for evaluation
 
 The main classes and functions:
-- score_and_align: Compute shape/color scores for a conformer against a template
-- select_best: Rank conformers by different scoring methods and select top poses
+- score_and_align: Compute shape/color scores for a conformer against a
+  template
+- select_best: Rank conformers by different scoring methods and select top
+  poses
 - rmsd_raw: Calculate RMSD between molecules for evaluation
 """
 
 import logging
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Dict, List, Tuple, Union
 
 import numpy as np
 from rdkit import Chem
@@ -28,7 +30,6 @@ from rdkit.Chem import (
     SanitizeMol,
     rdShapeAlign,
 )
-from tqdm import tqdm
 
 # For RMSD calculation
 try:
@@ -56,7 +57,8 @@ class CoordinateMapper:
         before_idx = 0
         after_idx = 0
 
-        # Heavy atoms should be in the same order, but hydrogens might be inserted
+        # Heavy atoms should be in the same order, but hydrogens might be
+        # inserted
         while (
             before_idx < mol_before.GetNumAtoms()
             and after_idx < mol_after.GetNumAtoms()
@@ -103,7 +105,8 @@ class CoordinateMapper:
 
 
 class FixedMolecularProcessor:
-    """Processor with enhanced coordinate preservation during molecular operations."""
+    """Processor with enhanced coordinate preservation during molecular
+    operations."""
 
     @staticmethod
     def create_independent_copy(mol: Chem.Mol) -> Chem.Mol:
@@ -114,7 +117,8 @@ class FixedMolecularProcessor:
         # Validate input type to prevent Boost.Python.ArgumentError
         if not isinstance(mol, Chem.Mol):
             logger.error(
-                f"Invalid input type for molecular copy: {type(mol)}, expected Chem.Mol"
+                f"Invalid input type for molecular copy: {type(mol)}, "
+                f"expected Chem.Mol"
             )
             return None
 
@@ -222,7 +226,7 @@ class FixedMolecularProcessor:
             conf = mol.GetConformer(conf_id)
             # Test accessing atom positions
             if conf.GetNumAtoms() > 0:
-                pos = conf.GetAtomPosition(0)
+                conf.GetAtomPosition(0)
                 return True
             return False
         except Exception:
@@ -1052,7 +1056,11 @@ def select_best(
     )
     for conf_id, scores, mol in all_results[:3]:
         logger.info(
-            f"BEST_CONFORMER DEBUG: Conf {conf_id}: shape={scores.get('shape', 'N/A'):.3f}, color={scores.get('color', 'N/A'):.3f}, combo={scores.get('combo', 'N/A'):.3f}, {align_metric}={scores.get(align_metric, 'N/A'):.3f}"
+            f"BEST_CONFORMER DEBUG: Conf {conf_id}: "
+            f"shape={scores.get('shape', 'N/A'):.3f}, "
+            f"color={scores.get('color', 'N/A'):.3f}, "
+            f"combo={scores.get('combo', 'N/A'):.3f}, "
+            f"{align_metric}={scores.get(align_metric, 'N/A'):.3f}"
         )
 
     if return_all_ranked:
@@ -1068,7 +1076,10 @@ def select_best(
         f"Selected conformer {best_conf_id} based on {align_metric} metric: score {best_scores[align_metric]:.3f}"
     )
     logger.info(
-        f"SELECTED_CONFORMER DEBUG: Conf {best_conf_id} scores - shape={best_scores.get('shape', 'N/A'):.3f}, color={best_scores.get('color', 'N/A'):.3f}, combo={best_scores.get('combo', 'N/A'):.3f}"
+        f"SELECTED_CONFORMER DEBUG: Conf {best_conf_id} scores - "
+        f"shape={best_scores.get('shape', 'N/A'):.3f}, "
+        f"color={best_scores.get('color', 'N/A'):.3f}, "
+        f"combo={best_scores.get('combo', 'N/A'):.3f}"
     )
 
     # Create clean copy for output with robust error handling
@@ -1085,7 +1096,7 @@ def select_best(
         output_mol = FixedMolecularProcessor.create_independent_copy(best_mol)
 
         if output_mol is None:
-            logger.warning(f"Failed to create copy of best pose, using original")
+            logger.warning("Failed to create copy of best pose, using original")
             output_mol = best_mol
 
         # Store the same conformer for all metrics with all scores computed from this conformer

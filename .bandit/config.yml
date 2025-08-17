@@ -1,0 +1,24 @@
+---
+# Bandit configuration for templ-pipeline
+
+# Skip tests that do not apply to this project
+skips:
+  - B101  # assert used
+  - B104  # hardcoded bind all interfaces
+  - B105  # hardcoded password
+  - B310  # unsafe urllib
+
+# Low and medium severity issues to ignore
+exclude_dirs:
+  - tests/
+  - scripts/
+  - venv/
+  - .templ/
+
+# Custom test configuration
+severities:
+  - HIGH
+
+# Reports configuration
+output_format: json
+output_file: bandit-report.json

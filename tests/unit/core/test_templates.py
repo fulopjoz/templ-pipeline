@@ -4,10 +4,7 @@
 Tests for template selection and filtering utilities.
 """
 
-import json
-import os
-import tempfile
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from rdkit import Chem
@@ -120,7 +117,7 @@ class TestGetTemplatesWithProgressiveFallback:
             mol.SetProp("ca_rmsd", str(ca_rmsd))
             templates.append(mol)
 
-        with patch("templ_pipeline.core.templates.log") as mock_log:
+        with patch("templ_pipeline.core.templates.log") as _:
             result_templates, threshold_used, use_central_atom = (
                 get_templates_with_progressive_fallback(templates, [2.0, 3.0, 5.0])
             )
@@ -137,7 +134,7 @@ class TestGetTemplatesWithProgressiveFallback:
             mol.SetProp("ca_rmsd", str(ca_rmsd))
             templates.append(mol)
 
-        with patch("templ_pipeline.core.templates.log") as mock_log:
+        with patch("templ_pipeline.core.templates.log") as _:
             result_templates, threshold_used, use_central_atom = (
                 get_templates_with_progressive_fallback(templates, [2.0, 3.0, 5.0])
             )
@@ -150,7 +147,7 @@ class TestGetTemplatesWithProgressiveFallback:
         """Test fallback when templates have no CA RMSD properties."""
         templates = [Chem.MolFromSmiles("CCO"), Chem.MolFromSmiles("CCC")]
 
-        with patch("templ_pipeline.core.templates.log") as mock_log:
+        with patch("templ_pipeline.core.templates.log") as _:
             result_templates, threshold_used, use_central_atom = (
                 get_templates_with_progressive_fallback(templates, [2.0, 3.0, 5.0])
             )
@@ -162,7 +159,7 @@ class TestGetTemplatesWithProgressiveFallback:
 
     def test_empty_template_list(self):
         """Test behavior with empty template list."""
-        with patch("templ_pipeline.core.templates.log") as mock_log:
+        with patch("templ_pipeline.core.templates.log") as _:
             result_templates, threshold_used, use_central_atom = (
                 get_templates_with_progressive_fallback([], [2.0, 3.0, 5.0])
             )

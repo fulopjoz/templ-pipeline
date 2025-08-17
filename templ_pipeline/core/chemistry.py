@@ -143,8 +143,8 @@ def has_rhenium_complex(mol: Chem.Mol, pdb_id: str = "") -> Tuple[bool, str]:
         for atom in mol.GetAtoms():
             if atom.GetAtomicNum() == 75:  # Rhenium
                 logger.info(
-                    f"3rj7: Allowing rhenium processing with substitution "
-                    f"(PDBbind oxidation state issue)"
+                    "3rj7: Allowing rhenium processing with substitution "
+                    "(PDBbind oxidation state issue)"
                 )
                 return False, ""
 

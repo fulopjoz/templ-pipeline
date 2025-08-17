@@ -4,7 +4,6 @@
 import argparse
 import json
 import logging
-import multiprocessing as mp
 
 # SPDX-FileCopyrightText: 2025 TEMPL Team
 # SPDX-License-Identifier: MIT
@@ -17,7 +16,7 @@ import time
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, Optional, Set
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -27,7 +26,6 @@ from tqdm import tqdm
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from rdkit import Chem, RDLogger
-from rdkit.Chem import rdRascalMCES
 
 # Import the hardware utility
 from templ_pipeline.core.hardware import get_suggested_worker_config
@@ -445,7 +443,7 @@ def extract_rmsd_from_stdout(stdout_text: str) -> Dict[str, Dict[str, float]]:
 
                     if metric and metric not in ["metric", "────────"]:
                         rmsd_results[metric] = {"score": score, "rmsd": rmsd}
-                except (ValueError, IndexError) as e:
+                except (ValueError, IndexError):
                     # Skip header row and malformed lines silently
                     continue
 
@@ -2209,7 +2207,7 @@ def main():
     log.info("Custom benchmark completed.")
 
     # Print final summary of output structure
-    log.info(f"\n=== OUTPUT STRUCTURE ===")
+    log.info("\n=== OUTPUT STRUCTURE ===")
     log.info(f"Output directory: {OUTPUT_DIR_CUSTOM}")
     log.info(f"Results directory: {RESULTS_DIR_CUSTOM}")
 

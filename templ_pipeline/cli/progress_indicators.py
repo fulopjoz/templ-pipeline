@@ -20,7 +20,7 @@ import threading
 import time
 from contextlib import contextmanager
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
 
 try:
     from tqdm import tqdm
@@ -43,17 +43,17 @@ def simple_progress_wrapper(description: str, func: Callable, *args, **kwargs):
     if verbosity == VerbosityLevel.MINIMAL:
         return func(*args, **kwargs)
 
-    print(f"Starting: {description}")
+    print(f"{description}...")
     start_time = time.time()
 
     try:
         result = func(*args, **kwargs)
         elapsed = time.time() - start_time
-        print(f"Completed: {description} ({elapsed:.1f}s)")
+        print(f"{description} completed ({elapsed:.1f}s)")
         return result
-    except Exception as e:
+    except Exception:
         elapsed = time.time() - start_time
-        print(f"Failed: {description} ({elapsed:.1f}s)")
+        print(f"{description} failed ({elapsed:.1f}s)")
         raise
 
 

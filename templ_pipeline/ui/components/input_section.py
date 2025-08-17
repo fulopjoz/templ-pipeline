@@ -7,21 +7,16 @@ Handles molecule and protein input functionality.
 """
 
 import logging
-import tempfile
-from pathlib import Path
-from typing import Any, Dict, Optional
 
 import streamlit as st
 
-from ..config.constants import MESSAGES, SESSION_KEYS
+from ..config.constants import SESSION_KEYS
 from ..config.settings import AppConfig
 from ..core.session_manager import SessionManager
 from ..utils.file_utils import (
-    extract_pdb_id_from_file_robust,
     integrate_uploaded_pdb_with_pipeline,
     load_templates_from_uploaded_sdf,
     save_uploaded_file,
-    validate_pdb_file_content,
 )
 from ..utils.molecular_utils import (
     get_rdkit_modules,

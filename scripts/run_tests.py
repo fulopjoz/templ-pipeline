@@ -11,7 +11,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 
 class TestRunner:
@@ -74,7 +74,7 @@ class TestRunner:
             cpu_count = multiprocessing.cpu_count()
             # Use 75% of available CPUs for testing
             return max(1, int(cpu_count * 0.75))
-        except:
+        except (ImportError, OSError):
             return 2
 
     def build_command(

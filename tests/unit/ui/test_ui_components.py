@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, Mock, patch
 os.environ["STREAMLIT_SERVER_HEADLESS"] = "true"
 
 try:
-    from templ_pipeline.ui.components import header, status_bar
+    from templ_pipeline.ui.components import header
     from templ_pipeline.ui.config.constants import COLORS, VERSION
     from templ_pipeline.ui.config.settings import AppConfig
     from templ_pipeline.ui.core.session_manager import SessionManager
@@ -22,7 +22,7 @@ except ImportError:
     sys.path.insert(
         0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
     )
-    from templ_pipeline.ui.components import header, status_bar
+    from templ_pipeline.ui.components import header
     from templ_pipeline.ui.config.constants import COLORS, VERSION
     from templ_pipeline.ui.config.settings import AppConfig
     from templ_pipeline.ui.core.session_manager import SessionManager

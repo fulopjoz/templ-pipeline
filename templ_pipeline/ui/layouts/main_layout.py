@@ -7,7 +7,6 @@ Orchestrates the overall application layout and component rendering.
 """
 
 import logging
-from typing import Any, Dict, Optional
 
 import streamlit as st
 
@@ -15,14 +14,13 @@ from ..components.header import render_header
 from ..components.input_section import InputSection
 from ..components.results_section import ResultsSection
 from ..components.status_bar import render_status_bar
-from ..config.constants import MESSAGES, SESSION_KEYS, VERSION
+from ..config.constants import MESSAGES, SESSION_KEYS
 from ..config.settings import AppConfig
 from ..core.cache_manager import get_cache_manager
 from ..core.hardware_manager import get_hardware_manager
 from ..core.session_manager import SessionManager
 from ..services.pipeline_service import PipelineService
 from ..utils.performance_monitor import PerformanceMonitor
-from ..utils.workspace_integration import get_workspace_integration
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +141,7 @@ class MainLayout:
             # Main description
             st.markdown(
                 """
-            **TEMPL** is a template-based method for rapid protein-ligand pose prediction that leverages 
+            **TEMPL** is a template-based method for rapid protein-ligand pose prediction that leverages
             ligand similarity and template superposition for pose generation within known chemical space.
             """
             )
@@ -158,7 +156,7 @@ class MainLayout:
                 st.markdown(
                     """
                 * **MCS-driven alignment** - Uses maximal common substructure matching
-                * **Constrained embedding** - ETKDG v3 conformer generation  
+                * **Constrained embedding** - ETKDG v3 conformer generation
                 * **Shape scoring** - Pharmacophore-based pose selection
                 * **Built-in benchmarks** - Polaris and time-split PDBbind
                 * **CPU & GPU support** - Works on both CPU and GPU hardware
@@ -247,9 +245,6 @@ class MainLayout:
 
         if has_results:
             # Handle automatic tab switching after prediction completion
-            active_tab_index = (
-                1 if st.session_state.get("prediction_just_completed", False) else 0
-            )
             if st.session_state.get("prediction_just_completed", False):
                 st.session_state.prediction_just_completed = False
                 logger.info(
@@ -307,29 +302,29 @@ class MainLayout:
             """
         <style>
         /* Simplified theme-aware styling */
-        
+
         /* Button styling with subtle shadows */
         .stButton > button {
             border-radius: 6px !important;
             font-weight: 500 !important;
             transition: all 0.15s ease !important;
         }
-        
+
         /* Primary button with reduced shine */
         .stButton > button[kind="primary"] {
             font-weight: 600 !important;
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
         }
-        
+
         .stButton > button[kind="primary"]:hover {
             box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15) !important;
         }
-        
+
         /* Slider styling - elegant and neutral */
         .stSlider {
             padding: 1rem 0 !important;
         }
-        
+
         /* Radio buttons - simplified */
         div[data-testid="stRadio"] > div {
             background-color: var(--bg-light) !important;
@@ -337,7 +332,7 @@ class MainLayout:
             border-radius: 8px !important;
             padding: 8px !important;
         }
-        
+
         div[data-testid="stRadio"] > div > label {
             background-color: var(--bg-white) !important;
             border: 2px solid var(--border-light) !important;
@@ -349,24 +344,24 @@ class MainLayout:
             cursor: pointer !important;
             transition: all 0.2s ease !important;
         }
-        
+
         div[data-testid="stRadio"] > div > label:hover {
             background-color: var(--button-hover-bg) !important;
             border-color: var(--border-hover) !important;
         }
-        
+
         div[data-testid="stRadio"] > div > label[data-checked="true"] {
             background-color: var(--primary-color) !important;
             border-color: var(--primary-color) !important;
             color: #ffffff !important;
             font-weight: 600 !important;
         }
-        
+
         /* Hide radio circles */
         div[data-testid="stRadio"] > div > label > div[data-testid="stMarkdownContainer"] > div > input {
             display: none !important;
         }
-        
+
         /* Selectbox styling - Theme-aware */
         .stSelectbox > div > div {
             background-color: var(--bg-white) !important;
@@ -376,11 +371,11 @@ class MainLayout:
             font-weight: 500 !important;
             box-shadow: 0 2px 4px var(--button-shadow) !important;
         }
-        
+
         .stSelectbox > div > div:hover {
             border-color: var(--border-hover) !important;
         }
-        
+
         /* Text input styling - Theme-aware */
         .stTextInput > div > div > input {
             color: var(--text-color) !important;
@@ -390,12 +385,12 @@ class MainLayout:
             font-weight: 500 !important;
             padding: 12px !important;
         }
-        
+
         .stTextInput > div > div > input:focus {
             border-color: var(--primary-color) !important;
             box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
         }
-        
+
         /* File uploader styling - Theme-aware */
         .stFileUploader > div {
             border: 2px dashed var(--border-light) !important;
@@ -403,7 +398,7 @@ class MainLayout:
             background-color: var(--bg-light) !important;
             padding: 20px !important;
         }
-        
+
         .stFileUploader > div > div > button {
             color: var(--primary-color) !important;
             background-color: var(--bg-white) !important;
@@ -411,15 +406,15 @@ class MainLayout:
             border-radius: 6px !important;
             font-weight: 500 !important;
         }
-        
+
         /* Slider styling - Theme-aware */
-        
+
         /* Expander styling - minimal */
         .streamlit-expanderHeader {
             border-radius: 6px !important;
             font-weight: 500 !important;
         }
-        
+
         /* Clean button text */
         .stButton > button {
             -webkit-font-smoothing: antialiased !important;
@@ -712,7 +707,9 @@ class MainLayout:
                             SESSION_KEYS["ALL_RANKED_POSES"]
                         )
                         logger.info(
-                            f"DEBUG: Verified stored all_ranked_poses: type={type(stored_all_ranked)}, length={len(stored_all_ranked) if hasattr(stored_all_ranked, '__len__') else 'N/A'}"
+                            f"DEBUG: Verified stored all_ranked_poses: "
+                            f"type={type(stored_all_ranked)}, "
+                            f"length={len(stored_all_ranked) if hasattr(stored_all_ranked, '__len__') else 'N/A'}"
                         )
 
                         # Store template and query molecules for visualization

@@ -14,20 +14,17 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch
 
 import pytest
 
 # Handle imports for both development and installed package
 try:
-    from templ_pipeline.core.datasets import DatasetSplits
     from templ_pipeline.core.embedding import EmbeddingManager
 except ImportError:
     # Fall back to local imports for development
     sys.path.insert(
         0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
     )
-    from core.datasets import DatasetSplits
     from core.embedding import EmbeddingManager
 
 # Import test data factory

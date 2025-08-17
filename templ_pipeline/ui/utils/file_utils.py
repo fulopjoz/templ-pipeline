@@ -9,8 +9,6 @@ Contains file upload, processing, and template loading functions.
 import logging
 import re
 import tempfile
-from pathlib import Path
-from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +29,7 @@ def save_uploaded_file(uploaded_file, suffix=".pdb"):
                 st.session_state, "_workspace_manager"
             ):
                 workspace_manager = st.session_state._workspace_manager
-        except:
+        except (ImportError, AttributeError):
             pass
 
         handler = SecureFileUploadHandler(workspace_manager=workspace_manager)
@@ -287,7 +285,6 @@ def create_embedding_for_uploaded_file(file_path, pdb_id, session_manager):
         # Import pipeline components
         from templ_pipeline.core.embedding import (
             EmbeddingManager,
-            get_protein_embedding,
         )
         from templ_pipeline.core.pipeline import DEFAULT_DATA_DIR
 

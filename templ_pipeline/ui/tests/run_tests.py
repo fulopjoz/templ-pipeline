@@ -12,7 +12,6 @@ import argparse
 import os
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 
@@ -139,7 +138,6 @@ def check_streamlit_app():
     """Check if Streamlit app can be imported."""
     try:
         sys.path.insert(0, str(Path(__file__).parent.parent))
-        import app
 
         print("Streamlit app import successful")
         return True

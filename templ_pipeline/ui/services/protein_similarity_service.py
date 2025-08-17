@@ -8,9 +8,7 @@ For custom templates (pure MCS), this service is not used.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
-
-import streamlit as st
+from typing import Any, Dict
 
 from ..config.settings import AppConfig
 from ..core.session_manager import SessionManager
@@ -41,7 +39,7 @@ class ProteinSimilarityService:
             Dictionary with similarity results
         """
         logger.info(
-            f"Protein similarity search not applicable for custom templates workflow"
+            "Protein similarity search not applicable for custom templates workflow"
         )
         return {
             "found": False,

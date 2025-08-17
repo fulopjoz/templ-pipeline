@@ -7,7 +7,7 @@ Displays application status and session information.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import streamlit as st
 

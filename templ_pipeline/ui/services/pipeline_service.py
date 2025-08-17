@@ -11,9 +11,8 @@ import concurrent.futures
 import logging
 import os
 import sys
-import time
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional
 
 from ..config.constants import SESSION_KEYS
 from ..config.settings import AppConfig
@@ -23,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class PipelineService:
-    """Service for managing pipeline execution with enhanced error handling and unified workspace management"""
+    """Service for managing pipeline execution with enhanced error handling and unified workspace management."""
 
     def __init__(self, config: AppConfig, session: SessionManager):
         """Initialize pipeline service
@@ -142,20 +141,82 @@ class PipelineService:
 
     def run_pipeline(
         self,
-        molecule_data: Dict[str, Any],
-        protein_data: Dict[str, Any],
+        molecule_data: Optional[Dict[str, Any]] = None,
+        protein_data: Optional[Dict[str, Any]] = None,
         progress_callback: Optional[Callable] = None,
+        # Backward compatibility parameters
+        smiles: Optional[str] = None,
+        protein_input: Optional[str] = None,
+        ligand_smiles: Optional[str] = None,
+        num_conformers: Optional[int] = None,
+        custom_templates: Optional[list] = None,
+        **kwargs,
     ) -> Optional[Dict[str, Any]]:
         """Run the TEMPL pipeline with enhanced error handling
 
         Args:
-            molecule_data: Molecule input data
-            protein_data: Protein input data
+            molecule_data: Molecule input data dictionary
+            protein_data: Protein input data dictionary
             progress_callback: Optional callback for progress updates
+
+            # Backward compatibility parameters
+            smiles: SMILES string for the query molecule (legacy)
+            protein_input: PDB ID or file path for protein input (legacy)
+            ligand_smiles: SMILES string for the query molecule (legacy alias)
+            num_conformers: Number of conformers to generate (legacy)
+            custom_templates: Optional custom template molecules (legacy)
+            **kwargs: Additional legacy parameters
 
         Returns:
             Results dictionary or None on failure
         """
+        # Handle backward compatibility - convert legacy parameters to new format
+        if molecule_data is None and (smiles or ligand_smiles):
+            logger.warning(
+                "Using legacy parameter format. Please update to use molecule_data and protein_data dictionaries."
+            )
+
+            # Use ligand_smiles if provided, otherwise use smiles
+            input_smiles = ligand_smiles or smiles
+            if not input_smiles:
+                logger.error("No SMILES provided in legacy parameters")
+                return None
+
+            molecule_data = {
+                "input_smiles": input_smiles,
+                "custom_templates": custom_templates,
+            }
+
+            # Handle num_conformers if provided
+            if num_conformers is not None:
+                molecule_data["num_conformers"] = num_conformers
+
+            # Add any other legacy parameters from kwargs
+            for key, value in kwargs.items():
+                if value is not None:
+                    molecule_data[key] = value
+
+        if protein_data is None and protein_input:
+            # Determine if protein_input is a file path or PDB ID
+            if isinstance(protein_input, str):
+                if protein_input.lower().endswith((".pdb", ".ent")):
+                    # It's a file path
+                    protein_data = {"file_path": protein_input}
+                else:
+                    # It's a PDB ID
+                    protein_data = {"pdb_id": protein_input}
+            else:
+                protein_data = {"pdb_id": str(protein_input)}
+
+        # Validate that we have the required data
+        if not molecule_data:
+            logger.error("No molecule data provided")
+            return None
+
+        if not protein_data:
+            logger.error("No protein data provided")
+            return None
+
         try:
             # Prepare session for new pipeline run with cache optimization
             preparation_result = self.session.prepare_for_new_pipeline_run()
@@ -186,7 +247,8 @@ class PipelineService:
             )
 
             logger.info(
-                f"User settings - Device: {user_device_pref}, KNN: {user_knn_threshold}, Chain: {user_chain_selection}, Similarity: {user_similarity_threshold}"
+                f"User settings - Device: {user_device_pref}, KNN: {user_knn_threshold}, "
+                f"Chain: {user_chain_selection}, Similarity: {user_similarity_threshold}"
             )
 
             # Configure device preference for embedding generation
@@ -258,7 +320,7 @@ class PipelineService:
                         if hasattr(st, "error"):
                             st.error(f" {error_msg}")
                             st.info(
-                                f"**Suggestion**: Upload the PDB file directly using the 'Upload File' option"
+                                "**Suggestion**: Upload the PDB file directly using the 'Upload File' option"
                             )
 
                             # Show help for getting PDB files
@@ -266,14 +328,14 @@ class PipelineService:
                                 st.markdown(
                                     f"""
                                 You can download PDB files from:
-                                
+
                                 1. **RCSB PDB**: [https://www.rcsb.org/structure/{pdb_id.upper()}](https://www.rcsb.org/structure/{pdb_id.upper()})
                                 2. **PDBe**: [https://www.ebi.ac.uk/pdbe/entry/pdb/{pdb_id.lower()}](https://www.ebi.ac.uk/pdbe/entry/pdb/{pdb_id.lower()})
-                                
+
                                 Click "Download Files" → "PDB Format" on either site.
                                 """
                                 )
-                    except:
+                    except Exception:
                         logger.error(error_msg)
 
                     return None
@@ -334,7 +396,7 @@ class PipelineService:
 
                     if hasattr(st, "error"):
                         st.error("No valid protein input provided")
-                except:
+                except Exception:
                     logger.error("No valid protein input provided")
                 return None
 
@@ -377,7 +439,7 @@ class PipelineService:
                         )
                     else:
                         st.error(f"Pipeline error: {error_str}")
-            except:
+            except Exception:
                 logger.error(f"Pipeline error: {error_str}")
 
             return None
@@ -611,18 +673,16 @@ class PipelineService:
         # Get hardware-optimized worker count instead of hardcoded value
         hardware_info = self.session.get(SESSION_KEYS["HARDWARE_INFO"])
         if hardware_info and hasattr(hardware_info, "max_workers"):
-            n_workers = hardware_info.max_workers
+            _ = hardware_info.max_workers  # Used for logging
         else:
             # Fallback: use hardware manager directly
-            n_workers = self.session.get(
-                SESSION_KEYS.get("USER_DEVICE_PREFERENCE", "auto")
-            )
-            if isinstance(n_workers, str):
+            _ = self.session.get(SESSION_KEYS.get("USER_DEVICE_PREFERENCE", "auto"))
+            if isinstance(_, str):
                 from ..core.hardware_manager import get_hardware_manager
 
                 hw_manager = get_hardware_manager()
                 hw_info = hw_manager.detect_hardware()
-                n_workers = hw_info.max_workers
+                _ = hw_info.max_workers  # Used for logging
 
         # Use run_full_pipeline with the uploaded PDB file
         try:
@@ -662,7 +722,7 @@ class PipelineService:
             # Use sequential processing for scoring to ensure all conformers are processed
             scoring_workers = 1  # Force sequential scoring to avoid Pebble failures
             logger.info(
-                f"Using sequential scoring (n_workers=1) to ensure all conformers are processed reliably"
+                "Using sequential scoring (n_workers=1) to ensure all conformers are processed reliably"
             )
 
             results = self.pipeline.run_full_pipeline(
@@ -693,7 +753,7 @@ class PipelineService:
                     st.info(
                         "💡 Make sure the file is a valid PDB format with protein chains"
                     )
-            except:
+            except (AttributeError, NameError):
                 pass
 
             raise
@@ -711,14 +771,14 @@ class PipelineService:
         # Get hardware-optimized worker count
         hardware_info = self.session.get(SESSION_KEYS["HARDWARE_INFO"])
         if hardware_info and hasattr(hardware_info, "max_workers"):
-            n_workers = hardware_info.max_workers
+            hardware_info.max_workers
         else:
             # Fallback: use hardware manager directly
             from ..core.hardware_manager import get_hardware_manager
 
             hw_manager = get_hardware_manager()
             hw_info = hw_manager.detect_hardware()
-            n_workers = hw_info.max_workers
+            hw_info.max_workers
 
         # Exclude the target PDB ID from templates to avoid self-templating
         exclude_pdb_ids = {pdb_id.lower()}
@@ -729,7 +789,7 @@ class PipelineService:
         # Use sequential scoring to ensure all conformers are processed
         scoring_workers = 1  # Force sequential scoring to avoid Pebble failures
         logger.info(
-            f"Using sequential scoring (n_workers=1) to ensure all conformers are processed reliably"
+            "Using sequential scoring (n_workers=1) to ensure all conformers are processed reliably"
         )
 
         # This will use the existing embedding from database
@@ -796,7 +856,7 @@ class PipelineService:
         # If pipeline did not return query_mol (common for PDB-ID/file flows), rebuild from current SMILES
         if final_query_mol is None:
             try:
-                from rdkit import Chem
+                # RDKit already imported above
 
                 input_smiles_for_build = self.session.get(SESSION_KEYS["INPUT_SMILES"])
                 if input_smiles_for_build:
@@ -866,7 +926,6 @@ class PipelineService:
         # Process template molecule information
         template_mol = None
         template_info = None
-        template_index = 0
 
         # Extract template information from actual TEMPL pipeline results structure
         pipeline_template_info = results.get("template_info", {})
@@ -1004,7 +1063,7 @@ class PipelineService:
                     mcs_mol = Chem.MolFromSmarts(raw_mcs_info)
                     if mcs_mol:
                         template_info["atoms_matched"] = mcs_mol.GetNumAtoms()
-                except:
+                except (ValueError, TypeError, RuntimeError):
                     pass
 
         # If still nothing, try to pull from pipeline object if available
@@ -1063,7 +1122,7 @@ class PipelineService:
                 except Exception as e:
                     logger.warning(f"Could not add template SMILES: {e}")
 
-                logger.info(f"Created fallback template info: {template_info}")
+            logger.info(f"Created fallback template info: {template_info}")
 
         formatted = {
             "poses": poses,
@@ -1080,7 +1139,8 @@ class PipelineService:
         logger.info(f"MCS info available: {processed_mcs_info is not None}")
         logger.info(f"Template molecule available: {template_mol is not None}")
         logger.info(
-            f"DEBUG: Formatted all_ranked_poses: type={type(formatted['all_ranked_poses'])}, length={len(formatted['all_ranked_poses']) if hasattr(formatted['all_ranked_poses'], '__len__') else 'N/A'}"
+            f"DEBUG: Formatted all_ranked_poses: type={type(formatted['all_ranked_poses'])}, "
+            f"length={len(formatted['all_ranked_poses']) if hasattr(formatted['all_ranked_poses'], '__len__') else 'N/A'}"
         )
 
         return formatted
@@ -1180,7 +1240,7 @@ class PipelineService:
                 try:
                     if template_mol.HasProp(prop):
                         return template_mol.GetProp(prop).upper()
-                except:
+                except (AttributeError, ValueError, KeyError):
                     pass
 
         # Check results for template info

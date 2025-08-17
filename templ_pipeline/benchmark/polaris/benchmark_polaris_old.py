@@ -1,11 +1,12 @@
 # SPDX-FileCopyrightText: 2025 TEMPL Team
 # SPDX-License-Identifier: MIT
 import argparse
-import json
 import logging
 import multiprocessing as mp
 import os
+import resource
 import sys
+import tempfile
 import time
 from collections import defaultdict
 from concurrent.futures import (
@@ -17,13 +18,20 @@ from concurrent.futures import (
 )
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 from rdkit import Chem, RDLogger
-from rdkit.Chem import AllChem
 from tqdm import tqdm
+
+# Legacy core TEMPL components (for backwards compatibility only)
+# TODO: Remove these imports once legacy run_templ_pipeline_single() is deprecated
+from templ_pipeline.core.mcs import constrained_embed, find_mcs, safe_name
+
+# Unified pipeline infrastructure (preferred approach)
+from templ_pipeline.core.pipeline import TEMPLPipeline
+from templ_pipeline.core.scoring import select_best
 
 # Import hardware detection
 try:
@@ -39,19 +47,6 @@ except ImportError:
 RDLogger.DisableLog("rdApp.*")
 Chem.SetDefaultPickleProperties(Chem.PropertyPickleOptions.AllProps)
 
-import os
-import resource
-import tempfile
-
-import psutil
-
-# Legacy core TEMPL components (for backwards compatibility only)
-# TODO: Remove these imports once legacy run_templ_pipeline_single() is deprecated
-from templ_pipeline.core.mcs import constrained_embed, find_mcs, safe_name
-
-# Unified pipeline infrastructure (preferred approach)
-from templ_pipeline.core.pipeline import TEMPLPipeline
-from templ_pipeline.core.scoring import select_best
 
 try:
     from spyrmsd.molecule import Molecule
@@ -113,9 +108,7 @@ def setup_benchmark_logging(
     """Configure logging for benchmark with file-only output and clean progress bars"""
     # Import the new benchmark logging system
     from templ_pipeline.core.benchmark_logging import (
-        benchmark_logging_context,
         create_benchmark_logger,
-        suppress_worker_logging,
     )
 
     # If workspace directory is provided, set up file-only logging
@@ -580,7 +573,8 @@ def evaluate_with_leave_one_out(
 
     # Create experiment-specific output directory only if needed
     experiment_name = f"{virus_type}_train_{template_source}"
-    output_subdir = Path(OUTPUT_DIR) / experiment_name
+    experiment_dir = Path(OUTPUT_DIR) / experiment_name
+    experiment_dir.mkdir(parents=True, exist_ok=True)
 
     # Prepare results structure
     results = {
@@ -806,7 +800,8 @@ def evaluate_with_templates(
 
     # Create experiment-specific output directory only if needed
     experiment_name = f"{virus_type}_test_{template_source}"
-    output_subdir = Path(OUTPUT_DIR) / experiment_name
+    experiment_dir = Path(OUTPUT_DIR) / experiment_name
+    experiment_dir.mkdir(parents=True, exist_ok=True)
 
     # Prepare results structure
     results = {
@@ -1381,7 +1376,7 @@ def main(argv: List[str] | None = None):
 
     if workspace_dir:
         # Use new benchmark logging system with file-only output
-        from templ_pipeline.core.benchmark_logging import benchmark_logging_context
+        pass
 
         # The context will be managed in the CLI layer
         logger = setup_benchmark_logging(args.log_level, workspace_dir)
@@ -1448,7 +1443,7 @@ def main(argv: List[str] | None = None):
 
         if data_dir is None:
             raise FileNotFoundError(
-                f"Polaris dataset directory not found. Tried locations:\n"
+                "Polaris dataset directory not found. Tried locations:\n"
                 + "\n".join(f"  - {p}" for p in potential_paths)
                 + "\n\nPolaris data is stored in the GitHub repository, not ZENODO. "
                 "Please ensure polaris data files are in one of these locations or use --dataset-dir"

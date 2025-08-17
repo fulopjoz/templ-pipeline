@@ -8,8 +8,6 @@ This script systematically adds SPDX copyright and license headers to all
 Python source files to ensure FAIR compliance and proper licensing attribution.
 """
 
-import os
-import re
 from pathlib import Path
 
 SPDX_HEADER = """# SPDX-FileCopyrightText: 2025 TEMPL Team

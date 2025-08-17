@@ -9,7 +9,6 @@ and automatic cleanup capabilities.
 
 import logging
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set
 
 import streamlit as st
@@ -159,14 +158,14 @@ class SessionManager:
                 if key == SESSION_KEYS["QUERY_MOL"] and value is not None:
                     success = self.memory_manager.store_molecule("query", value)
                     if success:
-                        logger.debug(f"Stored query molecule in memory manager")
+                        logger.debug("Stored query molecule in memory manager")
                     # Also store in session state as fallback
                     st.session_state[key] = value
 
                 elif key == SESSION_KEYS["TEMPLATE_USED"] and value is not None:
                     success = self.memory_manager.store_molecule("template", value)
                     if success:
-                        logger.debug(f"Stored template molecule in memory manager")
+                        logger.debug("Stored template molecule in memory manager")
                     # Also store in session state as fallback
                     st.session_state[key] = value
 
@@ -181,7 +180,7 @@ class SessionManager:
                     except Exception:
                         pass
                     logger.info(
-                        f"Stored poses directly in session state as primary storage"
+                        "Stored poses directly in session state as primary storage"
                     )
 
                     # Also try to store in memory manager for optimization
@@ -189,11 +188,11 @@ class SessionManager:
                         success = self.memory_manager.store_pose_results(value)
                         if success:
                             logger.info(
-                                f"Successfully stored poses in memory manager as secondary storage"
+                                "Successfully stored poses in memory manager as secondary storage"
                             )
                         else:
                             logger.warning(
-                                f"Failed to store poses in memory manager, but session state storage succeeded"
+                                "Failed to store poses in memory manager, but session state storage succeeded"
                             )
                             # Prevent stale best_poses_refs from previous runs
                             if "best_poses_refs" in st.session_state:
@@ -516,7 +515,7 @@ class SessionManager:
                         export_data[key] = value
                     else:
                         export_data[key] = str(value)
-                except:
+                except (TypeError, ValueError, AttributeError):
                     export_data[key] = "<non-serializable>"
 
         return export_data

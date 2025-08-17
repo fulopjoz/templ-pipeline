@@ -10,7 +10,6 @@ Clean launcher for the TEMPL Pipeline Streamlit application.
 import os
 import socket
 import sys
-import time
 from pathlib import Path
 
 
@@ -68,7 +67,7 @@ def main():
 
     # Check basic dependencies
     try:
-        import streamlit
+        pass
     except ImportError:
         print("Error: Streamlit not installed. Please install: pip install streamlit")
         sys.exit(1)
@@ -99,12 +98,12 @@ def main():
 
     # Get URLs
     urls = get_network_urls(port)
-    print(f"\nAccess URLs:")
+    print("\nAccess URLs:")
     print(f"  Local:    {urls['local']}")
     if urls["network"]:
         print(f"  Network:  {urls['network']}")
 
-    print(f"\nStarting TEMPL Pipeline server...")
+    print("\nStarting TEMPL Pipeline server...")
 
     # Configure environment
     os.environ.update(

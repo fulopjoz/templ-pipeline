@@ -7,7 +7,7 @@ Contains molecule display and image generation functions.
 """
 
 import logging
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 import streamlit as st
 
@@ -119,7 +119,11 @@ def display_molecule(mol, width=400, height=300, title="", highlight_atoms=None)
 
         try:
             Chem.SanitizeMol(mol_work)
-        except:
+        except (
+            Chem.rdchem.KekulizeException,
+            Chem.rdchem.AtomValenceException,
+            ValueError,
+        ):
             # If sanitization fails, try without it
             mol_work = mol
 
@@ -178,7 +182,7 @@ def get_mcs_mol(mol1, mol2):
             if mcs_mol:
                 AllChem.Compute2DCoords(mcs_mol)
                 return mcs_mol, mcs.smartsString
-    except:
+    except (ValueError, TypeError, RuntimeError):
         pass
     return None, None
 
@@ -211,7 +215,7 @@ def safe_get_mcs_mol(mcs_data):
                     try:
                         if mol.GetNumAtoms() > 0:
                             return mol
-                    except:
+                    except (AttributeError, ValueError, RuntimeError):
                         pass
 
             # Try to get from SMARTS
@@ -260,7 +264,7 @@ def safe_get_mcs_mol(mcs_data):
                 try:
                     if mol.GetNumAtoms() > 0:
                         return mol
-                except:
+                except (AttributeError, ValueError, RuntimeError):
                     pass
 
         # Handle string format (SMARTS)
@@ -283,7 +287,7 @@ def safe_get_mcs_mol(mcs_data):
             try:
                 if mcs_data.GetNumAtoms() > 0:
                     return mcs_data
-            except:
+            except (AttributeError, ValueError, RuntimeError):
                 pass
 
     except Exception as e:

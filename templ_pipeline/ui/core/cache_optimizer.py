@@ -9,7 +9,7 @@ Provides smart cache management and optimization strategies.
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 import psutil
 import streamlit as st
@@ -43,7 +43,7 @@ class CacheOptimizer:
 
             # Estimate Streamlit cache usage (rough approximation)
             total_memory_mb = memory.total / (1024 * 1024)
-            used_memory_mb = memory.used / (1024 * 1024)
+            memory.used / (1024 * 1024)
             process_memory_mb = process_memory.rss / (1024 * 1024)
 
             # Check if memory pressure exists

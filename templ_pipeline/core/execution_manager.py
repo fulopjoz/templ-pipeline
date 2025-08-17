@@ -29,7 +29,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 # Optional psutil import for enhanced monitoring
 try:
@@ -42,7 +42,6 @@ except ImportError:
 # Optional pebble import for robust process management like true_mcs.py
 try:
     import pebble
-    from pebble import ProcessPool
 
     HAS_PEBBLE = True
 except ImportError:

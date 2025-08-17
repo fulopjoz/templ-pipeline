@@ -7,7 +7,6 @@ This module provides fixtures and test data specifically for
 TEMPL benchmark testing scenarios.
 """
 
-import json
 from pathlib import Path
 from typing import Any, Dict, List
 from unittest.mock import MagicMock, Mock

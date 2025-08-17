@@ -27,14 +27,7 @@ except ImportError:
 
 # Import test fixtures from centralized factory
 try:
-    from .fixtures.benchmark_fixtures import benchmark_target_data
     from .fixtures.data_factory import TestDataFactory
-    from .fixtures.pipeline_fixtures import (
-        mcs_test_pairs,
-        mock_embeddings,
-        standard_test_molecules,
-        standard_test_proteins,
-    )
 
     FIXTURES_AVAILABLE = True
 except ImportError:
@@ -318,29 +311,7 @@ END
     return {"sdf_file": sdf_file, "pdb_file": pdb_file, "temp_dir": tmp_path}
 
 
-# Performance optimization markers
-def pytest_configure(config):
-    """Configure pytest with performance optimizations."""
-    # Add custom markers
-    config.addinivalue_line("markers", "performance: mark test as performance-related")
-    config.addinivalue_line("markers", "integration: mark test as integration test")
-
-
-def pytest_collection_modifyitems(config, items):
-    """Modify test collection for performance optimization."""
-    # Mark slow tests automatically
-    for item in items:
-        # Mark UI tests as medium speed
-        if "ui" in item.keywords:
-            item.add_marker(pytest.mark.medium)
-
-        # Mark integration tests as slow
-        if "integration" in item.keywords:
-            item.add_marker(pytest.mark.slow)
-
-        # Mark embedding tests as medium speed
-        if "embedding" in item.nodeid.lower():
-            item.add_marker(pytest.mark.medium)
+# Performance optimization markers removed - see main pytest hooks below
 
 
 # Session-wide test data for performance

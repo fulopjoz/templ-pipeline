@@ -1,20 +1,17 @@
 # SPDX-FileCopyrightText: 2025 TEMPL Team
 # SPDX-License-Identifier: MIT
-#!/usr/bin/env python3
+# !/usr/bin/env python3
 """Main pipeline orchestration for template-based pose prediction."""
 
 import gzip
 import logging
 import os
-import time
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 import numpy as np
 from rdkit import Chem
-from rdkit.Chem import AllChem
 
 from .chemistry import (
     is_large_peptide_or_polysaccharide,
@@ -22,7 +19,6 @@ from .chemistry import (
 )
 from .embedding import (
     EmbeddingManager,
-    get_protein_embedding,
     get_protein_sequence,
 )
 from .mcs import (
@@ -34,12 +30,9 @@ from .mcs import (
 from .output_manager import EnhancedOutputManager
 from .scoring import (
     generate_properties_for_sdf,
-    rmsd_raw,
-    score_and_align,
     select_best,
 )
 from .templates import (
-    filter_templates_by_ca_rmsd,
     get_templates_with_progressive_fallback,
     ligand_path,
     load_reference_protein,
@@ -53,7 +46,8 @@ log = logging.getLogger(__name__)
 
 # Custom exception for molecule validation failures
 class MoleculeValidationException(Exception):
-    """Exception raised when molecule validation fails during pipeline execution."""
+    """Exception raised when molecule validation fails during pipeline
+    execution."""
 
     def __init__(self, message, reason, details, molecule_info=None):
         super().__init__(message)
@@ -113,11 +107,11 @@ class PipelineConfig:
         """Set default paths if not provided."""
         if not self.ligands_sdf_gz:
             self.ligands_sdf_gz = (
-                f"{self.data_dir}/ligands/templ_processed_ligands_v1.0.0.sdf.gz"
+                f"{self.data_dir}/ligands/" f"templ_processed_ligands_v1.0.0.sdf.gz"
             )
         if not self.embedding_npz:
             self.embedding_npz = (
-                f"{self.data_dir}/embeddings/templ_protein_embeddings_v1.0.0.npz"
+                f"{self.data_dir}/embeddings/" f"templ_protein_embeddings_v1.0.0.npz"
             )
         if not self.uniprot_map:
             self.uniprot_map = f"{self.data_dir}/pdbbind_dates.json"
@@ -146,15 +140,18 @@ class TEMPLPipeline:
             # Create default config with provided parameters
             self.config = PipelineConfig(
                 output_dir=output_dir,
-                embedding_npz=embedding_path
-                or f"{DEFAULT_DATA_DIR}/embeddings/templ_protein_embeddings_v1.0.0.npz",
+                embedding_npz=(
+                    embedding_path
+                    or f"{DEFAULT_DATA_DIR}/embeddings/"
+                    f"templ_protein_embeddings_v1.0.0.npz"
+                ),
             )
             effective_output_dir = output_dir
 
         # Use default embedding path if none provided
         if embedding_path is None:
             embedding_path = (
-                f"{DEFAULT_DATA_DIR}/embeddings/templ_protein_embeddings_v1.0.0.npz"
+                f"{DEFAULT_DATA_DIR}/embeddings/" f"templ_protein_embeddings_v1.0.0.npz"
             )
 
         self.embedding_path = embedding_path
@@ -201,12 +198,14 @@ class TEMPLPipeline:
             with open(file_path, "r") as f:
                 for line in f:
                     if line.startswith("HEADER"):
-                        # Strategy 1: Standard PDB format - PDB ID at positions 62-66
+                        # Strategy 1: Standard PDB format
+                        # PDB ID at positions 62-66
                         if len(line) >= 66:
                             pdb_id = line[62:66].strip().lower()
                             if len(pdb_id) == 4 and pdb_id.isalnum():
                                 log.info(
-                                    f"Extracted PDB ID '{pdb_id}' from standard header format"
+                                    f"Extracted PDB ID '{pdb_id}' from "
+                                    f"standard header format"
                                 )
                                 return pdb_id
 
@@ -407,7 +406,7 @@ class TEMPLPipeline:
         try:
             if not pdb_id:
                 log.info(
-                    f"CRYSTAL_LOADING: No PDB ID provided for crystal structure loading"
+                    "CRYSTAL_LOADING: No PDB ID provided for crystal structure loading"
                 )
                 return None
 
@@ -613,7 +612,7 @@ class TEMPLPipeline:
                     f"PDB ID '{pdb_id}' not found in embedding database and no PDB file was provided."
                 )
                 log.error(
-                    f"Available options: 1) Provide PDB file path, 2) Check if PDB ID exists in database, 3) Verify PDB ID format (should be 4 characters)"
+                    "Available options: 1) Provide PDB file path, 2) Check if PDB ID exists in database, 3) Verify PDB ID format (should be 4 characters)"
                 )
 
             return None, None
@@ -661,7 +660,9 @@ class TEMPLPipeline:
                 embedding_similarities[pdb_id.upper()] = float(similarity)
 
             log.info(
-                f"Found {len(template_pdb_ids)} templates with embedding similarities ranging from {min(embedding_similarities.values()):.3f} to {max(embedding_similarities.values()):.3f}"
+                f"Found {len(template_pdb_ids)} templates with embedding similarities "
+                f"ranging from {min(embedding_similarities.values()):.3f} "
+                f"to {max(embedding_similarities.values()):.3f}"
             )
 
             # Store similarity search information for JSON output
@@ -1575,7 +1576,7 @@ class TEMPLPipeline:
 
             results_file = self.output_manager.save_pipeline_results(pipeline_results)
 
-            log.info(f"Pipeline completed successfully.")
+            log.info("Pipeline completed successfully.")
             log.info(f"Files saved to: {self.output_manager.timestamped_folder}")
             log.info(f"- Top 3 poses: {top_poses_file}")
             log.info(f"- All poses: {all_poses_file}")

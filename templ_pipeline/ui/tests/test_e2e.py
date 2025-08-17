@@ -9,18 +9,15 @@ for automated browser testing of the complete user workflow.
 
 import asyncio
 import os
-import signal
 import subprocess
 import tempfile
-import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 import requests
-from playwright.async_api import Browser, Page, async_playwright
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
 
 
 class StreamlitAppServer:
@@ -80,7 +77,7 @@ class StreamlitAppServer:
                 response = requests.get(self.base_url, timeout=1)
                 if response.status_code == 200:
                     return True
-            except:
+            except (requests.exceptions.RequestException, ConnectionError):
                 pass
             time.sleep(0.5)
 
@@ -159,7 +156,7 @@ class PlaywrightTestBase:
                 await self.page.wait_for_selector(
                     selector, state="hidden", timeout=5000
                 )
-            except:
+            except (TimeoutError, Exception):
                 pass  # Selector might not exist
 
         # Small delay to ensure everything is rendered
@@ -177,7 +174,6 @@ class TestStreamlitE2E:
     def teardown_method(self):
         """Teardown after each test."""
         # This will be called by pytest automatically
-        pass
 
     @pytest.mark.asyncio
     async def test_app_loads_successfully(self):
@@ -249,15 +245,20 @@ class TestStreamlitE2E:
 ATOM      1  CA  ALA A   1      20.0  16.0  10.0  1.00 20.00           C
 END
 """
-                    with tempfile.NamedTemporaryFile(
-                        mode="w", suffix=".pdb", delete=False
-                    ) as f:
-                        f.write(test_file_content)
-                        test_file_path = f.name
-
+                    # Use async-compatible file creation
+                    test_file_path = None
                     try:
+                        # Create temp file with unique name
+                        temp_dir = Path(tempfile.gettempdir())
+                        test_file_path = (
+                            temp_dir / f"test_protein_{os.getpid()}_{time.time()}.pdb"
+                        )
+
+                        # Write file content
+                        test_file_path.write_text(test_file_content)
+
                         # Upload file to the first file upload widget
-                        await file_uploads[0].set_input_files(test_file_path)
+                        await file_uploads[0].set_input_files(str(test_file_path))
 
                         # Wait for processing
                         await self.test_base.page.wait_for_timeout(2000)
@@ -278,7 +279,9 @@ END
                         )
 
                     finally:
-                        os.unlink(test_file_path)
+                        # Clean up the temporary file
+                        if test_file_path and test_file_path.exists():
+                            test_file_path.unlink()
 
             finally:
                 await self.test_base.teardown_browser()
@@ -532,7 +535,7 @@ ATOM      2  CA  GLY A   2      18.0  15.0  11.0  1.00 20.00           C
 END
 """,
         "ligand.sdf": """Test Ligand
-  -I-interpret- 
+  -I-interpret-
 
   3  2  0  0  0  0  0  0  0  0999 V2000
     0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0

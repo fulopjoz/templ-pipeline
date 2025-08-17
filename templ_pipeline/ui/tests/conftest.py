@@ -7,7 +7,6 @@ Pytest configuration and fixtures for TEMPL Pipeline UI tests.
 import os
 import shutil
 import tempfile
-from pathlib import Path
 from unittest.mock import Mock, patch
 
 import numpy as np
@@ -50,7 +49,7 @@ END
 def test_sdf_file(temp_dir):
     """Create a test SDF file."""
     sdf_content = """Test Ligand
-  -I-interpret- 
+  -I-interpret-
 
   3  2  0  0  0  0  0  0  0  0999 V2000
     0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
@@ -218,13 +217,13 @@ def pytest_runtest_setup(item):
     # Skip E2E tests if Playwright not available
     if item.get_closest_marker("e2e"):
         try:
-            import playwright
+            pass
         except ImportError:
             pytest.skip("Playwright not available for E2E tests")
 
     # Skip UI tests if Streamlit not available
     if item.get_closest_marker("ui"):
         try:
-            import streamlit
+            pass
         except ImportError:
             pytest.skip("Streamlit not available for UI tests")

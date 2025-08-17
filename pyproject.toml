@@ -14,10 +14,12 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
+# Platforms removed from project section
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -25,6 +27,8 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
     "Topic :: Scientific/Engineering :: Chemistry",
 ]
+
+# Cross-platform compatibility configuration removed
 
 # Core dependencies - essential for all installations
 dependencies = [
@@ -89,6 +93,7 @@ dev = [
     "pytest-benchmark>=4.0.0",
     "pytest-html>=3.0.0",
     "pytest-json-report>=1.5.0",
+    "pytest-memray>=1.0.0",
     "black>=22.0.0",
     "isort>=5.0.0",
     "flake8>=4.0.0",
@@ -123,6 +128,7 @@ python_functions = ["test_*"]
 filterwarnings = [
     "ignore::DeprecationWarning:biotite.*",
     "ignore::pytest.PytestConfigWarning",
+    "ignore::pytest.PytestUnhandledThreadExceptionWarning",
 ]
 markers = [
     "fast: marks tests as fast running (< 10s)",
@@ -137,6 +143,26 @@ markers = [
     "coverage_critical: marks tests as critical for coverage analysis",
     "performance_critical: marks tests as critical performance tests",
     "asyncio: marks tests requiring asyncio support",
+]
+
+# Enhanced test discovery and configuration
+opts = [
+    "--strict-markers",
+    "--doctest-modules",
+    "--ignore=setup.py",
+    "--ignore-glob=**/test_resources/*",
+    "--import-mode=importlib",
+]
+
+# Configure timeouts and other runtime parameters
+timeout_func_name = "test_timeout"
+timeout_method = "thread"  # Use thread-based timeout method
+
+# Performance and coverage configuration
+addopts = [
+    "--timeout=120",
+    "-p", "no:faulthandler",
+    "--show-capture=no",
 ]
 
 [tool.deptry]
@@ -171,3 +197,25 @@ ensure_newline_before_comments = true
 known_first_party = ["templ_pipeline"]
 known_third_party = ["pytest", "numpy", "pandas", "rdkit", "streamlit"]
 sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = [
+    "E203",  # whitespace before ':' (conflicts with black)
+    "W503",  # line break before binary operator (conflicts with black) 
+    "E265",  # block comment should start with '# ' (false positive on shebangs)
+]
+exclude = [
+    ".git",
+    ".templ",
+    ".venv",
+    "venv",
+    "env",
+    "build",
+    "dist",
+    "*.egg-info",
+]
+per-file-ignores = [
+    "tests/*:F401,F841",  # Allow unused imports and variables in tests
+    "scripts/*:E402",     # Allow module imports not at top in scripts
+]

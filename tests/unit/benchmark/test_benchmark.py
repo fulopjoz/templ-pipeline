@@ -9,10 +9,8 @@ and follow the principle of testing behavior rather than implementation details.
 
 import shutil
 import tempfile
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Set
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import patch
 
 import pytest
 

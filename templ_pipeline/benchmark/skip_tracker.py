@@ -18,7 +18,6 @@ from typing import Any, Dict, List, Optional, Set, Union
 
 # Optional RDKit import for molecular information
 try:
-    from rdkit import Chem
     from rdkit.Chem import rdMolDescriptors
 
     RDKIT_AVAILABLE = True
@@ -269,7 +268,7 @@ class BenchmarkSkipTracker:
         total = summary["total_skipped"]
 
         print(f"\n{'='*60}")
-        print(f"BENCHMARK SKIP SUMMARY")
+        print("BENCHMARK SKIP SUMMARY")
         print(f"{'='*60}")
         print(f"Total molecules skipped: {total}")
 
@@ -277,7 +276,7 @@ class BenchmarkSkipTracker:
             print("No molecules were skipped!")
             return
 
-        print(f"\nTop skip reasons:")
+        print("\nTop skip reasons:")
         for item in summary["top_skip_reasons"]:
             count = item["count"]
             desc = item["description"]
@@ -285,7 +284,7 @@ class BenchmarkSkipTracker:
             print(f"  {desc}: {count} ({pct:.1f}%)")
 
         if detailed and summary["recent_skips"]:
-            print(f"\nRecent skips:")
+            print("\nRecent skips:")
             for skip in summary["recent_skips"]:
                 print(f"  {skip['pdb_id']}: {skip['reason']} - {skip['details']}")
 
@@ -348,7 +347,7 @@ class BenchmarkSkipTracker:
         stats = self.get_formatted_skip_statistics()
 
         if stats["total_skipped"] > 0:
-            log.info(f"Skip Statistics Summary:")
+            log.info("Skip Statistics Summary:")
             log.info(f"Total molecules skipped: {stats['total_skipped']}")
             for reason, data in stats["breakdown"].items():
                 log.info(

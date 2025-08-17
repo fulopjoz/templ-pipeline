@@ -10,7 +10,6 @@ This module provides utility functions for the TEMPL pipeline:
 4. General helper functions
 """
 
-import gzip
 import logging
 import os
 import random
@@ -19,7 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
-from Bio.PDB import PDBParser, Selection, Structure
+from Bio.PDB import PDBParser
 from Bio.PDB.PDBExceptions import PDBConstructionWarning
 
 # Benchmark-related imports
@@ -74,7 +73,6 @@ def set_global_random_seed(seed: int = 42) -> None:
     try:
         import rdkit.rdBase
         from rdkit import Chem
-        from rdkit.Chem import AllChem
 
         # RDKit uses this for conformer generation randomization
         # Updated for newer RDKit versions (2025.03.3+)
@@ -93,7 +91,7 @@ def set_global_random_seed(seed: int = 42) -> None:
                 f"Global random seed set to {seed} (Python, NumPy, RDKit legacy)"
             )
         except AttributeError:
-            logger.warning(f"Could not set RDKit random seed - function not available")
+            logger.warning("Could not set RDKit random seed - function not available")
             logger.info(f"Global random seed set to {seed} (Python, NumPy only)")
 
     # Set environment variable for child processes
@@ -106,7 +104,6 @@ def get_global_random_seed() -> Optional[int]:
     Returns:
         Current random seed or None if not set
     """
-    global _GLOBAL_RANDOM_SEED
     return _GLOBAL_RANDOM_SEED
 
 
@@ -116,7 +113,6 @@ def is_seed_set() -> bool:
     Returns:
         True if seed has been set, False otherwise
     """
-    global _SEED_SET
     return _SEED_SET
 
 
@@ -162,8 +158,6 @@ def ensure_reproducible_environment() -> None:
     3. Sets default seed if none found
     4. Validates that RDKit operations will be deterministic
     """
-    global _GLOBAL_RANDOM_SEED, _SEED_SET
-
     # Check if seed already set
     if _SEED_SET and _GLOBAL_RANDOM_SEED is not None:
         logger.debug(
@@ -312,7 +306,6 @@ def initialize_global_molecule_cache():
 
 def get_global_molecule_cache():
     """Get the global molecule cache."""
-    global _GLOBAL_MOLECULE_CACHE
     return _GLOBAL_MOLECULE_CACHE
 
 
@@ -423,10 +416,7 @@ def create_shared_embedding_cache(embedding_path: str, cache_name: str = None) -
     Returns:
         Name of the shared cache that can be passed to subprocesses
     """
-    import json
-    import tempfile
     import time
-    from pathlib import Path
 
     if cache_name is None:
         cache_name = f"templ_embeddings_{os.getpid()}_{int(time.time())}"
@@ -911,7 +901,7 @@ def load_sdf_molecules_cached(
                             except Exception:
                                 pass
 
-                    except Exception as mol_err:
+                    except Exception:
                         skipped_count += 1
                         continue
         else:
@@ -959,7 +949,7 @@ def load_sdf_molecules_cached(
                             except Exception:
                                 pass
 
-                    except Exception as mol_err:
+                    except Exception:
                         skipped_count += 1
                         continue
 
@@ -1205,7 +1195,6 @@ def get_worker_config(benchmark_workers: int) -> Dict[str, int]:
 
 def get_shared_molecule_cache() -> Optional[Dict]:
     """Get shared molecule cache if available."""
-    global _GLOBAL_MOLECULE_CACHE
     # First try our global cache
     if _GLOBAL_MOLECULE_CACHE is not None:
         return _GLOBAL_MOLECULE_CACHE

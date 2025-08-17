@@ -8,7 +8,7 @@ import json
 import shutil
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -282,7 +282,7 @@ class TestBenchmarkSummaryIntegration:
         self, summary_generator, sample_results_data, temp_dir
     ):
         """Test full pipeline with sample data."""
-        output_dir = Path(temp_dir)
+        Path(temp_dir)
 
         # Test the full pipeline
         benchmark_type = summary_generator.detect_benchmark_type(sample_results_data)
@@ -315,7 +315,7 @@ class TestBenchmarkSummaryIntegration:
     def test_empty_results_handling(self, summary_generator, temp_dir):
         """Test handling of empty results."""
         empty_data = {"results": {}}
-        output_dir = Path(temp_dir)
+        Path(temp_dir)
 
         benchmark_type = summary_generator.detect_benchmark_type(empty_data)
         # Should handle empty data without crashing

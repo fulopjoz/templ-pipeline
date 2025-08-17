@@ -16,7 +16,6 @@ Usage:
 import argparse
 import json
 import logging
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -119,7 +118,7 @@ def run_timesplit_benchmark(
     results_path = Path(results_dir)
     results_path.mkdir(parents=True, exist_ok=True)
 
-    logger.info(f"Starting time-split benchmark:")
+    logger.info("Starting time-split benchmark:")
     logger.info(f"  Splits: {', '.join(splits_to_run)}")
     logger.info(f"  Workers: {n_workers}")
     logger.info(f"  Conformers: {n_conformers}")
@@ -483,9 +482,6 @@ def main(argv: List[str] = None) -> int:
 
                 # Extract individual results for summary processing
                 individual_results = []
-                results_file_base = Path(
-                    result["results_file"]
-                ).parent  # Get base directory for resolving relative paths
 
                 for split_name, split_data in results_data.get(
                     "split_results", {}
