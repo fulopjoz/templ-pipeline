@@ -120,6 +120,10 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+filterwarnings = [
+    "ignore::DeprecationWarning:biotite.*",
+    "ignore::pytest.PytestConfigWarning",
+]
 markers = [
     "fast: marks tests as fast running (< 10s)",
     "medium: marks tests as medium running (< 30s)", 

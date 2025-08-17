@@ -40,13 +40,13 @@ jobs:
     
     - name: Validate citation.cff
       run: |
-        cffconvert --input citation.cff --validate
+        cffconvert -i citation.cff --validate
     
     - name: Convert citation.cff to other formats
       run: |
-        cffconvert --input citation.cff --output codemeta.json
-        cffconvert --input citation.cff --output apalike.txt
-        cffconvert --input citation.cff --output bibtex.txt
+        cffconvert -i citation.cff -f codemeta -o codemeta.json
+        cffconvert -i citation.cff -f apalike -o apalike.txt
+        cffconvert -i citation.cff -f bibtex -o bibtex.txt
     
     - name: Upload generated files
       uses: actions/upload-artifact@v4
