@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11"]  # Focus on single stable version
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
       fail-fast: false
 
     steps:
@@ -72,7 +72,7 @@ jobs:
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: coverage-reports
+        name: coverage-reports-${{ matrix.python-version }}
         path: coverage.xml
         retention-days: 7
 
@@ -80,7 +80,7 @@ jobs:
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: test-results
+        name: test-results-${{ matrix.python-version }}
         path: test-results.xml
         retention-days: 7
 
@@ -110,8 +110,9 @@ jobs:
     - name: Download coverage artifacts
       uses: actions/download-artifact@v4
       with:
-        name: coverage-reports
+        pattern: coverage-reports-*
         path: ./
+        merge-multiple: true
       continue-on-error: true
     
     - name: SonarCloud Scan
