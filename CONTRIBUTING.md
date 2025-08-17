@@ -2,85 +2,70 @@
 
 Thank you for your interest in contributing to TEMPL Pipeline! This document provides guidelines for contributing to the project.
 
-## Code of Conduct
+## Code Formatting
 
-By participating in this project, you agree to abide by our Code of Conduct.
+We use automated tools to maintain consistent code formatting:
 
-## How to Contribute
-
-### Reporting Issues
-
-- Use the GitHub issue tracker
-- Provide a clear description of the problem
-- Include steps to reproduce the issue
-- Specify your environment (OS, Python version, etc.)
-
-### Suggesting Enhancements
-
-- Use the GitHub issue tracker with the "enhancement" label
-- Describe the proposed feature clearly
-- Explain the benefits and use cases
-
-### Code Contributions
-
-1. **Fork the repository**
-2. **Create a feature branch**: `git checkout -b feature/your-feature-name`
-3. **Make your changes** following the coding standards below
-4. **Add tests** for new functionality
-5. **Run tests** to ensure everything works
-6. **Commit your changes** with clear commit messages
-7. **Push to your fork** and submit a pull request
-
-## Coding Standards
-
-### Python Code Style
-
-- Follow PEP 8 style guidelines
-- Use type hints where appropriate
-- Keep functions focused and well-documented
-- Add docstrings for all public functions and classes
-
-### File Headers
-
-All Python files must include SPDX headers:
-
-```python
-# SPDX-FileCopyrightText: 2025 TEMPL Team
-# SPDX-License-Identifier: MIT
+### Setup Pre-commit Hooks
+```bash
+# Install pre-commit hooks for automatic formatting
+pip install pre-commit
+pre-commit install
 ```
 
-### Commit Messages
+### Manual Formatting
+```bash
+# Format code with Black
+black templ_pipeline/ tests/ scripts/
 
-Use clear, descriptive commit messages:
-- Start with a verb in present tense
-- Keep the first line under 50 characters
-- Provide additional details in the body if needed
+# Sort imports with isort
+isort templ_pipeline/ tests/ scripts/
 
-Example:
+# Check code quality with flake8
+flake8 templ_pipeline/ tests/ scripts/
 ```
-Add SPDX headers to all Python files
 
-- Add copyright and license headers to 128 Python files
-- Ensure FAIR compliance for academic citation
-- Follow REUSE software guidelines
-```
+### Configuration
+- **Black**: Line length 88, Python 3.9+ compatibility
+- **isort**: Black profile, line length 88
+- **flake8**: Line length 88, ignores E203, W503
+
+## Development Setup
+
+1. Clone the repository
+2. Install dependencies: `pip install -e ".[dev]"`
+3. Set up pre-commit hooks
+4. Run tests: `pytest`
 
 ## Testing
 
-- Write unit tests for new functionality
-- Ensure all tests pass before submitting
-- Run the test suite: `python -m pytest tests/`
+- Run all tests: `pytest`
+- Run specific test: `pytest tests/unit/core/test_embedding.py`
+- Run with coverage: `pytest --cov=templ_pipeline`
 
-## Documentation
+## CI/CD
 
-- Update README.md if adding new features
-- Add docstrings for new functions and classes
-- Update examples if API changes
+The project uses GitHub Actions for continuous integration:
+- **CI**: Tests, linting, security checks
+- **Citation**: Citation file management
+- **Live Tests**: Manual test execution
 
-## License
+## Code Style
 
-By contributing to TEMPL Pipeline, you agree that your contributions will be licensed under the MIT License.
+- Follow PEP 8 guidelines
+- Use type hints where appropriate
+- Write docstrings for all public functions
+- Keep functions focused and small
+- Use meaningful variable names
+
+## Pull Request Process
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run tests and formatting tools
+5. Submit a pull request with clear description
 
 ## Questions?
 
-If you have questions about contributing, please open an issue or contact the maintainers.
+Feel free to open an issue or discussion for any questions about contributing.
