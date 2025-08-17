@@ -10,13 +10,28 @@ on:
 jobs:
   cffconvert:
     runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+      fail-fast: true
     
-    - name: Set up Python
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
-        python-version: "3.11"
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ matrix.python-version }}-cffconvert
+        restore-keys: |
+          ${{ runner.os }}-pip-${{ matrix.python-version }}-
+          ${{ runner.os }}-pip-
     
     - name: Install cffconvert
       run: |
@@ -32,3 +47,14 @@ jobs:
         cffconvert --input citation.cff --output codemeta.json
         cffconvert --input citation.cff --output apalike.txt
         cffconvert --input citation.cff --output bibtex.txt
+    
+    - name: Upload generated files
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: citation-files
+        path: |
+          codemeta.json
+          apalike.txt
+          bibtex.txt
+        retention-days: 30

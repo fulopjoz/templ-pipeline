@@ -16,13 +16,28 @@ on:
 jobs:
   livetest:
     runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+      fail-fast: true
     
-    - name: Set up Python
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
-        python-version: "3.11"
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('**/pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-${{ matrix.python-version }}-
+          ${{ runner.os }}-pip-
     
     - name: Install dependencies
       run: |
@@ -32,14 +47,23 @@ jobs:
     - name: Run integration tests
       if: inputs.test_type == 'integration'
       run: |
-        pytest tests/integration/ -v
+        pytest tests/integration/ -v --junitxml=integration-results.xml
     
     - name: Run performance tests
       if: inputs.test_type == 'performance'
       run: |
-        pytest tests/performance/ -v
+        pytest tests/performance/ -v --junitxml=performance-results.xml
     
     - name: Run UI tests
       if: inputs.test_type == 'ui'
       run: |
-        pytest tests/unit/ui/ -v
+        pytest tests/unit/ui/ -v --junitxml=ui-results.xml
+    
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: live-test-results-${{ inputs.test_type }}
+        path: |
+          *-results.xml
+        retention-days: 7
