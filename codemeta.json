@@ -74,12 +74,12 @@
   "identifier": {
     "@type": "PropertyValue",
     "name": "DOI",
-    "value": "10.5281/zenodo.15813500"
+    "value": "10.5281/zenodo.XXXXXXX"
   },
   "citation": [
     {
-      "@type": "CreativeWork",
-      "citation": "@article{templ2025, title={TEMPL: A template-based protein ligand pose prediction baseline}, author={J. Fülöp and M. Šícho and W. Dehaen}, journal={}, year={2025}}"
+      "@type": "SoftwareSourceCode",
+      "citation": "@software{templ2025, title={TEMPL: Template-based protein-ligand pose prediction}, author={J. Fülöp and M. Šícho and W. Dehaen}, url={https://github.com/fulopjoz/templ-pipeline}, doi={10.5281/zenodo.XXXXXXX}, year={2025}}"
     }
   ],
   "developmentStatus": "active",

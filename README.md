@@ -2,8 +2,10 @@
 
 [![Live App](https://img.shields.io/badge/Live_App-templ.dyn.cloud.e--infra.cz-2ea44f?logo=google-chrome&logoColor=white)](https://templ.dyn.cloud.e-infra.cz/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![FAIR](https://img.shields.io/badge/FAIR-Compliant-brightgreen)](https://www.go-fair.org/fair-principles/)
-[![Open Science](https://img.shields.io/badge/Open_Science-Compliant-blue)](https://openscience.org/)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![RSD](https://img.shields.io/badge/rsd-templ--pipeline-00a3e0.svg)](https://research-software-directory.org/software/templ-pipeline)
+[![fair-software.eu](https://img.shields.io/badge/fair--software.eu-%E2%97%8F%20%20%E2%97%8F%20%20%E2%97%8F%20%20%E2%97%8F%20%20%E2%97%8F-orange)](https://fair-software.eu)
+[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.XXXXXXX-blue)](https://doi.org/10.5281/zenodo.XXXXXXX)
 
 Template-based protein–ligand pose prediction with command-line interface and web application.
 
@@ -55,7 +57,7 @@ source .templ/bin/activate
 
 ## Data Requirements
 
-TEMPL requires pre-computed embeddings and ligand structures that are automatically downloaded during setup from [Zenodo](https://doi.org/10.5281/zenodo.15813500):
+TEMPL requires pre-computed embeddings and ligand structures that are automatically downloaded during setup from [Zenodo](https://doi.org/10.5281/zenodo.XXXXXXX):
 
 - `templ_protein_embeddings_v1.0.0.npz` (~90MB) - Protein embeddings
 - `templ_processed_ligands_v1.0.0.sdf.gz` (~10MB) - Processed ligand structures
@@ -147,7 +149,7 @@ templ benchmark time-split --test-only
 
 ---
 
-## Pipeline Commands
+## API Reference
 
 | Command | Description |
 |---------|-------------|
@@ -156,21 +158,33 @@ templ benchmark time-split --test-only
 | `templ find-templates` | Find similar protein templates |
 | `templ generate-poses` | Generate ligand poses |
 
+For detailed command options, run `templ --help` or `templ <command> --help`.
+
 ---
 
+## Contributing
+
+We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details on how to submit pull requests, report issues, and contribute to the project.
+
+For questions or discussions, please use [GitHub Discussions](https://github.com/fulopjoz/templ-pipeline/discussions).
+
+---
 
 ## Citation
 
-If you use TEMPL in your research, please cite:
+If you use TEMPL in your research, please cite the software:
 
 ```bibtex
-@article{templ2025,
-  title={TEMPL: A template-based protein ligand pose prediction baseline},
+@software{templ2025,
+  title={TEMPL: Template-based protein-ligand pose prediction},
   author={J. Fülöp and M. Šícho and W. Dehaen},
-  journal={},
+  url={https://github.com/fulopjoz/templ-pipeline},
+  doi={10.5281/zenodo.XXXXXXX},
   year={2025}
 }
 ```
+
+*A research paper describing the method is in preparation.*
 
 ---
 
@@ -181,39 +195,6 @@ Computational resources were provided by the e-INFRA CZ project (ID:90254), supp
 
 
 ---
-
-## FAIR and Open Science Compliance
-
-TEMPL Pipeline follows FAIR (Findable, Accessible, Interoperable, Reusable) principles and Open Science conventions:
-
-### Findable
-- **Persistent identifiers**: DOI: [10.5281/zenodo.15813500](https://doi.org/10.5281/zenodo.15813500)
-- **Rich metadata**: `codemeta.json` and `citation.cff` files
-- **Clear description**: Comprehensive documentation and examples
-
-### Accessible
-- **Open source**: MIT license with clear terms
-- **Multiple access points**: GitHub repository, Zenodo archive, live web app
-- **Documentation**: Extensive README, examples, and API documentation
-
-### Interoperable
-- **Standard formats**: SDF, PDB, SMILES, NPZ
-- **Machine-readable metadata**: SPDX headers, CodeMeta schema
-- **API compatibility**: Standard Python package structure
-
-### Reusable
-- **Clear licensing**: MIT license with SPDX identifiers
-- **Attribution**: AUTHORS file and citation guidelines
-- **Reproducibility**: Versioned releases and benchmark datasets
-
-### Additional Files
-- `citation.cff` - Academic citation information
-- `codemeta.json` - Machine-readable metadata
-- `AUTHORS` - Contributor attribution
-- `LICENSES/` - SPDX-named license files
-- `CONTRIBUTING.md` - Contribution guidelines
-- `CODE_OF_CONDUCT.md` - Community standards
-- `CHANGELOG.md` - Version history
 
 ## License
 

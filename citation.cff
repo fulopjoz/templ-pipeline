@@ -22,7 +22,7 @@ repository-code: "https://github.com/fulopjoz/templ-pipeline"
 url: "https://templ.dyn.cloud.e-infra.cz/"
 identifiers:
   - type: doi
-    value: "10.5281/zenodo.15813500"
+    value: "10.5281/zenodo.XXXXXXX"
   - type: url
     value: "https://github.com/fulopjoz/templ-pipeline"
 version: "1.0.0"
