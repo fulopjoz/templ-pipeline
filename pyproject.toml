@@ -14,7 +14,7 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
-platforms = ["Linux", "macOS", "Windows"]
+# Platforms removed from project section
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
@@ -28,9 +28,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Chemistry",
 ]
 
-# Cross-platform compatibility configuration
-[tool.setuptools.platforms]
-wheel = ["any"]
+# Cross-platform compatibility configuration removed
 
 # Core dependencies - essential for all installations
 dependencies = [
@@ -162,7 +160,7 @@ timeout_method = 120  # 2 minutes default timeout
 
 # Performance and coverage configuration
 addopts = [
-    f"--timeout={timeout_method}",
+    "--timeout=120",
     "-p", "no:faulthandler",
     "--show-capture=no",
 ]
