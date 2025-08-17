@@ -2,9 +2,7 @@
 # SPDX-License-Identifier: MIT
 """Performance and lazy loading tests for TEMPL CLI."""
 
-import sys
 import time
-from unittest.mock import MagicMock, patch
 
 import pytest
 

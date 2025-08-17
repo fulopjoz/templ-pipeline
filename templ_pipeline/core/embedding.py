@@ -1,19 +1,10 @@
 # SPDX-FileCopyrightText: 2025 TEMPL Team
 # SPDX-License-Identifier: MIT
 """
-TEMPL Pipeline Embedding Module
+Protein embedding generation and management for TEMPL pipeline.
 
-This module handles protein embedding generation and template selection functionality:
-1. Generates ESM2 embeddings for protein sequences
-2. Loads pre-computed embeddings from files
-3. Manages caching for efficient reuse
-4. Provides template selection via embedding similarity
-
-The main classes and functions:
-- EmbeddingManager: Core class for handling all embedding operations
-- get_protein_sequence: Extract sequence from PDB file
-- calculate_embedding: Generate embedding for a protein sequence
-- select_templates: Find similar templates for a target protein
+This module provides functionality for generating protein embeddings using ESM models,
+managing embedding databases, and performing similarity searches.
 """
 
 import logging
@@ -25,149 +16,61 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
-from Bio.PDB.parse_pdb_header import parse_pdb_header
-from Bio.PDB.PDBExceptions import PDBConstructionWarning
-from Bio.PDB.PDBParser import PDBParser
-from Bio.PDB.Polypeptide import PPBuilder
 from sklearn.metrics.pairwise import cosine_similarity
 
-# Initialize global variables for ESM model components (lazy-loaded)
-_esm_components = None
+# Import from utils module
+try:
+    from .utils import find_pdbbind_paths
+except ImportError:
+    find_pdbbind_paths = None
 
-# Check if ESM dependencies are available
 try:
     import torch
-
-    # Fix torch.classes compatibility issue
-    torch.classes.__path__ = []
-    from transformers import EsmModel, EsmTokenizer
+    from transformers import AutoConfig, EsmModel, EsmTokenizer
 
     ESM_AVAILABLE = True
 except ImportError:
     ESM_AVAILABLE = False
 
-# ESM model configuration
-ESM_MAX_SEQUENCE_LENGTH = 1022
-# https://www.biorxiv.org/content/10.1101/2022.07.20.500902v2.full
-# https://github.com/gcorso/DiffDock/issues/199
-
-
-# GPU Detection Functions
-def _detect_gpu() -> bool:
-    """Detect if CUDA GPU is available for embedding generation."""
-    try:
-        import torch
-
-        torch.classes.__path__ = []
-        return torch.cuda.is_available()
-    except ImportError:
-        return False
-
-
-def _get_device() -> str:
-    """Get optimal device (cuda/cpu) for embedding generation."""
-    import os
-
-    # Check for user device preference override
-    forced_device = os.environ.get("TEMPL_FORCE_DEVICE")
-    if forced_device:
-        if forced_device == "cuda" and _detect_gpu():
-            return "cuda"
-        elif forced_device == "cpu":
-            return "cpu"
-        elif forced_device == "cuda" and not _detect_gpu():
-            # User forced GPU but no GPU available
-            logger.warning(
-                "User forced GPU usage but no GPU detected, falling back to CPU"
-            )
-            return "cpu"
-
-    # Default auto-detection behavior
-    return "cuda" if _detect_gpu() else "cpu"
-
-
-def _get_gpu_info() -> Dict[str, Any]:
-    """Get GPU information for logging and diagnostics."""
-    if not _detect_gpu():
-        return {"available": False, "device": "cpu"}
-
-    try:
-        import torch
-
-        return {
-            "available": True,
-            "device": "cuda",
-            "device_count": torch.cuda.device_count(),
-            "device_name": torch.cuda.get_device_name(0),
-            "memory_total": (torch.cuda.get_device_properties(0).total_memory / 1e9),
-        }
-    except Exception:
-        return {"available": False, "device": "cpu", "error": "Failed to get GPU info"}
-
-
-# Configure logging - prevent duplicate handlers
-logger = logging.getLogger(__name__)
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    # Don't set the level here - allow it to be controlled by the root logger
-
-# Import utility functions to find paths to PDBbind files and data files
 try:
-    from templ_pipeline.core.utils import (
-        find_pdbbind_paths,
-        get_default_embedding_path,
-    )
+    from Bio.PDB import PDBParser, PPBuilder
+    from Bio.PDB.PDBExceptions import PDBConstructionWarning
+    from Bio.PDB.parse_pdb_header import parse_pdb_header
+
+    BIOPYTHON_AVAILABLE = True
 except ImportError:
-    logger.warning("Could not import utility functions from templ_pipeline.core.utils")
-    find_pdbbind_paths = None
-    get_default_embedding_path = None
+    BIOPYTHON_AVAILABLE = False
 
-# Note: CA RMSD filtering utilities live in templ_pipeline.core.templates
+logger = logging.getLogger(__name__)
 
+# Constants
+ESM_MAX_SEQUENCE_LENGTH = 1024
+DEFAULT_MODEL_ID = "facebook/esm2_t33_650M_UR50D"
 
-# --- Path Resolution Helper ---
-def _get_standard_embedding_paths() -> List[Path]:
-    """Deprecated internal helper (no longer used)."""
-    current_dir = Path(__file__).parent.absolute()
-    root_dir = current_dir.parent.parent
-    return [root_dir / "data" / "embeddings" / "templ_protein_embeddings_v1.0.0.npz"]
+# Global variables for ESM model caching
+_esm_components: Optional[Dict[str, Any]] = None
 
 
-def _resolve_embedding_path(embedding_path: Optional[Union[str, Path]] = None) -> str:
-    """
-    Resolve the embedding path from various sources.
-
-    Order of precedence:
-    1. Explicitly provided path
-    2. TEMPL_EMBEDDING_PATH environment variable
-    3. Default locations:
-       - ~/.cache/templ/embeddings/templ_protein_embeddings_v1.0.0.npz
-       - ./data/embeddings/templ_protein_embeddings_v1.0.0.npz
-       - ./templ_pipeline/data/embeddings/templ_protein_embeddings_v1.0.0.npz
+def _resolve_embedding_path() -> str:
+    """Resolve the path to the embedding database file.
 
     Returns:
-        The resolved path as a string
+        str: Path to the embedding database file
     """
-    if embedding_path is not None:
-        return str(embedding_path)
-
-    # Check environment variable
-
+    # Check environment variable first
     env_path = os.environ.get("TEMPL_EMBEDDING_PATH")
-    if env_path and Path(env_path).exists():
+    if env_path and os.path.exists(env_path):
         return env_path
 
-    # Check default location
+    # Search for embedding file in common locations
     search_paths = [
-        Path("data/embeddings/templ_protein_embeddings_v1.0.0.npz"),
+        "data/embeddings/templ_protein_embeddings_v1.0.0.npz",
+        "embeddings/templ_protein_embeddings_v1.0.0.npz",
+        "templ_protein_embeddings_v1.0.0.npz",
     ]
 
-    for path in search_paths:
+    for path_str in search_paths:
+        path = Path(path_str)
         if path.exists():
             # Sanity-check file size – Git-LFS pointers are only ~130 bytes
             MIN_BYTES = 5_000_000  # 5 MB, real DB is ~90 MB
@@ -175,7 +78,8 @@ def _resolve_embedding_path(embedding_path: Optional[Union[str, Path]] = None) -
                 if path.stat().st_size < MIN_BYTES:
                     logger.error(
                         "Embedding file present but too small (likely an LFS pointer). "
-                        "Ensure 'git lfs pull' ran during deployment or use Dockerfile with git-lfs."
+                        "Ensure 'git lfs pull' ran during deployment or use Dockerfile "
+                        "with git-lfs."
                     )
                     continue  # keep searching
             except Exception:
@@ -189,7 +93,8 @@ def _resolve_embedding_path(embedding_path: Optional[Union[str, Path]] = None) -
 def get_protein_sequence(
     pdb_file: str, target_chain_id: Optional[str] = None
 ) -> Tuple[Optional[str], List[str]]:
-    """Extract protein sequence from PDB file using structure-based coordinates first, with SEQRES fallback.
+    """Extract protein sequence from PDB file using structure-based coordinates first,
+    with SEQRES fallback.
 
     Args:
         pdb_file (str): Path to PDB file
@@ -226,7 +131,7 @@ def get_protein_sequence(
             conversion.update(aa_map)
 
         return "".join(
-            conversion.get(seqres[i : i + 3].upper(), "X")
+            conversion.get(seqres[i: i + 3].upper(), "X")
             for i in range(0, len(seqres), 3)
             if i + 3 <= len(seqres)
         )
@@ -269,164 +174,170 @@ def get_protein_sequence(
         final_seq = None
         used_chains: List[str] = []
 
-        # Convert SEQRES sequences to 1-letter code if available
-        if seqres_sequences:
-            seqres_1letter = {
-                chain: seqres_to_1letter(seq) for chain, seq in seqres_sequences.items()
-            }
+        if target_chain_id:
+            # Use specified chain
+            if target_chain_id in struct_sequences:
+                final_seq = struct_sequences[target_chain_id]
+                used_chains = [target_chain_id]
+            elif target_chain_id in seqres_sequences:
+                final_seq = seqres_to_1letter(seqres_sequences[target_chain_id])
+                used_chains = [target_chain_id]
+            else:
+                logger.warning(f"Target chain {target_chain_id} not found")
+                return None, []
+        else:
+            # Use longest available sequence
+            all_sequences = {}
+            all_sequences.update(struct_sequences)
+            for chain_id, seqres_seq in seqres_sequences.items():
+                if chain_id not in all_sequences:
+                    all_sequences[chain_id] = seqres_to_1letter(seqres_seq)
 
-            # Find matching chains between SEQRES and structure
-            common_chains = set(seqres_1letter) & set(struct_sequences)
-            if common_chains:
-                target_chain = (
-                    target_chain_id
-                    if target_chain_id and target_chain_id in common_chains
-                    else sorted(common_chains)[0]
+            if all_sequences:
+                longest_chain = max(
+                    all_sequences.keys(), key=lambda k: len(all_sequences[k])
                 )
-                seqres_seq = seqres_1letter[target_chain]
-                struct_seq = struct_sequences[target_chain]
-
-                # Validate length consistency
-                if len(seqres_seq) == len(struct_seq):
-                    final_seq = seqres_seq
-                    used_chains = [target_chain]
-                    logger.debug(
-                        f"Using SEQRES sequence for chain {target_chain} "
-                        f"(length: {len(final_seq)})"
-                    )
-                else:
-                    logger.warning(
-                        f"SEQRES/structure length mismatch for chain {target_chain}: "
-                        f"{len(seqres_seq)} vs {len(struct_seq)}. Using structure sequence."
-                    )
-                    final_seq = struct_seq
-                    used_chains = [target_chain]
-
-        # Fallback to structure sequence
-        if final_seq is None:
-            target_chain = (
-                target_chain_id
-                if target_chain_id and target_chain_id in struct_sequences
-                else sorted(struct_sequences.keys())[0]
-            )
-            final_seq = struct_sequences[target_chain]
-            used_chains = [target_chain]
-            logger.debug(
-                f"Using structure-based sequence for chain {target_chain} "
-                f"(length: {len(final_seq)})"
-            )
-
-        # Final validation
-        if len(final_seq) < 20:  # Minimum reasonable protein length
-            logger.error(f"Sequence too short (length={len(final_seq)})")
-            return None, []
-
-        if "X" in final_seq:
-            logger.warning(f"Sequence contains {final_seq.count('X')} unknown residues")
+                final_seq = all_sequences[longest_chain]
+                used_chains = [longest_chain]
 
         return final_seq, used_chains
 
     except Exception as e:
-        logger.error(f"Sequence extraction failed: {str(e)}")
+        logger.error(f"Error extracting protein sequence: {str(e)}")
         return None, []
 
 
-def initialize_esm_model() -> Optional[Dict[str, Any]]:
-    """Initialize ESM model for embedding calculation, cached for reuse."""
-    global _esm_components
-    if _esm_components is None:
-        try:
-            import torch
-            from transformers import AutoConfig, EsmModel, EsmTokenizer
+def _get_gpu_info() -> Dict[str, Any]:
+    """Get GPU information for ESM model optimization.
 
-            # Use the larger model to match create_embeddings_base.py
-            model_id = "facebook/esm2_t33_650M_UR50D"
+    Returns:
+        Dict containing GPU availability and information
+    """
+    gpu_info = {"available": False, "device_name": "", "memory_total": 0}
 
-            # Get device info and log GPU status
-            gpu_info = _get_gpu_info()
-            device = _get_device()
+    if not ESM_AVAILABLE:
+        return gpu_info
 
-            if gpu_info["available"]:
-                logger.info(
-                    f"GPU detected: {gpu_info['device_name']} "
-                    f"({gpu_info['memory_total']:.1f}GB)"
-                )
-                logger.info(f"Initializing ESM model on GPU")
-            else:
-                logger.info(f"No GPU available, using CPU for embedding generation")
-
-            # Configure model with optimizations
-            config = AutoConfig.from_pretrained(model_id)
-
-            # Enable flash attention if available and on GPU
-            if gpu_info["available"] and hasattr(config, "use_flash_attention_2"):
-                config.use_flash_attention_2 = True
-                logger.info("Flash Attention 2 enabled for better GPU performance")
-
-            # Use optimized model initialization
-            tokenizer = EsmTokenizer.from_pretrained(model_id)
-            model = EsmModel.from_pretrained(
-                model_id, config=config, add_pooling_layer=False
+    try:
+        if torch.cuda.is_available():
+            gpu_info["available"] = True
+            gpu_info["device_name"] = torch.cuda.get_device_name(0)
+            gpu_info["memory_total"] = (
+                torch.cuda.get_device_properties(0).total_memory / (1024**3)
             )
-            model.eval()
+    except Exception:
+        pass
 
-            # Device-specific optimization
-            if gpu_info["available"]:
-                # Enable TF32 for improved performance on Ampere+ GPUs
-                try:
-                    torch.backends.cuda.matmul.allow_tf32 = True
-                    # PyTorch >= 2.0 API for matmul precision
-                    if hasattr(torch, "set_float32_matmul_precision"):
-                        torch.set_float32_matmul_precision("high")
-                except Exception:
-                    pass
+    return gpu_info
 
-                # Allow cuDNN to benchmark optimal algorithms
-                try:
-                    torch.backends.cudnn.benchmark = True
-                except Exception:
-                    pass
 
-                dtype = torch.float16
-                model = model.to(device=device, dtype=dtype)
-                torch.cuda.empty_cache()
-                logger.info(f"Model loaded on GPU with {dtype} precision")
-            else:
-                # Use float32 on CPU for maximum compatibility
-                dtype = torch.float32
-                model = model.to(dtype=dtype)
-                logger.info(f"Model using {dtype} precision on CPU")
+def _initialize_esm_model(model_id: str = DEFAULT_MODEL_ID) -> Optional[Dict[str, Any]]:
+    """Initialize ESM model with optimizations.
 
-            _esm_components = {"tokenizer": tokenizer, "model": model}
-            logger.info(f"ESM model initialization complete: {model_id}")
+    Args:
+        model_id (str): ESM model identifier
 
-            # Lightweight warm-up to reduce first-inference latency (optional)
+    Returns:
+        Dict containing tokenizer and model, or None if initialization fails
+    """
+    global _esm_components
+
+    if _esm_components is not None:
+        return _esm_components
+
+    if not ESM_AVAILABLE:
+        logger.error("ESM model not available - torch and transformers not installed")
+        return None
+
+    if not BIOPYTHON_AVAILABLE:
+        logger.error("Biopython not available for protein sequence extraction")
+        return None
+
+    try:
+        gpu_info = _get_gpu_info()
+        device = "cuda" if gpu_info["available"] else "cpu"
+
+        if gpu_info["available"]:
+            logger.info(
+                f"GPU detected: {gpu_info['device_name']} "
+                f"({gpu_info['memory_total']:.1f}GB)"
+            )
+            logger.info("Initializing ESM model on GPU")
+        else:
+            logger.info("No GPU available, using CPU for embedding generation")
+
+        # Configure model with optimizations
+        config = AutoConfig.from_pretrained(model_id)
+
+        # Enable flash attention if available and on GPU
+        if gpu_info["available"] and hasattr(config, "use_flash_attention_2"):
+            config.use_flash_attention_2 = True
+            logger.info("Flash Attention 2 enabled for better GPU performance")
+
+        # Use optimized model initialization
+        tokenizer = EsmTokenizer.from_pretrained(model_id)
+        model = EsmModel.from_pretrained(
+            model_id, config=config, add_pooling_layer=False
+        )
+        model.eval()
+
+        # Device-specific optimization
+        if gpu_info["available"]:
+            # Enable TF32 for improved performance on Ampere+ GPUs
             try:
-                if gpu_info["available"]:
-                    _warmup_seq = "M" * 64
-                    _inputs = tokenizer(
-                        _warmup_seq,
-                        return_tensors="pt",
-                        truncation=True,
-                        max_length=ESM_MAX_SEQUENCE_LENGTH,
-                    )
-                    _device = next(model.parameters()).device
-                    _inputs = {k: v.to(_device) for k, v in _inputs.items()}
-                    with torch.no_grad():
-                        with torch.autocast(device_type="cuda", dtype=torch.float16):
-                            _ = model(**_inputs)
-                    torch.cuda.synchronize()
-                    logger.debug("ESM GPU warm-up completed")
+                torch.backends.cuda.matmul.allow_tf32 = True
+                # PyTorch >= 2.0 API for matmul precision
+                if hasattr(torch, "set_float32_matmul_precision"):
+                    torch.set_float32_matmul_precision("high")
             except Exception:
-                # Warm-up is best-effort; ignore failures
                 pass
 
-        except Exception as e:
-            logger.error(f"Failed to initialize ESM model: {str(e)}")
-            import traceback
+            # Allow cuDNN to benchmark optimal algorithms
+            try:
+                torch.backends.cudnn.benchmark = True
+            except Exception:
+                pass
 
-            logger.error(traceback.format_exc())
-            return None
+            dtype = torch.float16
+            model = model.to(device=device, dtype=dtype)
+            torch.cuda.empty_cache()
+            logger.info(f"Model loaded on GPU with {dtype} precision")
+        else:
+            # Use float32 on CPU for maximum compatibility
+            dtype = torch.float32
+            model = model.to(dtype=dtype)
+            logger.info(f"Model using {dtype} precision on CPU")
+
+        _esm_components = {"tokenizer": tokenizer, "model": model}
+        logger.info(f"ESM model initialization complete: {model_id}")
+
+        # Lightweight warm-up to reduce first-inference latency (optional)
+        try:
+            if gpu_info["available"]:
+                _warmup_seq = "M" * 64
+                _inputs = tokenizer(
+                    _warmup_seq,
+                    return_tensors="pt",
+                    truncation=True,
+                    max_length=ESM_MAX_SEQUENCE_LENGTH,
+                )
+                _device = next(model.parameters()).device
+                _inputs = {k: v.to(_device) for k, v in _inputs.items()}
+                with torch.no_grad():
+                    with torch.autocast(device_type="cuda", dtype=torch.float16):
+                        _ = model(**_inputs)
+                torch.cuda.synchronize()
+                logger.debug("ESM GPU warm-up completed")
+        except Exception:
+            # Warm-up is best-effort; ignore failures
+            pass
+
+    except Exception as e:
+        logger.error(f"Failed to initialize ESM model: {str(e)}")
+        import traceback
+
+        logger.error(traceback.format_exc())
+        return None
     return _esm_components
 
 
@@ -478,7 +389,7 @@ def calculate_embedding(sequence: str) -> Optional[np.ndarray]:
     start_time = time.time()
     logger.info(f"Calculating embedding for sequence length: {len(sequence)}")
 
-    esm_components = initialize_esm_model()
+    esm_components = _initialize_esm_model()
     if not esm_components:
         logger.error("Failed to initialize ESM model")
         return None
@@ -517,7 +428,8 @@ def get_protein_embedding(
 
     Args:
         pdb_file: Path to PDB file
-        target_chain_id: Specific chain ID to extract (if None, uses first available chain)
+        target_chain_id: Specific chain ID to extract (if None, uses first available
+            chain)
 
     Returns:
         Tuple of (embedding array, list of chain IDs used)
@@ -590,11 +502,12 @@ def get_protein_embedding(
 def is_pdb_id_in_database(pdb_id: str, embedding_path: Optional[str] = None) -> bool:
     """Deprecated: use EmbeddingManager.has_embedding instead."""
     logger.warning(
-        "is_pdb_id_in_database is deprecated; use EmbeddingManager.has_embedding instead"
+        "is_pdb_id_in_database is deprecated; use EmbeddingManager.has_embedding "
+        "instead"
     )
     try:
         manager = EmbeddingManager(
-            embedding_path=_resolve_embedding_path(embedding_path)
+            embedding_path=_resolve_embedding_path()
         )
         return manager.has_embedding(pdb_id)
     except Exception:
@@ -605,9 +518,10 @@ def is_pdb_id_in_database(pdb_id: str, embedding_path: Optional[str] = None) -> 
 def get_sample_pdb_ids(
     embedding_path: Optional[str] = None, limit: int = 20
 ) -> List[str]:
-    """Deprecated utility; not used by core. Consider removing or moving to diagnostics."""
+    """Deprecated utility; not used by core. Consider removing or moving to
+    diagnostics."""
     try:
-        resolved_path = _resolve_embedding_path(embedding_path)
+        resolved_path = _resolve_embedding_path()
         with np.load(resolved_path, allow_pickle=True) as data:
             if "pdb_ids" not in data:
                 return []
@@ -653,7 +567,7 @@ class EmbeddingManager:
             logger.debug("EmbeddingManager already initialized, skipping")
             return
 
-        resolved_path = _resolve_embedding_path(embedding_path)
+        resolved_path = _resolve_embedding_path()
         self.embedding_path = resolved_path if resolved_path else ""
 
         self.embeddings = {}  # Pre-calculated embeddings from NPZ
@@ -1302,7 +1216,7 @@ def get_embedding(
     pdb_id = pdb_id.upper().split(":")[-1]
 
     # Resolve the embedding path from various sources
-    resolved_path = _resolve_embedding_path(embedding_path)
+    resolved_path = _resolve_embedding_path()
 
     # Initialize EmbeddingManager with resolved path
     manager = EmbeddingManager(embedding_path=resolved_path)
@@ -1434,7 +1348,7 @@ def analyze_embedding_database(embedding_path: Optional[str] = None) -> Dict[str
         "analyze_embedding_database is deprecated and may be removed in a future release"
     )
     try:
-        resolved_path = _resolve_embedding_path(embedding_path)
+        resolved_path = _resolve_embedding_path()
         if not resolved_path or not os.path.exists(resolved_path):
             return {
                 "status": "error",

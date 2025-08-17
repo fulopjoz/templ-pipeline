@@ -61,7 +61,6 @@ def _cached_hardware_detection() -> HardwareInfo:
     try:
         # Use thread-safe timeout instead of signal-based timeout
         import concurrent.futures
-        import functools
 
         def detect_gpu():
             """GPU detection function that can be run with timeout"""
@@ -74,7 +73,6 @@ def _cached_hardware_detection() -> HardwareInfo:
                 torch = sys.modules["torch"]
 
             if torch.cuda.is_available():
-                gpu_available = True
                 device_type = "cuda"
                 device_count = torch.cuda.device_count()
                 gpu_models = []
@@ -171,7 +169,7 @@ def _cached_hardware_detection() -> HardwareInfo:
                     "NVIDIA GPUs detected by nvidia-smi but not by PyTorch. "
                     "Install PyTorch with CUDA support: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124"
                 )
-        except:
+        except (FileNotFoundError, subprocess.SubprocessError):
             pass
 
     # Create hardware info
@@ -206,7 +204,7 @@ def _cached_embedding_capabilities_check() -> Dict[str, bool]:
 
     # Check PyTorch
     try:
-        import torch
+        pass
 
         capabilities["torch_available"] = True
         logger.info("PyTorch available")
@@ -215,7 +213,7 @@ def _cached_embedding_capabilities_check() -> Dict[str, bool]:
 
     # Check Transformers
     try:
-        import transformers
+        pass
 
         capabilities["transformers_available"] = True
         logger.info("Transformers available")

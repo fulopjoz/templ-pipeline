@@ -3,7 +3,7 @@
 """Output validation utilities for CLI tests."""
 
 import re
-from typing import List, Pattern
+from typing import List
 
 
 def validate_help_output(output: str, expected_keywords: List[str]) -> bool:

@@ -7,7 +7,6 @@ This package contains tests for all modules of the TEMPL Pipeline.
 """
 
 import os
-from pathlib import Path
 
 
 def get_test_data_path(data_type, pdb_id=None):

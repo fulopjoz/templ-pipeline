@@ -13,10 +13,7 @@ import shutil
 import sys
 import tempfile
 import unittest
-from pathlib import Path
-from unittest.mock import patch
 
-import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
@@ -411,17 +408,14 @@ class TestMCSWithRealData(unittest.TestCase):
 
     def setUp(self):
         """Per-test setup - replaced with improved version in test_mcs_improved.py."""
-        pass
 
     def test_find_mcs_with_real_ligands(self):
         """Test finding MCS between real ligands."""
         # Replaced with improved version in test_mcs_improved.py
-        pass
 
     def test_constrained_embed(self):
         """Test constrained embedding with real molecules."""
         # Replaced with improved version in test_mcs_improved.py
-        pass
 
 
 class TestMCSErrorHandling(unittest.TestCase):
@@ -794,7 +788,6 @@ class TestMCSBoundaryConditions(unittest.TestCase):
     def test_concurrent_mcs_operations(self):
         """Test MCS operations that might run concurrently."""
         import threading
-        import time
 
         results = []
         errors = []

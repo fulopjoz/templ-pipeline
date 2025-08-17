@@ -4,13 +4,11 @@
 Test cases for CLI workspace management module.
 """
 
-import json
 import shutil
 import tempfile
 import unittest
-from datetime import datetime
 from pathlib import Path
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, patch
 
 try:
     from templ_pipeline.cli import workspace_cli
@@ -222,7 +220,7 @@ class TestWorkspaceCLI(unittest.TestCase):
 
         # Capture the result
         try:
-            result = workspace_main()
+            workspace_main()
             # Should execute without error
         except SystemExit as e:
             # argparse may cause SystemExit, which is normal
@@ -242,7 +240,7 @@ class TestWorkspaceCLI(unittest.TestCase):
         mock_parse_args.return_value = mock_args
 
         try:
-            result = workspace_main()
+            workspace_main()
         except SystemExit as e:
             self.assertEqual(e.code, 0)
 
@@ -270,7 +268,7 @@ class TestWorkspaceCLI(unittest.TestCase):
 
         try:
             try:
-                result = workspace_main()
+                workspace_main()
             except SystemExit as e:
                 self.assertEqual(e.code, 0)
 

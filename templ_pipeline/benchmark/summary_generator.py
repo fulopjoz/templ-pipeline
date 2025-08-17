@@ -70,7 +70,8 @@ class BenchmarkSummaryGenerator:
 
         Args:
             results_data: Results data from benchmark execution
-            benchmark_type: Type of benchmark ("polaris", "timesplit", or auto-detect)
+            benchmark_type: Type of benchmark
+                ("polaris", "timesplit", or auto-detect)
             output_format: Output format ("pandas", "dict", "json")
 
         Returns:
@@ -78,7 +79,8 @@ class BenchmarkSummaryGenerator:
         """
         if benchmark_type is None:
             if isinstance(results_data, list):
-                benchmark_type = "timesplit"  # JSONL format typical for timesplit
+                # JSONL format typical for timesplit
+                benchmark_type = "timesplit"
             else:
                 benchmark_type = self.detect_benchmark_type(results_data)
 
@@ -88,10 +90,15 @@ class BenchmarkSummaryGenerator:
             # Ensure a dict for polaris path
             if not isinstance(results_data, dict):
                 logger.warning(
-                    "Polaris summary expects dict results; falling back to generic summary"
+                    "Polaris summary expects dict results; "
+                    "falling back to generic summary"
                 )
                 return self._generate_generic_summary(
-                    {"results": results_data} if isinstance(results_data, list) else {},
+                    (
+                        {"results": results_data}
+                        if isinstance(results_data, list)
+                        else {}
+                    ),
                     output_format,
                 )
             return self._generate_polaris_summary(results_data, output_format)
@@ -106,7 +113,9 @@ class BenchmarkSummaryGenerator:
                 results_data = {"data": str(type(results_data))}
             return self._generate_generic_summary(results_data, output_format)
 
-    def _generate_polaris_summary(self, results_data: Dict, output_format: str) -> Any:
+    def _generate_polaris_summary(
+        self, results_data: Dict, output_format: str
+    ) -> Any:
         """Generate summary for Polaris benchmark results."""
         table_data = []
 
@@ -151,11 +160,19 @@ class BenchmarkSummaryGenerator:
                             "Template_Source": template_source,
                             "Queries": query_count,
                             "Templates": template_desc,
-                            "Success_Rate_2A": f"{combo_stats['rate_2A']:.1f}%",
-                            "Success_Rate_5A": f"{combo_stats['rate_5A']:.1f}%",
-                            "Mean_RMSD": f"{combo_stats.get('mean_rmsd', 0):.2f}",
+                            "Success_Rate_2A": (
+                                f"{combo_stats['rate_2A']:.1f}%"
+                            ),
+                            "Success_Rate_5A": (
+                                f"{combo_stats['rate_5A']:.1f}%"
+                            ),
+                            "Mean_RMSD": (
+                                f"{combo_stats.get('mean_rmsd', 0):.2f}"
+                            ),
                             "Successful_Poses": combo_stats.get("count", 0),
-                            "Processing_Time": result_entry.get("processing_time", 0),
+                            "Processing_Time": result_entry.get(
+                                "processing_time", 0
+                            ),
                         }
                     )
                 else:
@@ -178,12 +195,18 @@ class BenchmarkSummaryGenerator:
 
         return self._format_output(table_data, output_format)
 
-    def _generate_timesplit_summary(self, results_data: Any, output_format: str) -> Any:
-        """Generate summary for Timesplit benchmark results using stage-aware metrics."""
+    def _generate_timesplit_summary(
+        self, results_data: Any, output_format: str
+    ) -> Any:
+        """Generate summary for Timesplit benchmark results using
+        stage-aware metrics."""
         logger.info("Generating timesplit summary with stage-aware metrics...")
 
-        # Use the fixed version that properly handles stage-aware classification
-        return self._generate_timesplit_summary_fixed(results_data, output_format)
+        # Use the fixed version that properly handles
+        # stage-aware classification
+        return self._generate_timesplit_summary_fixed(
+            results_data, output_format
+        )
 
     def _calculate_polaris_metrics(self, result_data: Dict) -> Dict:
         """Calculate metrics for Polaris benchmark results."""
@@ -201,7 +224,7 @@ class BenchmarkSummaryGenerator:
         total_molecules = len(individual_results)
 
         # Success rate calculation detailed logging for Polaris
-        logger.info(f"SUCCESS_RATE_CALC: Processing Polaris results:")
+        logger.info("SUCCESS_RATE_CALC: Processing Polaris results:")
         logger.info(
             f"SUCCESS_RATE_CALC:   Total molecules to analyze: {total_molecules}"
         )
@@ -230,12 +253,14 @@ class BenchmarkSummaryGenerator:
                 if has_rmsd_values:
                     results_with_rmsd += 1
 
-        logger.info(f"SUCCESS_RATE_CALC: Polaris data collection summary:")
+        logger.info("SUCCESS_RATE_CALC: Polaris data collection summary:")
         logger.info(
-            f"SUCCESS_RATE_CALC:   Successful results: {successful_results}/{total_molecules}"
+            f"SUCCESS_RATE_CALC:   Successful results: "
+            f"{successful_results}/{total_molecules}"
         )
         logger.info(
-            f"SUCCESS_RATE_CALC:   Results with RMSD values: {results_with_rmsd}/{successful_results}"
+            f"SUCCESS_RATE_CALC:   Results with RMSD values: "
+            f"{results_with_rmsd}/{successful_results}"
         )
 
         # Log RMSD data by metric
@@ -244,7 +269,8 @@ class BenchmarkSummaryGenerator:
             count_2A = metrics["rmsd_counts_2A"][metric_key]
             count_5A = metrics["rmsd_counts_5A"][metric_key]
             logger.info(
-                f"SUCCESS_RATE_CALC:   {metric_key}: {rmsd_count} RMSD values, {count_2A} ≤2A, {count_5A} ≤5A"
+                f"SUCCESS_RATE_CALC:   {metric_key}: {rmsd_count} "
+                f"RMSD values, {count_2A} ≤2A, {count_5A} ≤5A"
             )
 
         # Calculate success rates
@@ -252,8 +278,16 @@ class BenchmarkSummaryGenerator:
         for metric_key in metrics["all_rmsds"]:
             n_results = len(metrics["all_rmsds"][metric_key])
             if n_results > 0 and total_molecules > 0:
-                rate_2A = metrics["rmsd_counts_2A"][metric_key] / total_molecules * 100
-                rate_5A = metrics["rmsd_counts_5A"][metric_key] / total_molecules * 100
+                rate_2A = (
+                    metrics["rmsd_counts_2A"][metric_key]
+                    / total_molecules
+                    * 100
+                )
+                rate_5A = (
+                    metrics["rmsd_counts_5A"][metric_key]
+                    / total_molecules
+                    * 100
+                )
                 mean_rmsd = np.mean(metrics["all_rmsds"][metric_key])
                 median_rmsd = np.median(metrics["all_rmsds"][metric_key])
 
@@ -266,14 +300,20 @@ class BenchmarkSummaryGenerator:
                 }
 
                 # Log calculated success rates
-                logger.info(f"SUCCESS_RATE_CALC: Final Polaris rates for {metric_key}:")
                 logger.info(
-                    f"SUCCESS_RATE_CALC:   2A success: {rate_2A:.1f}% ({metrics['rmsd_counts_2A'][metric_key]}/{total_molecules})"
+                    f"SUCCESS_RATE_CALC: Final Polaris rates for {metric_key}:"
                 )
                 logger.info(
-                    f"SUCCESS_RATE_CALC:   5A success: {rate_5A:.1f}% ({metrics['rmsd_counts_5A'][metric_key]}/{total_molecules})"
+                    f"SUCCESS_RATE_CALC:   2A success: {rate_2A:.1f}% "
+                    f"({metrics['rmsd_counts_2A'][metric_key]}/{total_molecules})"
                 )
-                logger.info(f"SUCCESS_RATE_CALC:   Mean RMSD: {mean_rmsd:.3f}A")
+                logger.info(
+                    f"SUCCESS_RATE_CALC:   5A success: {rate_5A:.1f}% "
+                    f"({metrics['rmsd_counts_5A'][metric_key]}/{total_molecules})"
+                )
+                logger.info(
+                    f"SUCCESS_RATE_CALC:   Mean RMSD: {mean_rmsd:.3f}A"
+                )
 
         return metrics
 
@@ -317,22 +357,29 @@ class BenchmarkSummaryGenerator:
                 / validation_report["successful_results"]
             ) * 100
             logger.error(
-                f"RMSD_VALIDATION: {validation_report['results_with_null_rmsd']}/{validation_report['successful_results']} ({failure_rate:.1f}%) successful results lack RMSD data"
+                f"RMSD_VALIDATION: "
+                f"{validation_report['results_with_null_rmsd']}/"
+                f"{validation_report['successful_results']} ({failure_rate:.1f}%) "
+                f"successful results lack RMSD data"
             )
             logger.error(
-                f"RMSD_VALIDATION: This indicates CLI pipeline or molecular structure issues"
+                "RMSD_VALIDATION: This indicates CLI pipeline or "
+                "molecular structure issues"
             )
         else:
             logger.info(
-                f"RMSD_VALIDATION: All {validation_report['results_with_rmsd']} successful results have valid RMSD data"
+                f"RMSD_VALIDATION: All {validation_report['results_with_rmsd']} "
+                f"successful results have valid RMSD data"
             )
 
         return validation_report
 
     def _parse_exclusion_reason(self, error_msg: str) -> str:
-        """Parse exclusion reason from error message with comprehensive categorization.
+        """Parse exclusion reason from error message with comprehensive
+        categorization.
 
-        This method categorizes error messages into specific exclusion reasons based on
+        This method categorizes error messages into specific exclusion
+        reasons based on
         the analysis of the TEMPL pipeline codebase. The categories are:
 
         Molecule Validation Exclusions:
@@ -349,41 +396,56 @@ class BenchmarkSummaryGenerator:
         - conformer_generation_failed: Conformer generation failed
         - molecular_alignment_failed: Molecular alignment failed
         - mcs_calculation_failed: MCS (Maximum Common Substructure) calculation failed
-        - central_atom_embedding_failed: Central atom embedding fallback failed
+        - central_atom_embedding_failed: Central atom embedding fallback
+          failed
         - constrained_embedding_failed: Constrained embedding failed
         - embedding_failed: General embedding failures
         - geometry_validation_failed: Molecular geometry validation failed
-        - molecular_connectivity_failed: Molecular connectivity validation failed
+        - molecular_connectivity_failed: Molecular connectivity
+          validation failed
         - molecular_optimization_failed: Molecular optimization failed
         - force_field_failed: Force field application failed
         - molecule_sanitization_failed: Molecule sanitization failed
-                 - coordinate_access_failed: Coordinate access failed
-         - invalid_coordinates: NaN or infinite coordinates detected
-         - molecular_fragmentation: Molecular fragmentation detected
-         - invalid_atom_positions: Unreasonable atom positions detected
-         - suspicious_bond_lengths: Suspicious bond lengths detected
-         - empty_coordinate_map: Empty coordinate map for constraints
-         - constraint_distance_issues: Constraint distance issues (too close/distant)
-         - minimization_no_conformers: Cannot minimize molecule (no conformers)
-         - rascal_mcs_failed: RascalMCES MCS calculation failed
-         - mcs_too_small: MCS found but too small for processing
-         - rascal_search_failed: RascalMCES search failed at all thresholds
-         - molecule_too_large: Extremely large molecule (>150 atoms)
-         - invalid_smarts_pattern: Invalid SMARTS pattern for MCS
-         - invalid_mcs_match: Invalid MCS match for constrained embedding
-         - hydrogen_addition_failed: Hydrogen addition failed during processing
-         - mcs_hydrogen_addition_failed: MCS match failed after hydrogen addition
-         - mcs_index_mismatch: Index length mismatch in MCS processing
-         - mcs_matching_inconsistency: MCS matching inconsistency detected
-         - atom_mapping_failed: Error mapping atoms during processing
-         - insufficient_coordinate_constraints: Insufficient coordinate constraints
-         - relaxed_constraints_failed: Embedding failed with relaxed constraints
-         - progressive_embedding_failed: Progressive embedding reduction failed
-         - zero_conformers_generated: Embedding succeeded but generated 0 conformers
-         - molecular_distortion: Molecular distortion detected after processing
-         - alignment_index_mismatch: Index length mismatch during alignment
-         - rdkit_alignment_failed: RDKit AlignMol failed
-         - alignment_skipped: Post-embedding alignment skipped
+        - coordinate_access_failed: Coordinate access failed
+        - invalid_coordinates: NaN or infinite coordinates detected
+        - molecular_fragmentation: Molecular fragmentation detected
+        - invalid_atom_positions: Unreasonable atom positions detected
+        - suspicious_bond_lengths: Suspicious bond lengths detected
+        - empty_coordinate_map: Empty coordinate map for constraints
+        - constraint_distance_issues: Constraint distance issues
+          (too close/distant)
+        - minimization_no_conformers: Cannot minimize molecule
+          (no conformers)
+        - rascal_mcs_failed: RascalMCES MCS calculation failed
+        - mcs_too_small: MCS found but too small for processing
+        - rascal_search_failed: RascalMCES search failed at all
+          thresholds
+        - molecule_too_large: Extremely large molecule (>150 atoms)
+        - invalid_smarts_pattern: Invalid SMARTS pattern for MCS
+        - invalid_mcs_match: Invalid MCS match for constrained
+          embedding
+        - hydrogen_addition_failed: Hydrogen addition failed during
+          processing
+        - mcs_hydrogen_addition_failed: MCS match failed after hydrogen
+          addition
+        - mcs_index_mismatch: Index length mismatch in MCS processing
+        - mcs_matching_inconsistency: MCS matching inconsistency
+          detected
+        - atom_mapping_failed: Error mapping atoms during processing
+        - insufficient_coordinate_constraints: Insufficient coordinate
+          constraints
+        - relaxed_constraints_failed: Embedding failed with relaxed
+          constraints
+        - progressive_embedding_failed: Progressive embedding reduction
+          failed
+        - zero_conformers_generated: Embedding succeeded but generated
+          0 conformers
+        - molecular_distortion: Molecular distortion detected after
+          processing
+        - alignment_index_mismatch: Index length mismatch during
+          alignment
+        - rdkit_alignment_failed: RDKit AlignMol failed
+        - alignment_skipped: Post-embedding alignment skipped
          - connectivity_issues: Molecular connectivity issues detected
          - organometallic_embedding_failed: All organometallic embedding attempts failed
          - all_embedding_methods_failed: All embedding methods failed
@@ -423,8 +485,12 @@ class BenchmarkSummaryGenerator:
 
         error_msg_lower = error_msg.lower()
 
-        # Parse molecule validation exclusions (from chemistry.py and pipeline.py)
-        if "large peptide" in error_msg_lower or "large peptides" in error_msg_lower:
+        # Parse molecule validation exclusions
+        # (from chemistry.py and pipeline.py)
+        if (
+            "large peptide" in error_msg_lower
+            or "large peptides" in error_msg_lower
+        ):
             return "large_peptide"
         elif "rhenium complex" in error_msg_lower:
             return "rhenium_complex"
@@ -434,7 +500,10 @@ class BenchmarkSummaryGenerator:
             return "large_peptide"
         elif "polysaccharide" in error_msg_lower:
             return "complex_polysaccharide"
-        elif "validation failed" in error_msg_lower and "geometry" in error_msg_lower:
+        elif (
+            "validation failed" in error_msg_lower
+            and "geometry" in error_msg_lower
+        ):
             return "geometry_validation_failed"
         elif "validation failed" in error_msg_lower:
             return "molecule_validation_failed"
@@ -450,13 +519,19 @@ class BenchmarkSummaryGenerator:
             "ligand smiles" in error_msg_lower and "not found" in error_msg_lower
         ):
             return "ligand_data_missing"
-        elif "protein file" in error_msg_lower and "not found" in error_msg_lower:
+        elif (
+            "protein file" in error_msg_lower
+            and "not found" in error_msg_lower
+        ):
             return "protein_file_missing"
         elif "template sdf file not found" in error_msg_lower:
             return "template_file_missing"
         elif "template file not found" in error_msg_lower:
             return "template_file_missing"
-        elif "template file" in error_msg_lower and "not found" in error_msg_lower:
+        elif (
+            "template file" in error_msg_lower
+            and "not found" in error_msg_lower
+        ):
             return "template_file_missing"
         elif (
             "template" in error_msg_lower
@@ -812,7 +887,6 @@ class BenchmarkSummaryGenerator:
         # Extract CLI JSON result from stdout
         try:
             import json
-            import re
 
             # Find TEMPL_JSON_RESULT: marker and extract JSON
             json_start = stdout.find("TEMPL_JSON_RESULT:")
@@ -907,7 +981,7 @@ class BenchmarkSummaryGenerator:
         }
 
         # Log exclusion analysis
-        logger.info(f"EXCLUSION_ANALYSIS: Target processing summary:")
+        logger.info("EXCLUSION_ANALYSIS: Target processing summary:")
         logger.info(f"EXCLUSION_ANALYSIS:   Total targets: {total_targets}")
         logger.info(
             f"EXCLUSION_ANALYSIS:   Successful (with RMSD): {len(successful_results)}"
@@ -915,7 +989,7 @@ class BenchmarkSummaryGenerator:
         logger.info(f"EXCLUSION_ANALYSIS:   Excluded/Failed: {excluded_count}")
 
         if exclusion_breakdown:
-            logger.info(f"EXCLUSION_ANALYSIS: Exclusion breakdown:")
+            logger.info("EXCLUSION_ANALYSIS: Exclusion breakdown:")
             for reason, count in sorted(
                 exclusion_breakdown.items(), key=lambda x: x[1], reverse=True
             ):
@@ -983,7 +1057,7 @@ class BenchmarkSummaryGenerator:
             pipeline_filtered = stage_counts["pipeline_filtered"]
             pipeline_attempted_targets = stage_counts["pipeline_attempted"]
 
-            logger.info(f"SUCCESS_RATE_CALC: Stage-aware target analysis:")
+            logger.info("SUCCESS_RATE_CALC: Stage-aware target analysis:")
             logger.info(f"SUCCESS_RATE_CALC:   Total targets: {total_targets}")
             logger.info(
                 f"SUCCESS_RATE_CALC:   Pre-pipeline excluded: {pre_pipeline_excluded}"
@@ -997,7 +1071,7 @@ class BenchmarkSummaryGenerator:
         validation_report = self._validate_rmsd_calculation(split_results)
 
         # Success rate calculation detailed logging for Timesplit
-        logger.info(f"SUCCESS_RATE_CALC: Processing Timesplit results:")
+        logger.info("SUCCESS_RATE_CALC: Processing Timesplit results:")
         logger.info(f"SUCCESS_RATE_CALC:   Split results length: {len(split_results)}")
         logger.info(
             f"SUCCESS_RATE_CALC:   Results with valid RMSD: {validation_report['results_with_rmsd']}/{validation_report['successful_results']}"
@@ -1070,12 +1144,13 @@ class BenchmarkSummaryGenerator:
                 for metric_key in ["combo", "shape", "color"]:
                     rmsd_by_metric[metric_key].append(failure_rmsd)
 
-        logger.info(f"SUCCESS_RATE_CALC: Timesplit data collection summary:")
+        logger.info("SUCCESS_RATE_CALC: Timesplit data collection summary:")
         logger.info(
             f"SUCCESS_RATE_CALC:   Successful results: {successful_results}/{len(split_results)}"
         )
         logger.info(
-            f"SUCCESS_RATE_CALC:   Results with RMSD values: {results_with_rmsd}/{successful_results}"
+            f"SUCCESS_RATE_CALC:   Results with RMSD values: "
+            f"{results_with_rmsd}/{successful_results}"
         )
         logger.info(
             f"SUCCESS_RATE_CALC:   Pipeline failures included: {pipeline_attempted_targets - results_with_rmsd}"
@@ -1086,7 +1161,7 @@ class BenchmarkSummaryGenerator:
 
         # CRITICAL DATASET SIZE REPORTING
         logger.info(
-            f"DATASET_SIZE_REPORTING: *** FINAL DATASET NUMBERS FOR PUBLICATION ***"
+            "DATASET_SIZE_REPORTING: *** FINAL DATASET NUMBERS FOR PUBLICATION ***"
         )
         logger.info(f"DATASET_SIZE_REPORTING:   Total input molecules: {total_targets}")
         logger.info(
@@ -1099,7 +1174,7 @@ class BenchmarkSummaryGenerator:
             f"DATASET_SIZE_REPORTING:   Pipeline attempted (XYZ number): {pipeline_attempted_targets}"
         )
         logger.info(
-            f"DATASET_SIZE_REPORTING:   ^^^ USE THIS NUMBER FOR TRAIN/VAL/TEST DATASET SIZES IN PAPERS ^^^"
+            "DATASET_SIZE_REPORTING:   ^^^ USE THIS NUMBER FOR TRAIN/VAL/TEST DATASET SIZES IN PAPERS ^^^"
         )
         logger.info(
             f"DATASET_SIZE_REPORTING:   Success breakdown: {results_with_rmsd} successful, {pipeline_attempted_targets - results_with_rmsd} failed"
@@ -1145,9 +1220,9 @@ class BenchmarkSummaryGenerator:
                         f"CRITICAL ERROR: RMSD array length ({len(rmsds)}) != pipeline_attempted_targets ({pipeline_attempted_targets})"
                     )
                     logger.error(
-                        f"This indicates a bug in success rate calculation - some molecules are not being counted correctly"
+                        "This indicates a bug in success rate calculation - some molecules are not being counted correctly"
                     )
-                    logger.error(f"Success rates will be INCORRECT until this is fixed")
+                    logger.error("Success rates will be INCORRECT until this is fixed")
                 else:
                     logger.info(
                         f"SUCCESS_RATE_CALC: VALIDATION PASSED - RMSD array matches pipeline_attempted_targets ({len(rmsds)})"
@@ -1212,10 +1287,10 @@ class BenchmarkSummaryGenerator:
                     f"SUCCESS_RATE_CALC: RMSD calculation failed for {metric_key} - CLI pipeline error detected"
                 )
                 logger.error(
-                    f"SUCCESS_RATE_CALC:   Cannot calculate 2A/5A success rates without RMSD values"
+                    "SUCCESS_RATE_CALC:   Cannot calculate 2A/5A success rates without RMSD values"
                 )
                 logger.error(
-                    f"SUCCESS_RATE_CALC:   This indicates a pipeline configuration or molecular structure issue"
+                    "SUCCESS_RATE_CALC:   This indicates a pipeline configuration or molecular structure issue"
                 )
 
                 # Report invalid results - do not provide misleading success rates
@@ -1239,7 +1314,7 @@ class BenchmarkSummaryGenerator:
                     f"SUCCESS_RATE_CALC:   Available alignment scores: mean={np.mean(scores):.3f}, median={np.median(scores):.3f}"
                 )
                 logger.warning(
-                    f"SUCCESS_RATE_CALC:   Check CLI RMSD calculation or molecular structure compatibility"
+                    "SUCCESS_RATE_CALC:   Check CLI RMSD calculation or molecular structure compatibility"
                 )
 
         return metrics
@@ -1465,7 +1540,7 @@ class BenchmarkSummaryGenerator:
         pre_pipeline_excluded = stage_counts["pre_pipeline_excluded"]
         pipeline_filtered = stage_counts["pipeline_filtered"]
 
-        logger.info(f"Stage-aware analysis:")
+        logger.info("Stage-aware analysis:")
         logger.info(f"  Total targets: {total_targets}")
         logger.info(f"  Pre-pipeline excluded: {pre_pipeline_excluded}")
         logger.info(f"  Pipeline filtered: {pipeline_filtered}")

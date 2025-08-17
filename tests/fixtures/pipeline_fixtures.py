@@ -7,11 +7,9 @@ This module provides fixtures and test data specifically for
 TEMPL pipeline testing scenarios.
 """
 
-from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 from unittest.mock import MagicMock, Mock
 
-import numpy as np
 import pytest
 
 from .data_factory import TestDataFactory

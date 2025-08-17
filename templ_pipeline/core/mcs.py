@@ -1,11 +1,10 @@
 # SPDX-FileCopyrightText: 2025 TEMPL Team
 # SPDX-License-Identifier: MIT
-#!/usr/bin/env python3
+# !/usr/bin/env python3
 """Maximum Common Substructure (MCS) functionality for template-based pose prediction."""
 
 import logging
 import multiprocessing as mp
-import time
 from typing import Dict, List, Optional, Tuple, Union
 
 from rdkit import Chem
@@ -16,7 +15,6 @@ from rdkit.Chem import (
     rdMolAlign,
     rdRascalMCES,
 )
-from rdkit.Geometry import Point3D
 
 log = logging.getLogger(__name__)
 
@@ -358,7 +356,6 @@ def find_mcs(
         If return_details=False: (best_template_index, smarts)
         If return_details=True: (best_template_index, smarts, mcs_details_dict)
     """
-    mcs_details = {}  # Only populated if return_details=True
     min_acceptable_size = 5
 
     # Log molecule sizes for monitoring

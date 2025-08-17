@@ -98,7 +98,7 @@ def test_molecule_storage_and_retrieval():
 
         mcs_mol_dict = create_mcs_molecule_from_info(mcs_info_dict)
         if mcs_mol_dict:
-            print(f"✅ Successfully created MCS molecule from dictionary")
+            print("✅ Successfully created MCS molecule from dictionary")
         else:
             print("❌ Failed to create MCS molecule from dictionary")
 

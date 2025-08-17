@@ -7,9 +7,8 @@ Test cases for CLI progress indicators module.
 import threading
 import time
 import unittest
-from contextlib import contextmanager
 from io import StringIO
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 try:
     from templ_pipeline.cli.progress_indicators import (

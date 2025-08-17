@@ -5,7 +5,6 @@
 import sys
 import time
 from contextlib import contextmanager
-from typing import Any, Dict
 
 import psutil
 

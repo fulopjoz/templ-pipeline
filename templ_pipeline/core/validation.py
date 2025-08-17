@@ -10,11 +10,10 @@ This module provides comprehensive validation functionality including:
 - Validation framework for testing
 """
 
-import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, Optional, Set
 
 import numpy as np
 from rdkit import Chem

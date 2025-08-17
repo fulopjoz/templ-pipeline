@@ -1,10 +1,11 @@
 # SPDX-FileCopyrightText: 2025 TEMPL Team
 # SPDX-License-Identifier: MIT
-#!/usr/bin/env python3
+# !/usr/bin/env python3
 """
 TEMPL Pipeline Command Line Interface
 
-Enhanced CLI with Smart Progressive Interface, contextual help, and adaptive UX.
+Enhanced CLI with Smart Progressive Interface, contextual help, and
+adaptive UX.
 
 This module provides a command-line interface for the TEMPL pipeline,
 allowing users to:
@@ -24,30 +25,34 @@ Usage examples:
   templ embed --protein-file data/example/2hyy_protein.pdb
 
   # Find protein templates
-  templ find-templates --protein-file data/example/2hyy_protein.pdb --embedding-file data/embeddings/templ_protein_embeddings_v1.0.0.npz
+  templ find-templates --protein-file data/example/2hyy_protein.pdb \
+    --embedding-file data/embeddings/templ_protein_embeddings_v1.0.0.npz
 
   # Generate poses with SMILES input
-  templ generate-poses --protein-file data/example/2hyy_protein.pdb --ligand-smiles "Cc1cn(cn1)c2cc(NC(=O)c3ccc(C)c(Nc4nccc(n4)c5cccnc5)c3)cc(c2)C(F)(F)F" --template-pdb 5eqy
+  templ generate-poses --protein-file data/example/2hyy_protein.pdb \
+    --ligand-smiles \
+    "Cc1cn(cn1)c2cc(NC(=O)c3ccc(C)c(Nc4nccc(n4)c5cccnc5)c3)cc(c2)C(F)(F)F" \
+    --template-pdb 5eqy
 
   # Generate poses with SDF input
-  templ generate-poses --protein-file data/example/2hyy_protein.pdb --ligand-file data/example/2hyy_ligand.sdf --template-pdb 5eqy
+  templ generate-poses --protein-file data/example/2hyy_protein.pdb \
+    --ligand-file data/example/2hyy_ligand.sdf --template-pdb 5eqy
 
   # Run full pipeline
-  templ run --protein-file data/example/2hyy_protein.pdb --ligand-smiles "Cc1cn(cn1)c2cc(NC(=O)c3ccc(C)c(Nc4nccc(n4)c5cccnc5)c3)cc(c2)C(F)(F)F" --embedding-file data/embeddings/templ_protein_embeddings_v1.0.0.npz
+  templ run --protein-file data/example/2hyy_protein.pdb \
+    --ligand-smiles \
+    "Cc1cn(cn1)c2cc(NC(=O)c3ccc(C)c(Nc4nccc(n4)c5cccnc5)c3)cc(c2)C(F)(F)F" \
+    --embedding-file data/embeddings/templ_protein_embeddings_v1.0.0.npz
 """
 
-import argparse
 import logging
 import os
 import sys
 import time
 import traceback
-from pathlib import Path
 
-from .help_system import create_enhanced_parser, handle_help_request
+from .help_system import create_enhanced_parser
 from .progress_indicators import (
-    OperationType,
-    progress_context,
     simple_progress_wrapper,
 )
 
@@ -80,7 +85,9 @@ def _get_hardware_config():
 
         return get_suggested_worker_config()
     except ImportError:
-        logger.warning("Hardware detection not available, using conservative defaults")
+        logger.warning(
+            "Hardware detection not available, using conservative defaults"
+        )
         return {"n_workers": 4, "internal_pipeline_workers": 1}
 
 
@@ -166,7 +173,7 @@ def setup_parser():
 
     # Get user experience level for adaptive interface
     experience_level = ux_config.get_effective_experience_level()
-    appropriate_args = ux_config.get_arguments_for_user_level(experience_level)
+    ux_config.get_arguments_for_user_level(experience_level)
 
     # Show contextual welcome message for new users
     if (
@@ -174,7 +181,8 @@ def setup_parser():
         and ux_config.usage_patterns.total_commands < 3
     ):
         logger.info(
-            "Welcome to TEMPL! For getting started help: templ --help getting-started"
+            "Welcome to TEMPL! For getting started help: "
+            "templ --help getting-started"
         )
 
     # Add common arguments - log-level should always be available for debugging
@@ -196,7 +204,10 @@ def setup_parser():
 
     # Add other common arguments (adapt based on user level)
     parser.add_argument(
-        "--output-dir", type=str, default="output", help="Directory for output files"
+        "--output-dir",
+        type=str,
+        default="output",
+        help="Directory for output files",
     )
 
     # Add verbosity control
@@ -222,7 +233,10 @@ def setup_parser():
         "embed", help="Generate embedding for a protein"
     )
     embed_parser.add_argument(
-        "--protein-file", type=str, required=True, help="Path to protein PDB file"
+        "--protein-file",
+        type=str,
+        required=True,
+        help="Path to protein PDB file",
     )
     embed_parser.add_argument(
         "--chain",
@@ -254,13 +268,19 @@ def setup_parser():
         help="Path to pre-computed embeddings file (.npz)",
     )
     find_templates_parser.add_argument(
-        "--num-templates", type=int, default=10, help="Number of templates to return"
+        "--num-templates",
+        type=int,
+        default=10,
+        help="Number of templates to return",
     )
     find_templates_parser.add_argument(
         "--similarity-threshold",
         type=float,
         default=None,
-        help="Minimum similarity threshold (overrides --num-templates if provided)",
+        help=(
+            "Minimum similarity threshold "
+            "(overrides --num-templates if provided)"
+        ),
     )
     find_templates_parser.add_argument(
         "--exclude-uniprot-file",
@@ -271,22 +291,32 @@ def setup_parser():
 
     # Pose generation command
     generate_poses_parser = subparsers.add_parser(
-        "generate-poses", help="Generate poses for a query ligand based on templates"
+        "generate-poses",
+        help="Generate poses for a query ligand based on templates",
     )
     generate_poses_parser.add_argument(
-        "--protein-file", type=str, required=True, help="Path to query protein PDB file"
+        "--protein-file",
+        type=str,
+        required=True,
+        help="Path to query protein PDB file",
     )
     generate_poses_parser.add_argument(
         "--ligand-smiles",
         type=str,
         default=None,
-        help="SMILES string for query ligand (e.g., 'COc1ccc(C(C)=O)c(O)c1[C@H]1C[C@H]1NC(=S)Nc1ccc(C#N)cn1')",
+        help=(
+            "SMILES string for query ligand (e.g., "
+            "'COc1ccc(C(C)=O)c(O)c1[C@H]1C[C@H]1NC(=S)Nc1ccc(C#N)cn1')"
+        ),
     )
     generate_poses_parser.add_argument(
         "--ligand-file",
         type=str,
         default=None,
-        help="SDF file containing query ligand (alternative to --ligand-smiles)",
+        help=(
+            "SDF file containing query ligand "
+            "(alternative to --ligand-smiles)"
+        ),
     )
     generate_poses_parser.add_argument(
         "--template-pdb", type=str, required=True, help="PDB ID of template to use"
@@ -295,7 +325,10 @@ def setup_parser():
         "--template-ligand-file",
         type=str,
         default=None,
-        help="SDF file containing template ligand (optional, auto-loaded from database if not provided)",
+        help=(
+            "SDF file containing template ligand (optional, "
+            "auto-loaded from database if not provided)"
+        ),
     )
     generate_poses_parser.add_argument(
         "--num-conformers",
@@ -1045,7 +1078,7 @@ def run_command(args):
         # Calculate RMSD values for each best pose if pipeline succeeded
         rmsd_values = {}
         if results.get("success") and results.get("poses"):
-            logger.info(f"CLI_RMSD: Starting RMSD calculation for successful pipeline")
+            logger.info("CLI_RMSD: Starting RMSD calculation for successful pipeline")
             logger.info(f"CLI_RMSD:   Pipeline success: {results.get('success')}")
             logger.info(
                 f"CLI_RMSD:   Poses available: {list(results.get('poses', {}).keys())}"
@@ -1056,7 +1089,7 @@ def run_command(args):
                 crystal_mol = getattr(pipeline, "crystal_mol", None)
                 has_crystal = crystal_mol is not None
 
-                logger.info(f"CLI_RMSD: Crystal structure availability check:")
+                logger.info("CLI_RMSD: Crystal structure availability check:")
                 logger.info(
                     f"CLI_RMSD:   Pipeline has crystal_mol attribute: {hasattr(pipeline, 'crystal_mol')}"
                 )
@@ -1078,7 +1111,7 @@ def run_command(args):
 
                     crystal_noH = Chem.RemoveHs(crystal_mol)
                     logger.info(
-                        f"CLI_RMSD: Processing crystal structure for comparison"
+                        "CLI_RMSD: Processing crystal structure for comparison"
                     )
                     logger.info(
                         f"CLI_RMSD:   Crystal atoms after H removal: {crystal_noH.GetNumAtoms()}"
@@ -1113,7 +1146,7 @@ def run_command(args):
                 else:
                     # No crystal structure available - just include scores
                     logger.warning(
-                        f"CLI_RMSD: No crystal structure available - using score-only fallback"
+                        "CLI_RMSD: No crystal structure available - using score-only fallback"
                     )
                     for metric, (pose, scores) in results["poses"].items():
                         if pose is not None:
@@ -1194,7 +1227,7 @@ def run_command(args):
             )
 
         # Also output human-readable summary for backwards compatibility
-        print(f"Pipeline completed successfully!")
+        print("Pipeline completed successfully!")
         print(f"Found {len(results.get('templates', []))} templates")
         print(f"Generated {len(results.get('poses', {}))} poses")
         print(f"Results saved to: {results.get('output_file', 'unknown')}")
@@ -1404,7 +1437,7 @@ def _generate_unified_summary(workspace_dir, benchmark_type):
         )
 
         if saved_files:
-            logger.info(f"Generated summary files:")
+            logger.info("Generated summary files:")
             for fmt, path in saved_files.items():
                 logger.info(f"  {fmt.upper()}: {path}")
 
@@ -1550,7 +1583,7 @@ def benchmark_command(args):
                 benchmark_name="polaris",
                 log_level=log_level,
                 suppress_console=False,  # Allow progress bars to show
-            ) as log_info:
+            ) as _:
                 logger.info(f"Logs will be written to: {logs_dir}")
 
                 result = benchmark_main(benchmark_args)
@@ -1558,7 +1591,7 @@ def benchmark_command(args):
                 # Generate unified summary for Polaris results
                 if result == 0:
                     _generate_unified_summary(workspace_dir, "polaris")
-                    logger.info(f"Polaris benchmark completed successfully!")
+                    logger.info("Polaris benchmark completed successfully!")
                     logger.info(f"Workspace directory: {workspace_dir}")
                     return 0
                 else:
@@ -1586,8 +1619,8 @@ def benchmark_command(args):
         logs_dir.mkdir(exist_ok=True)
 
         # Setup structured log files
-        main_log_file = logs_dir / "benchmark.log"
-        error_log_file = logs_dir / "errors.log"
+        logs_dir / "benchmark.log"
+        logs_dir / "errors.log"
 
         try:
             from templ_pipeline.benchmark.timesplit import run_timesplit_benchmark
@@ -1618,7 +1651,7 @@ def benchmark_command(args):
                 benchmark_name="timesplit",
                 log_level=log_level,
                 suppress_console=False,  # Allow progress bars to show
-            ) as log_info:
+            ) as _:
                 logger.info(
                     f"Starting Timesplit benchmark for splits: {', '.join(splits_to_run)}"
                 )
@@ -1697,7 +1730,7 @@ def benchmark_command(args):
                 # Generate unified summary for Timesplit results
                 if result.get("success", False):
                     _generate_unified_summary(workspace_dir, "timesplit")
-                    logger.info(f"Timesplit benchmark completed successfully!")
+                    logger.info("Timesplit benchmark completed successfully!")
                     logger.info(f"Workspace directory: {workspace_dir}")
                     return 0
                 else:
@@ -1727,9 +1760,9 @@ def main():
                 help_type = sys.argv[2]
 
             # Use enhanced help system without importing heavy modules
-            from .help_system import TEMPLHelpSystem, handle_help_request
+            from .help_system import HelpSystem, handle_help_request
 
-            help_system = TEMPLHelpSystem()
+            help_system = HelpSystem()
             handle_help_request(help_type, help_system)
             return 0
 
@@ -1831,7 +1864,7 @@ def main():
         help_system.show_contextual_help(args.command or "run", vars(args))
 
         # Track command usage and execute
-        start_time = time.time()
+        time.time()
         result = 1
 
         try:

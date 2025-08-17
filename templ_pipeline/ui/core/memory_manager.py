@@ -13,8 +13,7 @@ import logging
 import pickle
 import time
 from collections import OrderedDict
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 # Try to import streamlit and RDKit for molecular operations
 try:
@@ -26,7 +25,6 @@ except ImportError:
 
 try:
     from rdkit import Chem
-    from rdkit.Chem import rdMolDescriptors
 
     RDKIT_AVAILABLE = True
 except ImportError:
@@ -517,7 +515,7 @@ class MolecularSessionManager:
             try:
                 if hasattr(mol, "ToBinary"):
                     size += len(mol.ToBinary())
-            except:
+            except (AttributeError, TypeError, RuntimeError):
                 size += 1000  # Estimate for objects that can't be serialized
 
         # Compressed cache
@@ -528,7 +526,7 @@ class MolecularSessionManager:
         for metadata in self.metadata_cache.values():
             try:
                 size += len(pickle.dumps(metadata))
-            except:
+            except (pickle.PicklingError, TypeError, AttributeError):
                 size += 100  # Estimate
 
         return size
@@ -654,7 +652,7 @@ class MolecularSessionManager:
                 if mol_size > 50000:  # Compress large molecules
                     self._store_compressed(key, mol)
                     molecules_compressed += 1
-            except:
+            except (AttributeError, TypeError, RuntimeError):
                 continue
 
         # Force garbage collection

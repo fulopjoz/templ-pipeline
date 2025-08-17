@@ -8,15 +8,12 @@ using Streamlit's AppTest framework and Playwright for end-to-end testing.
 """
 
 import os
-import shutil
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import numpy as np
-import pandas as pd
 import pytest
-import streamlit as st
 from rdkit import Chem
 from streamlit.testing.v1 import AppTest
 
@@ -81,7 +78,7 @@ class TestStreamlitApp:
             for file_path in self.temp_files:
                 try:
                     os.unlink(file_path)
-                except:
+                except (OSError, FileNotFoundError):
                     pass
 
     def test_app_initialization(self):

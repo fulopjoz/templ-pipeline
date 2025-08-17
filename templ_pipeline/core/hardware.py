@@ -7,15 +7,13 @@ This module provides comprehensive hardware detection, performance benchmarking,
 and optimal configuration recommendations for different deployment scenarios.
 """
 
-import json
 import logging
 import os
 import platform
 import subprocess
 import time
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 # Optional dependencies
 try:

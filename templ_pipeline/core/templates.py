@@ -5,14 +5,13 @@
 
 import logging
 import os
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import biotite.structure as struc
 import numpy as np
 from rdkit import Chem
 
 try:
-    import biotite.sequence as seq
     import biotite.sequence.align as align
     import biotite.structure.io as bsio
     from biotite.structure import (
@@ -267,7 +266,7 @@ def transform_ligand(
 
         # Validate bond lengths to ensure reasonable molecular geometry
         try:
-            from rdkit.Chem import Descriptors
+            pass
 
             bond_lengths = []
             for bond in transformed_lig.GetBonds():

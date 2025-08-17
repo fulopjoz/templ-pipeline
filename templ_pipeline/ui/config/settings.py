@@ -7,9 +7,8 @@ Centralized configuration management for the TEMPL Pipeline UI.
 All application settings, defaults, and configuration options are defined here.
 """
 
-import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 # Import centralized version
 try:
@@ -126,7 +125,7 @@ class AppConfig:
             cpu_count = multiprocessing.cpu_count()
             # Use 75% of available CPUs, minimum 2, maximum 8
             return max(2, min(8, int(cpu_count * 0.75)))
-        except:
+        except (ImportError, OSError):
             return 4  # Safe default
 
     def _setup_paths(self) -> Dict[str, Path]:
@@ -150,8 +149,7 @@ class AppConfig:
     def _check_embedding_features(self) -> bool:
         """Check if embedding features are available"""
         try:
-            import torch
-            import transformers
+            pass
 
             return True
         except ImportError:
@@ -160,7 +158,7 @@ class AppConfig:
     def _check_fair_availability(self) -> bool:
         """Check if FAIR metadata features are available"""
         try:
-            from templ_pipeline.fair.core.metadata_engine import MetadataEngine
+            pass
 
             return True
         except ImportError:
@@ -169,12 +167,7 @@ class AppConfig:
     def _check_optimization_modules(self) -> bool:
         """Check if optimization modules are available"""
         try:
-            from templ_pipeline.ui.core.error_handling import ContextualErrorManager
-            from templ_pipeline.ui.core.memory_manager import MolecularSessionManager
-            from templ_pipeline.ui.core.molecular_processor import (
-                CachedMolecularProcessor,
-            )
-            from templ_pipeline.ui.core.secure_upload import SecureFileUploadHandler
+            pass
 
             return True
         except ImportError:

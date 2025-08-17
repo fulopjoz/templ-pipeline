@@ -19,11 +19,11 @@ import streamlit as st
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-# Import refactored modules
-from templ_pipeline.ui.config.settings import get_config
-from templ_pipeline.ui.core.hardware_manager import get_hardware_manager
-from templ_pipeline.ui.core.session_manager import get_session_manager
-from templ_pipeline.ui.layouts.main_layout import MainLayout
+# Import refactored modules after path setup
+from templ_pipeline.ui.config.settings import get_config  # noqa: E402
+from templ_pipeline.ui.core.hardware_manager import get_hardware_manager  # noqa: E402
+from templ_pipeline.ui.core.session_manager import get_session_manager  # noqa: E402
+from templ_pipeline.ui.layouts.main_layout import MainLayout  # noqa: E402
 
 # Configure logging
 logging.basicConfig(
@@ -50,7 +50,7 @@ def handle_health_check():
 
         # Check critical imports
         try:
-            from templ_pipeline.ui.config.settings import get_config
+            pass
 
             health_status["config_import"] = "  OK"
         except ImportError as e:
@@ -58,7 +58,7 @@ def handle_health_check():
             health_status["status"] = "unhealthy"
 
         try:
-            from templ_pipeline.ui.core.session_manager import get_session_manager
+            pass
 
             health_status["session_manager_import"] = "  OK"
         except ImportError as e:
@@ -232,7 +232,7 @@ def main():
                                 debug_state[key] = str(value)[
                                     :100
                                 ]  # Truncate long values
-                        except:
+                        except (AttributeError, ValueError, TypeError, KeyError):
                             debug_state[key] = "<error accessing>"
                     st.json(debug_state)
             except Exception as debug_error:

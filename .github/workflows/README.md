@@ -1,89 +1,58 @@
 # GitHub Actions Workflows
 
-This directory contains the GitHub Actions workflows for the TEMPL Pipeline project.
+This directory contains GitHub Actions workflows for the TEMPL Pipeline project.
 
-## Workflow Overview
+## Workflows
 
-### Primary Workflows
+### CI (`ci.yml`)
 
-1. **`ci.yml`** - Main CI pipeline (recommended)
-   - Runs tests across Python 3.9-3.12
-   - Includes linting (black, isort, flake8, mypy)
-   - Security checks (bandit, safety)
-   - Coverage reporting to Codecov
-   - SonarCloud analysis (on master/dev pushes)
-   - Artifact uploads for test results
+The main CI workflow that runs on pushes to `master` and `dev` branches, and on pull requests to `master`.
 
-### Specialized Workflows
+#### Jobs
 
-2. **`cffconvert.yml`** - Citation file management
-   - Validates and converts citation.cff
-   - Generates multiple citation formats
-   - Runs on citation file changes
+1. **Test** - Runs tests across Python 3.9, 3.10, 3.11, and 3.12
+2. **SonarCloud Analysis** - Performs code quality analysis (only on pushes to master/dev)
+3. **Lint** - Runs code formatting and linting checks
+4. **Security** - Runs security vulnerability scans
 
-3. **`livetests.yml`** - Manual test execution
-   - Workflow dispatch for manual testing
-   - Integration, performance, and UI test options
-   - Useful for debugging and validation
+#### Key Features
 
-## Best Practices Implemented
+- **Parallel Execution**: All Python versions run tests in parallel
+- **Fault Tolerance**: Jobs continue even if individual tests fail (`fail-fast: false`)
+- **Artifact Management**: Unique artifact names per Python version to prevent conflicts
+- **Coverage Merging**: Combines coverage reports from all Python versions for SonarCloud
+- **Fallback Handling**: Creates empty reports when tools fail to generate output
 
-### Performance Optimizations
-- **Dependency Caching**: All workflows use pip caching with hash-based keys
-- **Fail-Fast Strategy**: Matrix builds fail fast to save resources
-- **Artifact Management**: Test results and coverage reports are preserved
-- **Parallel Execution**: Jobs run in parallel where possible
+#### Artifact Naming Convention
 
-### Security & Quality
-- **Security Scanning**: Bandit and Safety checks for vulnerabilities
-- **Code Quality**: Black, isort, flake8, and mypy for code standards
-- **Coverage Tracking**: Comprehensive coverage reporting
-- **SonarCloud Integration**: Automated code quality analysis
-- **Artifact Retention**: Configurable retention periods
+- `coverage-reports-{python-version}` - Coverage reports per Python version
+- `test-results-{python-version}` - Test results per Python version  
+- `security-reports-{python-version}` - Security scan reports per Python version
 
-### Maintainability
-- **Consistent Structure**: All workflows follow the same pattern
-- **Environment Variables**: Centralized configuration
-- **Documentation**: Clear job names and descriptions
-- **Error Handling**: Graceful failure handling with artifacts
+#### Error Handling
 
-## Configuration
+- **Missing Files**: Creates empty XML/JSON files when tools fail to generate output
+- **Upload Failures**: Uses `if: always()` to ensure artifacts are uploaded even if tests fail
+- **Coverage Merging**: Handles cases where no coverage files are available
 
-### Required Secrets
-- `CODECOV_TOKEN`: For coverage reporting
-- `SONAR_TOKEN`: For SonarCloud analysis
+### Live Tests (`livetests.yml`)
 
-### Branch Strategy
-- **master**: Production-ready code
-- **dev**: Development branch
-- **feature branches**: Individual features
+Runs live integration tests to verify the application works end-to-end.
 
-## Usage
+### Citation File Format (`cffconvert.yml`)
 
-### Automatic Triggers
-- Push to master/dev: Runs CI (includes SonarCloud)
-- Pull requests: Runs CI (without SonarCloud)
-- Citation changes: Runs cffconvert
-
-### Manual Triggers
-- Live tests: Use workflow dispatch for specific test types
+Validates and converts citation files for proper academic attribution.
 
 ## Troubleshooting
 
 ### Common Issues
-1. **Dependency Installation Failures**: Check Python version compatibility
-2. **Test Failures**: Review test artifacts for detailed logs
-3. **Coverage Issues**: Verify Codecov token configuration
+
+1. **Artifact Conflicts**: Ensure unique artifact names per job/matrix combination
+2. **Missing Files**: Check that tools generate expected output files
+3. **Job Cancellations**: Use `fail-fast: false` to prevent cascading failures
 
 ### Debugging
-- All workflows generate artifacts for inspection
-- Test results include JUnit XML reports
-- Coverage reports are available for analysis
-- Security reports provide vulnerability details
 
-## Future Improvements
-
-1. **Performance**: Consider using GitHub Actions cache for larger dependencies
-2. **Security**: Add container scanning for Docker images
-3. **Monitoring**: Implement workflow metrics and alerting
-4. **Automation**: Add automated dependency updates
+- Check workflow logs for specific error messages
+- Verify file paths and permissions
+- Ensure all required dependencies are installed

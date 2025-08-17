@@ -4,12 +4,10 @@
 Working test cases for benchmark error tracking module - using actual API.
 """
 
-import json
 import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import Mock, patch
 
 import pytest
 

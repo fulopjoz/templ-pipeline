@@ -4,13 +4,12 @@
 Working test cases for benchmark runner module - using actual API.
 """
 
-import os
 import shutil
 import tempfile
 import time
 from dataclasses import asdict
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 

@@ -113,7 +113,7 @@ class LazyMoleculeLoader:
             # Find SDF file
             sdf_path = self._find_sdf_file()
             if not sdf_path:
-                self.log.error(f"No SDF file found for ligand search")
+                self.log.error("No SDF file found for ligand search")
                 return None, None
 
             # Load specific molecule by PDB ID
@@ -180,7 +180,7 @@ class LazyMoleculeLoader:
                         self.log.debug(f"Found molecule {target_pdb_id} at index {idx}")
                         return mol, smiles
 
-                except Exception as mol_err:
+                except Exception:
                     continue
 
             self.log.warning(f"Molecule {target_pdb_id} not found in SDF file")
@@ -623,7 +623,7 @@ class BenchmarkRunner:
 
             except Exception as pipeline_error:
                 # Handle molecule validation exceptions and other skip cases
-                from ..core.pipeline import MoleculeValidationException
+                pass
 
                 # Check for molecule validation exception
                 if hasattr(pipeline_error, "reason") and hasattr(
@@ -1100,14 +1100,6 @@ def run_templ_pipeline_for_benchmark(
     """Main entry point for benchmark pipeline execution."""
 
     # Lazy imports to speed up module loading
-    from templ_pipeline.core.pipeline import TEMPLPipeline
-    from templ_pipeline.core.utils import (
-        calculate_rmsd,
-        find_ligand_by_pdb_id,
-        find_ligand_file_paths,
-        get_protein_file_paths,
-        load_sdf_molecules_cached,
-    )
 
     if data_dir is None:
         # Default to templ_pipeline/data
@@ -1146,7 +1138,7 @@ def run_templ_pipeline_for_benchmark(
         data_dir, poses_output_dir, shared_cache_file=shared_cache_file
     )
 
-    logger.info(f"PIPELINE_EXEC: BenchmarkRunner initialized, executing pipeline...")
+    logger.info("PIPELINE_EXEC: BenchmarkRunner initialized, executing pipeline...")
     result = runner.run_single_target(params)
 
     # Log pipeline execution results
@@ -1172,10 +1164,10 @@ def run_templ_pipeline_for_benchmark(
     # Ensure result is properly converted to dictionary
     if hasattr(result, "to_dict"):
         final_result = result.to_dict()
-        logger.info(f"PIPELINE_EXEC: Result converted to dict via to_dict() method")
+        logger.info("PIPELINE_EXEC: Result converted to dict via to_dict() method")
         return final_result
     elif isinstance(result, dict):
-        logger.info(f"PIPELINE_EXEC: Result already in dict format")
+        logger.info("PIPELINE_EXEC: Result already in dict format")
         return result
     else:
         # Fallback for unexpected return types

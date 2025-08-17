@@ -7,12 +7,11 @@ Displays pose prediction results.
 """
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Dict
 
 import streamlit as st
 
 from ..config.constants import (
-    MESSAGES,
     SCORE_EXCELLENT,
     SCORE_FAIR,
     SCORE_GOOD,
@@ -28,7 +27,6 @@ from ..utils.visualization_utils import (
     create_mcs_molecule_from_info,
     display_molecule,
     get_molecule_from_session,
-    safe_get_mcs_mol,
 )
 
 logger = logging.getLogger(__name__)
@@ -253,7 +251,7 @@ class ResultsSection:
                                 mcs_atom_count = "Found"
                                 mcs_delta = "Common structure identified"
                                 mcs_color = "normal"
-                    except Exception as e:
+                    except Exception:
                         # If anything fails, fallback to simple "Found"
                         mcs_atom_count = "Found"
                         mcs_delta = "Common structure identified"

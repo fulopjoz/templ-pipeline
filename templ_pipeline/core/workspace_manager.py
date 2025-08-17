@@ -37,7 +37,7 @@ import zipfile
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -724,8 +724,6 @@ class TempDirectoryManager(WorkspaceManager):
 
 class UnifiedWorkspaceManager(WorkspaceManager):
     """Backward compatibility wrapper for UnifiedWorkspaceManager."""
-
-    pass
 
 
 # Convenience functions

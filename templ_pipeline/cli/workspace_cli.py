@@ -232,7 +232,7 @@ def cleanup_workspaces(
         else:
             cleaned = stats.get("workspaces_cleaned", 0)
             freed_mb = stats.get("mb_freed", 0)
-            print(f"✅ Cleanup completed:")
+            print("✅ Cleanup completed:")
             print(f"   Workspaces removed: {cleaned}")
             print(f"   Space freed: {freed_mb:.1f} MB")
 
@@ -272,7 +272,7 @@ def create_test_workspace(run_id: str = None) -> str:
 
         # Display workspace summary
         summary = workspace.get_workspace_summary()
-        print(f"\n📊 Workspace Summary:")
+        print("\n📊 Workspace Summary:")
         print(f"   Files: {summary['file_counts']}")
         print(f"   Size: {summary['total_size_mb']:.1f} MB")
 

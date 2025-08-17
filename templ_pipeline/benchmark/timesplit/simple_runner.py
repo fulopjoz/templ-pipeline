@@ -50,10 +50,14 @@ class SimpleTimeSplitRunner:
         Args:
             data_dir: Directory containing benchmark data and splits
             results_dir: Directory for benchmark results
-            memory_efficient: Use memory-efficient molecule loading (prevents memory explosion)
-            use_shared_data: Use enhanced shared data manager for embeddings and ligands
+            memory_efficient: Use memory-efficient molecule loading (prevents
+                memory explosion)
+            use_shared_data: Use enhanced shared data manager for embeddings
+                and ligands
         """
-        self.data_dir = Path(data_dir) if data_dir else self._find_data_directory()
+        self.data_dir = (
+            Path(data_dir) if data_dir else self._find_data_directory()
+        )
         self.results_dir = (
             Path(results_dir) if results_dir else Path("simple_timesplit_results")
         )
@@ -71,14 +75,17 @@ class SimpleTimeSplitRunner:
         # Set up shared data for memory efficiency
         if use_shared_data:
             self._setup_shared_data()
-            logger.info("Initialized shared data for memory-efficient benchmarking")
+            logger.info(
+                "Initialized shared data for memory-efficient benchmarking"
+            )
 
         # Use memory-efficient molecule loader to prevent explosion
         if memory_efficient:
             # Use lazy loader for memory efficiency
             self.molecule_loader = LazyMoleculeLoader(str(self.data_dir))
         else:
-            # Fallback to original loader (not recommended for large datasets)
+            # Fallback to original loader (not recommended for large
+            # datasets)
             from templ_pipeline.benchmark.runner import (
                 LazyMoleculeLoader as OriginalLoader,
             )
@@ -99,29 +106,39 @@ class SimpleTimeSplitRunner:
         # Initialize sophisticated error and skip tracking systems
         self._initialize_tracking_systems()
 
-        logger.info(f"Simple TimeSplit runner initialized:")
+        logger.info("Simple TimeSplit runner initialized:")
         logger.info(f"  Data directory: {self.data_dir}")
         logger.info(f"  Results directory: {self.results_dir}")
         logger.info(f"  Memory efficient: {memory_efficient}")
         logger.info(f"  Enhanced shared data: {use_shared_data}")
-        logger.info(f"  Error tracking: {'✓' if self.error_tracker else '✗'}")
-        logger.info(f"  Skip tracking: {'✓' if self.skip_tracker else '✗'}")
+        logger.info(
+            f"  Error tracking: {'✓' if self.error_tracker else '✗'}"
+        )
+        logger.info(
+            f"  Skip tracking: {'✓' if self.skip_tracker else '✗'}"
+        )
 
     def _setup_shared_data(self):
         """Set up shared data for memory-efficient benchmarking."""
         try:
             # Create shared embedding cache to prevent memory explosion
-            from templ_pipeline.core.utils import create_shared_embedding_cache
+            from templ_pipeline.core.utils import (
+                create_shared_embedding_cache,
+            )
 
             # Find embedding file
             embedding_path = (
-                self.data_dir / "embeddings" / "templ_protein_embeddings_v1.0.0.npz"
+                self.data_dir
+                / "embeddings"
+                / "templ_protein_embeddings_v1.0.0.npz"
             )
             if not embedding_path.exists():
                 logger.warning(f"Embedding file not found: {embedding_path}")
                 return
 
-            logger.info(f"Creating shared embedding cache from: {embedding_path}")
+            logger.info(
+                f"Creating shared embedding cache from: {embedding_path}"
+            )
 
             # Create shared embedding cache
             cache_name = create_shared_embedding_cache(str(embedding_path))
@@ -137,13 +154,16 @@ class SimpleTimeSplitRunner:
         """Initialize sophisticated error and skip tracking systems."""
         try:
             # Initialize error tracking system
-            from templ_pipeline.benchmark.error_tracking import BenchmarkErrorTracker
+            from templ_pipeline.benchmark.error_tracking import (
+                BenchmarkErrorTracker,
+            )
 
             self.error_tracker = BenchmarkErrorTracker(self.results_dir)
             logger.info("✓ Error tracking system initialized")
         except ImportError:
             logger.warning(
-                "Error tracking module not available - using basic error handling"
+                "Error tracking module not available - using basic error "
+                "handling"
             )
             self.error_tracker = None
         except Exception as e:
@@ -152,14 +172,18 @@ class SimpleTimeSplitRunner:
 
         try:
             # Initialize skip tracking system
-            from templ_pipeline.benchmark.skip_tracker import BenchmarkSkipTracker
+            from templ_pipeline.benchmark.skip_tracker import (
+                BenchmarkSkipTracker,
+            )
 
             self.skip_tracker = BenchmarkSkipTracker(self.results_dir)
-            self.skip_tracker.load_existing_skips()  # Load any existing skip records
+            # Load any existing skip records
+            self.skip_tracker.load_existing_skips()
             logger.info("✓ Skip tracking system initialized")
         except ImportError:
             logger.warning(
-                "Skip tracking module not available - using basic skip handling"
+                "Skip tracking module not available - using basic skip "
+                "handling"
             )
             self.skip_tracker = None
         except Exception as e:
@@ -193,7 +217,7 @@ class SimpleTimeSplitRunner:
         self.val_pdbs = self._load_pdb_list(self.split_files["val"])
         self.test_pdbs = self._load_pdb_list(self.split_files["test"])
 
-        logger.info(f"Loaded splits:")
+        logger.info("Loaded splits:")
         logger.info(f"  Train: {len(self.train_pdbs)} PDBs")
         logger.info(f"  Val: {len(self.val_pdbs)} PDBs")
         logger.info(f"  Test: {len(self.test_pdbs)} PDBs")
@@ -246,7 +270,8 @@ class SimpleTimeSplitRunner:
         self, target_split: str, target_pdb: str
     ) -> Set[str]:
         """
-        Get allowed template PDB IDs for a target split based on time-split rules.
+        Get allowed template PDB IDs for a target split based on time-split
+        rules.
 
         Time-split rules:
         - Test: can use train + val templates (no future information)
@@ -254,8 +279,10 @@ class SimpleTimeSplitRunner:
         - Train: uses leave-one-out (other train molecules as templates)
 
         Args:
-            target_split: Split of the target molecule ('train', 'val', 'test')
-            target_pdb: PDB ID of the target (for leave-one-out exclusion)
+            target_split: Split of the target molecule ('train', 'val',
+                'test')
+            target_pdb: PDB ID of the target (for leave-one-out
+                exclusion)
 
         Returns:
             Set of PDB IDs allowed as templates
@@ -273,15 +300,18 @@ class SimpleTimeSplitRunner:
         else:
             raise ValueError(f"Unknown target split: {target_split}")
 
-        # Only apply leave-one-out for train split (since val/test are disjoint from their template sets)
+        # Only apply leave-one-out for train split (since val/test are
+        # disjoint from their template sets)
         if target_split == "train":
             allowed_templates.discard(target_pdb.upper())
             logger.debug(
-                f"Applied LOO for train target {target_pdb}: excluded from {len(self._train_allowed_templates)} templates"
+                f"Applied LOO for train target {target_pdb}: excluded from "
+                f"{len(self._train_allowed_templates)} templates"
             )
         else:
             logger.debug(
-                f"No LOO needed for {target_split} target {target_pdb}: target not in template set"
+                f"No LOO needed for {target_split} target {target_pdb}: target "
+                f"not in template set"
             )
 
         return allowed_templates
@@ -297,13 +327,16 @@ class SimpleTimeSplitRunner:
             True if command structure is valid
         """
         try:
-            # Check basic structure: ["templ", "--output-dir", "path", "run", ...]
+            # Check basic structure:
+            # ["templ", "--output-dir", "path", "run", ...]
             if len(cmd) < 4:
                 logger.error(f"Command too short: {cmd}")
                 return False
 
             if cmd[0] != "templ":
-                logger.error(f"Command should start with 'templ', got: {cmd[0]}")
+                logger.error(
+                    f"Command should start with 'templ', got: {cmd[0]}"
+                )
                 return False
 
             # Find the subcommand position
@@ -706,7 +739,7 @@ class SimpleTimeSplitRunner:
                     # Look for the JSON result line in stdout
                     for line in result.stdout.split("\n"):
                         if line.startswith("TEMPL_JSON_RESULT:"):
-                            json_str = line[len("TEMPL_JSON_RESULT:") :]
+                            json_str = line[len("TEMPL_JSON_RESULT:"):]
                             json_data = json.loads(json_str)
                             rmsd_values = json_data.get("rmsd_values", {})
                             break
@@ -1115,12 +1148,12 @@ class SimpleTimeSplitRunner:
 
         logger.info(f"Split {split_name} completed:")
         logger.info(f"  Total targets: {len(target_pdbs)}")
-        logger.info(f"  Processing breakdown:")
+        logger.info("  Processing breakdown:")
         logger.info(f"    Pre-pipeline excluded: {pre_pipeline_excluded_count}")
         logger.info(f"    Pipeline filtered: {pipeline_filtered_count}")
         logger.info(f"    Pipeline attempted: {pipeline_attempted_count}")
         logger.info(f"    Pipeline successful: {pipeline_success_count}")
-        logger.info(f"  Success rates:")
+        logger.info("  Success rates:")
         logger.info(
             f"    Pipeline success rate: {pipeline_success_rate:.1f}% (main metric)"
         )
@@ -1141,17 +1174,17 @@ class SimpleTimeSplitRunner:
         try:
             if self.error_tracker:
                 error_summary = self.error_tracker.get_summary()
-                logger.info(f"Error tracking summary:")
+                logger.info("Error tracking summary:")
                 logger.info(f"  Total errors recorded: {error_summary['total_errors']}")
                 if error_summary["error_breakdown"]:
-                    logger.info(f"  Error breakdown:")
+                    logger.info("  Error breakdown:")
                     for error_type, count in error_summary["error_breakdown"].items():
                         logger.info(f"    {error_type}: {count}")
 
             if self.skip_tracker:
                 skip_stats = self.skip_tracker.get_formatted_skip_statistics()
                 if skip_stats["total_skipped"] > 0:
-                    logger.info(f"Skip tracking summary:")
+                    logger.info("Skip tracking summary:")
                     logger.info(f"  {skip_stats['formatted_summary']}")
 
                     # Generate and save detailed skip summary
@@ -1320,7 +1353,7 @@ class SimpleTimeSplitRunner:
         # Train: uses leave-one-out (other train molecules as templates)
         self._train_allowed_templates = self._train_templates.copy()
 
-        logger.info(f"Pre-computed template sets:")
+        logger.info("Pre-computed template sets:")
         logger.info(
             f"  Test allowed templates: {len(self._test_allowed_templates)} (train+val)"
         )

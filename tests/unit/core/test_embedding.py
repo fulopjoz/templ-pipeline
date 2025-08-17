@@ -13,18 +13,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
-import numpy as np
 
 # Handle imports for both development and installed package
 try:
     from templ_pipeline.core.embedding import (
         EmbeddingManager,
-        calculate_embedding,
-        get_embedding,
-        get_protein_sequence,
-        select_templates,
     )
 except ImportError:
     # Fall back to local imports for development
@@ -33,10 +27,6 @@ except ImportError:
     )
     from core.embedding import (
         EmbeddingManager,
-        calculate_embedding,
-        get_embedding,
-        get_protein_sequence,
-        select_templates,
     )
 
 # Import test helper functions from local tests package
@@ -300,12 +290,10 @@ class TestEmbeddingManagerWithRealData(unittest.TestCase):
     def test_get_protein_sequence_from_real_pdb(self):
         """Test extracting protein sequence from real PDB files."""
         # Replaced with improved version in test_embedding_improved.py
-        pass
 
     def test_embedding_generation_with_real_pdb(self):
         """Test generating embeddings for real PDB files."""
         # Replaced with improved version in test_embedding_improved.py
-        pass
 
 
 # Still keep a version with mocks for when real data isn't available
@@ -314,6 +302,12 @@ class TestEmbeddingManager(unittest.TestCase):
 
     def setUp(self):
         """Set up for tests - create temp directory for cache."""
+        # Reset the singleton to ensure clean state
+        from templ_pipeline.core.embedding import EmbeddingManager
+
+        EmbeddingManager._instance = None
+        EmbeddingManager._initialized = False
+
         self.temp_dir = tempfile.mkdtemp()
         self.cache_dir = os.path.join(self.temp_dir, "embedding_cache")
 
@@ -332,27 +326,31 @@ class TestEmbeddingManager(unittest.TestCase):
         # Create directory and write file
         Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
 
-        # Create test data with proper structure
+        # Create test data with proper structure - use chain_ids as array to match expected format
         mock_pdb_ids = np.array(["1ABC", "2DEF", "3GHI"], dtype=object)
         mock_embeddings = np.random.rand(3, 1280).astype(np.float32)  # Real embeddings
-        mock_chain_data = {
-            "1ABC": {"A": {"residues": 100}},
-            "2DEF": {"B": {"residues": 150}},
-            "3GHI": {"C": {"residues": 200}},
-        }
+        mock_chain_ids = np.array(
+            ["A", "B", "C"], dtype=object
+        )  # Array format, not dict
 
         try:
             np.savez(
                 self.mock_embedding_path,
                 pdb_ids=mock_pdb_ids,
                 embeddings=mock_embeddings,
-                chain_data=mock_chain_data,
+                chain_ids=mock_chain_ids,  # Use chain_ids instead of chain_data
             )
         except Exception as e:
             self.fail(f"Error creating mock embedding file: {e}")
 
     def tearDown(self):
         """Clean up after tests."""
+        # Reset the singleton
+        from templ_pipeline.core.embedding import EmbeddingManager
+
+        EmbeddingManager._instance = None
+        EmbeddingManager._initialized = False
+
         if hasattr(self, "temp_dir") and os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
 

@@ -150,7 +150,7 @@ class PipelineService:
         ligand_smiles: Optional[str] = None,
         num_conformers: Optional[int] = None,
         custom_templates: Optional[list] = None,
-        **kwargs
+        **kwargs,
     ) -> Optional[Dict[str, Any]]:
         """Run the TEMPL pipeline with enhanced error handling
 
@@ -158,7 +158,7 @@ class PipelineService:
             molecule_data: Molecule input data dictionary
             protein_data: Protein input data dictionary
             progress_callback: Optional callback for progress updates
-            
+
             # Backward compatibility parameters
             smiles: SMILES string for the query molecule (legacy)
             protein_input: PDB ID or file path for protein input (legacy)
@@ -195,7 +195,7 @@ class PipelineService:
             for key, value in kwargs.items():
                 if value is not None:
                     molecule_data[key] = value
-        
+
         if protein_data is None and protein_input:
             # Determine if protein_input is a file path or PDB ID
             if isinstance(protein_input, str):
@@ -207,7 +207,7 @@ class PipelineService:
                     protein_data = {"pdb_id": protein_input}
             else:
                 protein_data = {"pdb_id": str(protein_input)}
-        
+
         # Validate that we have the required data
         if not molecule_data:
             logger.error("No molecule data provided")
@@ -452,7 +452,9 @@ class PipelineService:
         user_settings: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Run pipeline with custom template molecules using MCS-based pose generation"""
-        logger.info(f"Running custom template pipeline with {len(custom_templates)} templates")
+        logger.info(
+            f"Running custom template pipeline with {len(custom_templates)} templates"
+        )
 
         if progress_callback:
             progress_callback("Processing custom templates...", 40)
@@ -505,7 +507,9 @@ class PipelineService:
                     query_mol, valid_templates, return_details=True
                 )
                 best_template = valid_templates[best_template_idx]
-                logger.info(f"Best template found at index {best_template_idx} with MCS: {mcs_smarts}")
+                logger.info(
+                    f"Best template found at index {best_template_idx} with MCS: {mcs_smarts}"
+                )
 
             except Exception as e:
                 logger.error(f"MCS finding failed: {e}")
@@ -672,9 +676,7 @@ class PipelineService:
             _ = hardware_info.max_workers  # Used for logging
         else:
             # Fallback: use hardware manager directly
-            _ = self.session.get(
-                SESSION_KEYS.get("USER_DEVICE_PREFERENCE", "auto")
-            )
+            _ = self.session.get(SESSION_KEYS.get("USER_DEVICE_PREFERENCE", "auto"))
             if isinstance(_, str):
                 from ..core.hardware_manager import get_hardware_manager
 
@@ -719,7 +721,9 @@ class PipelineService:
             # Reduce worker count for scoring to avoid parallel processing issues
             # Use sequential processing for scoring to ensure all conformers are processed
             scoring_workers = 1  # Force sequential scoring to avoid Pebble failures
-            logger.info("Using sequential scoring (n_workers=1) to ensure all conformers are processed reliably")
+            logger.info(
+                "Using sequential scoring (n_workers=1) to ensure all conformers are processed reliably"
+            )
 
             results = self.pipeline.run_full_pipeline(
                 protein_file=pdb_file,
@@ -749,7 +753,7 @@ class PipelineService:
                     st.info(
                         "💡 Make sure the file is a valid PDB format with protein chains"
                     )
-            except:
+            except (AttributeError, NameError):
                 pass
 
             raise
@@ -767,14 +771,14 @@ class PipelineService:
         # Get hardware-optimized worker count
         hardware_info = self.session.get(SESSION_KEYS["HARDWARE_INFO"])
         if hardware_info and hasattr(hardware_info, "max_workers"):
-            n_workers = hardware_info.max_workers
+            hardware_info.max_workers
         else:
             # Fallback: use hardware manager directly
             from ..core.hardware_manager import get_hardware_manager
 
             hw_manager = get_hardware_manager()
             hw_info = hw_manager.detect_hardware()
-            n_workers = hw_info.max_workers
+            hw_info.max_workers
 
         # Exclude the target PDB ID from templates to avoid self-templating
         exclude_pdb_ids = {pdb_id.lower()}
@@ -785,7 +789,7 @@ class PipelineService:
         # Use sequential scoring to ensure all conformers are processed
         scoring_workers = 1  # Force sequential scoring to avoid Pebble failures
         logger.info(
-            f"Using sequential scoring (n_workers=1) to ensure all conformers are processed reliably"
+            "Using sequential scoring (n_workers=1) to ensure all conformers are processed reliably"
         )
 
         # This will use the existing embedding from database
@@ -1021,7 +1025,9 @@ class PipelineService:
             except Exception as e:
                 logger.warning(f"Could not set template properties: {e}")
         else:
-            logger.warning(f"Template molecule invalid or missing SetProp: {type(template_mol)}")
+            logger.warning(
+                f"Template molecule invalid or missing SetProp: {type(template_mol)}"
+            )
 
         # Process MCS information from the actual pipeline template info
         raw_mcs_info = None
@@ -1057,7 +1063,7 @@ class PipelineService:
                     mcs_mol = Chem.MolFromSmarts(raw_mcs_info)
                     if mcs_mol:
                         template_info["atoms_matched"] = mcs_mol.GetNumAtoms()
-                except:
+                except (ValueError, TypeError, RuntimeError):
                     pass
 
         # If still nothing, try to pull from pipeline object if available
@@ -1068,7 +1074,9 @@ class PipelineService:
                     "Using MCS details from pipeline state (pipeline_mcs_details)"
                 )
 
-        logger.debug(f"Raw MCS info from pipeline: {type(raw_mcs_info)} - {raw_mcs_info}")
+        logger.debug(
+            f"Raw MCS info from pipeline: {type(raw_mcs_info)} - {raw_mcs_info}"
+        )
         processed_mcs_info = self._process_mcs_info(raw_mcs_info, template_info)
         logger.debug(f"Processed MCS info: {processed_mcs_info}")
 
@@ -1125,7 +1133,9 @@ class PipelineService:
             "query_mol": final_query_mol,
         }
 
-        logger.info(f"Formatted results with template: {template_info.get('name') if template_info else 'None'}")
+        logger.info(
+            f"Formatted results with template: {template_info.get('name') if template_info else 'None'}"
+        )
         logger.info(f"MCS info available: {processed_mcs_info is not None}")
         logger.info(f"Template molecule available: {template_mol is not None}")
         logger.info(
@@ -1230,7 +1240,7 @@ class PipelineService:
                 try:
                     if template_mol.HasProp(prop):
                         return template_mol.GetProp(prop).upper()
-                except:
+                except (AttributeError, ValueError, KeyError):
                     pass
 
         # Check results for template info

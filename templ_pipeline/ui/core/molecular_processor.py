@@ -7,15 +7,14 @@ Molecular processing with operation caching for improved performance
 and reduced redundant calculations.
 """
 
-import hashlib
 import logging
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 # Try to import RDKit for molecular operations
 try:
     from rdkit import Chem
-    from rdkit.Chem import AllChem, Descriptors, rdMolDescriptors
+    from rdkit.Chem import AllChem, Descriptors
 
     RDKIT_AVAILABLE = True
 except ImportError:
