@@ -15,7 +15,11 @@ from unittest.mock import Mock, patch, MagicMock
 from dataclasses import dataclass
 from typing import Dict, Any, Set, Optional
 
-from templ_pipeline.benchmark.runner import BenchmarkRunner, BenchmarkParams, BenchmarkResult
+from templ_pipeline.benchmark.runner import (
+    BenchmarkRunner,
+    BenchmarkParams,
+    BenchmarkResult,
+)
 
 
 @pytest.fixture
@@ -24,16 +28,16 @@ def temp_dirs():
     test_dir = tempfile.mkdtemp()
     data_dir = Path(test_dir) / "data"
     output_dir = Path(test_dir) / "output"
-    
+
     data_dir.mkdir(exist_ok=True)
     output_dir.mkdir(exist_ok=True)
-    
+
     yield {
-        'test_dir': test_dir,
-        'data_dir': str(data_dir),
-        'output_dir': str(output_dir)
+        "test_dir": test_dir,
+        "data_dir": str(data_dir),
+        "output_dir": str(output_dir),
     }
-    
+
     shutil.rmtree(test_dir)
 
 
@@ -41,8 +45,7 @@ def temp_dirs():
 def benchmark_runner(temp_dirs):
     """Create a BenchmarkRunner instance for testing."""
     return BenchmarkRunner(
-        data_dir=temp_dirs['data_dir'],
-        poses_output_dir=temp_dirs['output_dir']
+        data_dir=temp_dirs["data_dir"], poses_output_dir=temp_dirs["output_dir"]
     )
 
 
@@ -52,32 +55,31 @@ class TestBenchmarkRunnerInitialization:
     def test_basic_initialization(self, temp_dirs):
         """Test basic BenchmarkRunner initialization."""
         runner = BenchmarkRunner(
-            data_dir=temp_dirs['data_dir'],
-            poses_output_dir=temp_dirs['output_dir']
+            data_dir=temp_dirs["data_dir"], poses_output_dir=temp_dirs["output_dir"]
         )
-        
-        assert str(runner.data_dir) == temp_dirs['data_dir']
-        assert str(runner.poses_output_dir) == temp_dirs['output_dir']
+
+        assert str(runner.data_dir) == temp_dirs["data_dir"]
+        assert str(runner.poses_output_dir) == temp_dirs["output_dir"]
         assert runner.peptide_threshold == 8
         assert runner.error_tracker is not None
 
     def test_initialization_with_optional_params(self, temp_dirs):
         """Test initialization with optional parameters."""
         runner = BenchmarkRunner(
-            data_dir=temp_dirs['data_dir'],
-            poses_output_dir=temp_dirs['output_dir'],
+            data_dir=temp_dirs["data_dir"],
+            poses_output_dir=temp_dirs["output_dir"],
             enable_error_tracking=False,
-            peptide_threshold=10
+            peptide_threshold=10,
         )
-        
-        assert str(runner.data_dir) == temp_dirs['data_dir']
+
+        assert str(runner.data_dir) == temp_dirs["data_dir"]
         assert runner.peptide_threshold == 10
 
     def test_initialization_data_dir_only(self, temp_dirs):
         """Test initialization with data directory only."""
-        runner = BenchmarkRunner(data_dir=temp_dirs['data_dir'])
-        
-        assert str(runner.data_dir) == temp_dirs['data_dir']
+        runner = BenchmarkRunner(data_dir=temp_dirs["data_dir"])
+
+        assert str(runner.data_dir) == temp_dirs["data_dir"]
         assert runner.poses_output_dir is None
 
 
@@ -86,12 +88,12 @@ class TestBenchmarkRunnerProperties:
 
     def test_data_directory_property(self, benchmark_runner, temp_dirs):
         """Test data directory property access."""
-        assert str(benchmark_runner.data_dir) == temp_dirs['data_dir']
+        assert str(benchmark_runner.data_dir) == temp_dirs["data_dir"]
         assert isinstance(benchmark_runner.data_dir, Path)
 
     def test_output_directory_property(self, benchmark_runner, temp_dirs):
         """Test output directory property access."""
-        assert str(benchmark_runner.poses_output_dir) == temp_dirs['output_dir']
+        assert str(benchmark_runner.poses_output_dir) == temp_dirs["output_dir"]
         assert isinstance(benchmark_runner.poses_output_dir, Path)
 
     def test_peptide_threshold_property(self, benchmark_runner):
@@ -101,7 +103,7 @@ class TestBenchmarkRunnerProperties:
 
     def test_error_tracker_availability(self, benchmark_runner):
         """Test error tracker is available when enabled."""
-        assert hasattr(benchmark_runner, 'error_tracker')
+        assert hasattr(benchmark_runner, "error_tracker")
 
 
 class TestBenchmarkRunnerUnitBehavior:
@@ -110,30 +112,28 @@ class TestBenchmarkRunnerUnitBehavior:
     def test_benchmark_params_creation(self):
         """Test that BenchmarkParams can be created with required fields."""
         params = BenchmarkParams(
-            target_pdb='1abc',
-            exclude_pdb_ids=set(),
-            poses_output_dir='/tmp/test'
+            target_pdb="1abc", exclude_pdb_ids=set(), poses_output_dir="/tmp/test"
         )
-        
-        assert params.target_pdb == '1abc'
+
+        assert params.target_pdb == "1abc"
         assert params.exclude_pdb_ids == set()
-        assert params.poses_output_dir == '/tmp/test'
+        assert params.poses_output_dir == "/tmp/test"
 
     def test_benchmark_result_creation(self):
         """Test that BenchmarkResult can be created with all fields."""
         result = BenchmarkResult(
             success=True,
-            rmsd_values={'combo': 1.5},
+            rmsd_values={"combo": 1.5},
             runtime=2.5,
             error=None,
-            metadata={'test': 'data'}
+            metadata={"test": "data"},
         )
-        
+
         assert result.success is True
-        assert result.rmsd_values == {'combo': 1.5}
+        assert result.rmsd_values == {"combo": 1.5}
         assert result.runtime == 2.5
         assert result.error is None
-        assert result.metadata == {'test': 'data'}
+        assert result.metadata == {"test": "data"}
 
     def test_benchmark_result_failure(self):
         """Test BenchmarkResult creation for failure cases."""
@@ -142,9 +142,9 @@ class TestBenchmarkRunnerUnitBehavior:
             rmsd_values={},
             runtime=0.1,
             error="Test error message",
-            metadata={}
+            metadata={},
         )
-        
+
         assert result.success is False
         assert result.rmsd_values == {}
         assert result.error == "Test error message"
@@ -153,28 +153,31 @@ class TestBenchmarkRunnerUnitBehavior:
 class TestBenchmarkRunnerMockingPatterns:
     """Test proper mocking patterns for external dependencies."""
 
-    @patch('templ_pipeline.benchmark.runner.BenchmarkRunner._get_protein_file')
-    def test_protein_file_resolution_mock(self, mock_get_protein_file, benchmark_runner):
+    @patch("templ_pipeline.benchmark.runner.BenchmarkRunner._get_protein_file")
+    def test_protein_file_resolution_mock(
+        self, mock_get_protein_file, benchmark_runner
+    ):
         """Test that protein file resolution can be properly mocked."""
-        mock_get_protein_file.return_value = '/fake/path/test.pdb'
-        
-        # This tests the mocking pattern, not the actual implementation
-        result = mock_get_protein_file('test_pdb')
-        assert result == '/fake/path/test.pdb'
-        mock_get_protein_file.assert_called_once_with('test_pdb')
+        mock_get_protein_file.return_value = "/fake/path/test.pdb"
 
-    @patch('templ_pipeline.benchmark.runner.BenchmarkRunner._load_ligand_data_from_sdf')
+        # This tests the mocking pattern, not the actual implementation
+        result = mock_get_protein_file("test_pdb")
+        assert result == "/fake/path/test.pdb"
+        mock_get_protein_file.assert_called_once_with("test_pdb")
+
+    @patch("templ_pipeline.benchmark.runner.BenchmarkRunner._load_ligand_data_from_sdf")
     def test_ligand_loading_mock(self, mock_load_ligand, benchmark_runner):
         """Test that ligand loading can be properly mocked."""
         from rdkit import Chem
-        mock_mol = Chem.MolFromSmiles('CCO')
-        mock_load_ligand.return_value = ('CCO', mock_mol)
-        
+
+        mock_mol = Chem.MolFromSmiles("CCO")
+        mock_load_ligand.return_value = ("CCO", mock_mol)
+
         # This tests the mocking pattern
-        smiles, mol = mock_load_ligand('test_pdb')
-        assert smiles == 'CCO'
+        smiles, mol = mock_load_ligand("test_pdb")
+        assert smiles == "CCO"
         assert mol is not None
-        mock_load_ligand.assert_called_once_with('test_pdb')
+        mock_load_ligand.assert_called_once_with("test_pdb")
 
 
 class TestBenchmarkRunnerErrorHandling:
@@ -184,7 +187,7 @@ class TestBenchmarkRunnerErrorHandling:
         """Test initialization with invalid data directory."""
         # BenchmarkRunner should handle non-existent directories gracefully
         try:
-            runner = BenchmarkRunner(data_dir='/tmp/nonexistent_test_dir')
+            runner = BenchmarkRunner(data_dir="/tmp/nonexistent_test_dir")
             # Should either succeed or fail gracefully
             assert runner is not None
         except (FileNotFoundError, OSError, PermissionError):
@@ -199,12 +202,12 @@ class TestBenchmarkRunnerErrorHandling:
             rmsd_values={},
             runtime=0.0,
             error=error_msg,
-            metadata={'target_pdb': 'test_pdb'}
+            metadata={"target_pdb": "test_pdb"},
         )
-        
+
         assert result.success is False
         assert result.error == error_msg
-        assert 'target_pdb' in result.metadata
+        assert "target_pdb" in result.metadata
 
 
 # Parametrized tests for edge cases
@@ -212,10 +215,9 @@ class TestBenchmarkRunnerErrorHandling:
 def test_peptide_threshold_values(temp_dirs, peptide_threshold):
     """Test different peptide threshold values."""
     runner = BenchmarkRunner(
-        data_dir=temp_dirs['data_dir'],
-        peptide_threshold=peptide_threshold
+        data_dir=temp_dirs["data_dir"], peptide_threshold=peptide_threshold
     )
-    
+
     assert runner.peptide_threshold == peptide_threshold
 
 
@@ -223,10 +225,9 @@ def test_peptide_threshold_values(temp_dirs, peptide_threshold):
 def test_error_tracking_configuration(temp_dirs, enable_error_tracking):
     """Test error tracking configuration."""
     runner = BenchmarkRunner(
-        data_dir=temp_dirs['data_dir'],
-        enable_error_tracking=enable_error_tracking
+        data_dir=temp_dirs["data_dir"], enable_error_tracking=enable_error_tracking
     )
-    
+
     if enable_error_tracking:
         assert runner.error_tracker is not None
     # Note: error_tracker might still be present even when disabled due to fallbacks

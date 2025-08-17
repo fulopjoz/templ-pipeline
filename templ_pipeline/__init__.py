@@ -26,6 +26,7 @@ __version__ = "1.0.0"
 # Suppress RDKit warnings globally (including SCD/SED warnings)
 try:
     from rdkit import RDLogger
+
     RDLogger.DisableLog("rdApp.*")
     RDLogger.DisableLog("rdkit.*")
 except ImportError:

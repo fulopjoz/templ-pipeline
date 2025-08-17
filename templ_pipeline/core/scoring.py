@@ -411,12 +411,14 @@ def rmsd_raw(a: Chem.Mol, b: Chem.Mol) -> float:
         # Ensure both molecules are processed consistently
         a_clean = Chem.RemoveHs(a)
         b_clean = Chem.RemoveHs(b)
-        
+
         # Check if molecules have the same number of atoms
         if a_clean.GetNumAtoms() != b_clean.GetNumAtoms():
-            logger.debug(f"RMSD skipped: atom count mismatch ({a_clean.GetNumAtoms()} vs {b_clean.GetNumAtoms()})")
+            logger.debug(
+                f"RMSD skipped: atom count mismatch ({a_clean.GetNumAtoms()} vs {b_clean.GetNumAtoms()})"
+            )
             return float("nan")
-        
+
         return rmsdwrapper(
             Molecule.from_rdkit(a_clean),
             Molecule.from_rdkit(b_clean),
@@ -593,11 +595,15 @@ def validate_molecule_quality(mol: Chem.Mol) -> Tuple[bool, str]:
 def score_and_align(conf: Chem.Mol, tpl: Chem.Mol) -> Tuple[Dict[str, float], Chem.Mol]:
     """Compute shape/color scores and return the aligned conformer with organometallic handling."""
     prb = Chem.Mol(conf)
-    
+
     # Handle organometallic atoms before sanitization
-    tpl_processed, tpl_had_metals, tpl_subs = detect_and_substitute_organometallic(tpl, "template")
-    prb_processed, prb_had_metals, prb_subs = detect_and_substitute_organometallic(prb, "probe")
-    
+    tpl_processed, tpl_had_metals, tpl_subs = detect_and_substitute_organometallic(
+        tpl, "template"
+    )
+    prb_processed, prb_had_metals, prb_subs = detect_and_substitute_organometallic(
+        prb, "probe"
+    )
+
     try:
         SanitizeMol(tpl_processed)
         SanitizeMol(prb_processed)
@@ -609,13 +615,15 @@ def score_and_align(conf: Chem.Mol, tpl: Chem.Mol) -> Tuple[Dict[str, float], Ch
             SanitizeMol(prb)
             tpl_processed, prb_processed = tpl, prb
         except Exception as e2:
-            logger.error(f"Both organometallic handling and fallback sanitization failed: {e2}")
+            logger.error(
+                f"Both organometallic handling and fallback sanitization failed: {e2}"
+            )
             # Return default scores to avoid complete failure
             return ({"shape": 0.0, "color": 0.0, "combo": 0.0}, prb)
-    
+
     try:
         sT, cT = rdShapeAlign.AlignMol(tpl_processed, prb_processed, useColors=True)
-        return ({"shape": sT, "color": cT, "combo": 0.5*(sT+cT)}, prb_processed)
+        return ({"shape": sT, "color": cT, "combo": 0.5 * (sT + cT)}, prb_processed)
     except Exception as e:
         logger.warning(f"Shape alignment failed: {e}")
         return ({"shape": 0.0, "color": 0.0, "combo": 0.0}, prb_processed)
@@ -771,23 +779,27 @@ def _score_and_align_task(args_tuple):
 
 def _get_executor_for_context(n_workers: int):
     """Get appropriate executor based on process context and thread resource management.
-    
-    Uses ThreadPoolExecutor if running in daemon process (to avoid 
+
+    Uses ThreadPoolExecutor if running in daemon process (to avoid
     'daemonic processes are not allowed to have children' error),
     otherwise uses ProcessPoolExecutor for better performance.
     """
     try:
         # Fallback if thread manager not available
         safe_workers = min(n_workers, 4)  # Conservative fallback
-        
+
         current_process = multiprocessing.current_process()
-        if hasattr(current_process, 'daemon') and current_process.daemon:
+        if hasattr(current_process, "daemon") and current_process.daemon:
             # Running in daemon process, use threads
-            logger.debug(f"Using ThreadPoolExecutor with {safe_workers} workers (daemon process detected, requested: {n_workers})")
+            logger.debug(
+                f"Using ThreadPoolExecutor with {safe_workers} workers (daemon process detected, requested: {n_workers})"
+            )
             return ThreadPoolExecutor(max_workers=safe_workers)
         else:
             # Not in daemon process, use simple process pool
-            logger.debug(f"Using ProcessPoolExecutor with {safe_workers} workers (requested: {n_workers})")
+            logger.debug(
+                f"Using ProcessPoolExecutor with {safe_workers} workers (requested: {n_workers})"
+            )
             return ProcessPoolExecutor(max_workers=safe_workers)
     except Exception as e:
         # Fallback to threads if there's any issue with process detection
@@ -809,7 +821,7 @@ def select_best(
     List[Tuple[Chem.Mol, Dict[str, float], int]],
 ]:
     """Select best poses using shape/color/combo scoring with memory optimization.
-    
+
     Args:
         confs: Molecule with multiple conformers to score
         tpl: Template molecule for alignment and scoring
@@ -817,7 +829,7 @@ def select_best(
         n_workers: Number of parallel workers
         return_all_ranked: Return all ranked results instead of best poses
         align_metric: Metric to use for conformer selection ('shape', 'color', 'combo')
-    
+
     Returns:
         If return_all_ranked=False: Dict mapping metric names to (molecule, scores) tuples.
                                    All metrics use the same conformer selected by align_metric.
@@ -834,7 +846,9 @@ def select_best(
         return {} if not return_all_ranked else []
 
     logger.info(f"Scoring {n_confs} conformers using {n_workers} workers")
-    logger.info(f"ALIGN_METRIC DEBUG: Using align_metric='{align_metric}' for conformer selection")
+    logger.info(
+        f"ALIGN_METRIC DEBUG: Using align_metric='{align_metric}' for conformer selection"
+    )
 
     # Process conformers in memory-efficient batches with adaptive sizing
     # Adjust batch size based on worker count and system load
@@ -854,11 +868,13 @@ def select_best(
         try:
             # Thread monitoring not available, continue without it
             pass
-            
+
             executor = _get_executor_for_context(n_workers)
             logger.debug(f"Created single process pool for all {n_confs} conformers")
         except Exception as e:
-            logger.warning(f"Failed to create process pool: {e}, using sequential processing")
+            logger.warning(
+                f"Failed to create process pool: {e}, using sequential processing"
+            )
             executor = None
 
     try:
@@ -876,7 +892,9 @@ def select_best(
                 try:
                     # Validate input molecules before processing
                     if confs is None or tpl is None:
-                        logger.warning(f"Invalid input molecules for conformer {conf_id}")
+                        logger.warning(
+                            f"Invalid input molecules for conformer {conf_id}"
+                        )
                         continue
 
                     if conf_id >= confs.GetNumConformers():
@@ -946,13 +964,19 @@ def select_best(
             if executor and len(args_list) > 1:
                 try:
                     batch_results = list(executor.map(_score_and_align_task, args_list))
-                    logger.debug(f"Processed batch with {len(args_list)} conformers using persistent pool")
+                    logger.debug(
+                        f"Processed batch with {len(args_list)} conformers using persistent pool"
+                    )
                 except Exception as e:
-                    logger.warning(f"Parallel processing failed: {e}, falling back to sequential")
+                    logger.warning(
+                        f"Parallel processing failed: {e}, falling back to sequential"
+                    )
                     batch_results = [_score_and_align_task(args) for args in args_list]
             else:
                 batch_results = [_score_and_align_task(args) for args in args_list]
-                logger.debug(f"Processed batch with {len(args_list)} conformers sequentially")
+                logger.debug(
+                    f"Processed batch with {len(args_list)} conformers sequentially"
+                )
 
             # Filter valid results and add to overall results with enhanced validation
             for result in batch_results:
@@ -964,7 +988,8 @@ def select_best(
 
                             # Validate scores
                             if isinstance(scores, dict) and all(
-                                metric in scores for metric in ["shape", "color", "combo"]
+                                metric in scores
+                                for metric in ["shape", "color", "combo"]
                             ):
                                 # Validate molecule
                                 if mol is not None and isinstance(mol, Chem.Mol):
@@ -987,15 +1012,17 @@ def select_best(
             del args_list, batch_results
             cleanup_memory()
 
-            logger.debug(f"Batch complete, {len(all_results)} total valid results so far")
+            logger.debug(
+                f"Batch complete, {len(all_results)} total valid results so far"
+            )
 
     finally:
         # Clean up the persistent executor
         if executor:
             try:
-                if hasattr(executor, 'close'):
+                if hasattr(executor, "close"):
                     executor.close()
-                if hasattr(executor, 'join'):
+                if hasattr(executor, "join"):
                     executor.join()
                 logger.debug("Persistent process pool cleaned up successfully")
             except Exception as e:
@@ -1008,30 +1035,42 @@ def select_best(
     # DEBUG: Print all conformer metrics before sorting
     logger.info(f"CONFORMER_METRICS DEBUG: Found {len(all_results)} scored conformers")
     for conf_id, scores, mol in all_results[:5]:  # Show first 5 conformers
-        logger.info(f"CONFORMER_METRICS DEBUG: Conf {conf_id}: shape={scores.get('shape', 'N/A'):.3f}, color={scores.get('color', 'N/A'):.3f}, combo={scores.get('combo', 'N/A'):.3f}")
+        logger.info(
+            f"CONFORMER_METRICS DEBUG: Conf {conf_id}: shape={scores.get('shape', 'N/A'):.3f}, color={scores.get('color', 'N/A'):.3f}, combo={scores.get('combo', 'N/A'):.3f}"
+        )
     if len(all_results) > 5:
-        logger.info(f"CONFORMER_METRICS DEBUG: ... and {len(all_results) - 5} more conformers")
+        logger.info(
+            f"CONFORMER_METRICS DEBUG: ... and {len(all_results) - 5} more conformers"
+        )
 
     # Sort by the specified align_metric (respects user choice)
     all_results.sort(key=lambda x: x[1].get(align_metric, 0.0), reverse=True)
 
     # DEBUG: Print top conformers after sorting by align_metric
-    logger.info(f"BEST_CONFORMER DEBUG: Top 3 conformers after sorting by '{align_metric}':")
+    logger.info(
+        f"BEST_CONFORMER DEBUG: Top 3 conformers after sorting by '{align_metric}':"
+    )
     for conf_id, scores, mol in all_results[:3]:
-        logger.info(f"BEST_CONFORMER DEBUG: Conf {conf_id}: shape={scores.get('shape', 'N/A'):.3f}, color={scores.get('color', 'N/A'):.3f}, combo={scores.get('combo', 'N/A'):.3f}, {align_metric}={scores.get(align_metric, 'N/A'):.3f}")
+        logger.info(
+            f"BEST_CONFORMER DEBUG: Conf {conf_id}: shape={scores.get('shape', 'N/A'):.3f}, color={scores.get('color', 'N/A'):.3f}, combo={scores.get('combo', 'N/A'):.3f}, {align_metric}={scores.get(align_metric, 'N/A'):.3f}"
+        )
 
     if return_all_ranked:
         return all_results
 
     # Select the single best conformer based on align_metric
     best_poses = {}
-    
+
     # Get the best conformer according to align_metric (first result after sorting)
     best_conf_id, best_scores, best_mol = all_results[0]
-    
-    logger.info(f"Selected conformer {best_conf_id} based on {align_metric} metric: score {best_scores[align_metric]:.3f}")
-    logger.info(f"SELECTED_CONFORMER DEBUG: Conf {best_conf_id} scores - shape={best_scores.get('shape', 'N/A'):.3f}, color={best_scores.get('color', 'N/A'):.3f}, combo={best_scores.get('combo', 'N/A'):.3f}")
-    
+
+    logger.info(
+        f"Selected conformer {best_conf_id} based on {align_metric} metric: score {best_scores[align_metric]:.3f}"
+    )
+    logger.info(
+        f"SELECTED_CONFORMER DEBUG: Conf {best_conf_id} scores - shape={best_scores.get('shape', 'N/A'):.3f}, color={best_scores.get('color', 'N/A'):.3f}, combo={best_scores.get('combo', 'N/A'):.3f}"
+    )
+
     # Create clean copy for output with robust error handling
     try:
         # Validate the best_mol before copying
@@ -1056,10 +1095,12 @@ def select_best(
             if metric in best_scores:
                 # Add metadata about which metric was used for selection
                 enhanced_scores = best_scores.copy()
-                enhanced_scores['selection_metric'] = align_metric
-                enhanced_scores['selected_conformer_id'] = best_conf_id
+                enhanced_scores["selection_metric"] = align_metric
+                enhanced_scores["selected_conformer_id"] = best_conf_id
                 best_poses[metric] = (output_mol, enhanced_scores)
-                logger.debug(f"Stored best pose for {metric}: score {best_scores[metric]:.3f} (selected by {align_metric})")
+                logger.debug(
+                    f"Stored best pose for {metric}: score {best_scores[metric]:.3f} (selected by {align_metric})"
+                )
             else:
                 logger.warning(f"Missing {metric} score in best conformer results")
 

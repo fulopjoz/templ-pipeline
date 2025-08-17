@@ -125,10 +125,9 @@ class TestScoring(unittest.TestCase):
         """Test RMSD calculation between molecules."""
         # When sPyRMSD is not available, should return NaN gracefully
         rmsd = rmsd_raw(self.mol1, self.mol2)
-        
+
         # Since sPyRMSD is likely not installed in test environment, expect NaN
         self.assertTrue(np.isnan(rmsd) or isinstance(rmsd, float))
-        
 
     def test_rmsd_raw_error_handling(self):
         """Test error handling in RMSD calculation."""
@@ -152,7 +151,7 @@ class TestScoring(unittest.TestCase):
             (0, {"shape": 0.8, "color": 0.6, "combo": 0.7}, self.mol1),
             (1, {"shape": 0.7, "color": 0.9, "combo": 0.8}, self.mol2),
         ]
-        
+
         # Create a mock executor with context manager support
         mock_executor = MagicMock()
         mock_executor.__enter__ = Mock(return_value=mock_executor)

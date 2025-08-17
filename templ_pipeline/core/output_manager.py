@@ -93,10 +93,10 @@ class EnhancedOutputManager:
     ) -> Path:
         """Save top poses to SDF file with enhanced metadata."""
         # Use only the base name for output file
-        if hasattr(self, 'run_id') and self.run_id:
+        if hasattr(self, "run_id") and self.run_id:
             base_name = self.run_id
-        elif template is not None and template.HasProp('template_pid'):
-            base_name = template.GetProp('template_pid')
+        elif template is not None and template.HasProp("template_pid"):
+            base_name = template.GetProp("template_pid")
         else:
             base_name = "templ_output"
         # If base_name is a path, strip directories and extension
@@ -121,10 +121,10 @@ class EnhancedOutputManager:
         max_poses: Optional[int] = None,
     ) -> Path:
         """Save all ranked poses to SDF file."""
-        if hasattr(self, 'run_id') and self.run_id:
+        if hasattr(self, "run_id") and self.run_id:
             base_name = self.run_id
-        elif template is not None and template.HasProp('template_pid'):
-            base_name = template.GetProp('template_pid')
+        elif template is not None and template.HasProp("template_pid"):
+            base_name = template.GetProp("template_pid")
         else:
             base_name = "templ_output"
         base_name = os.path.splitext(os.path.basename(base_name))[0]
@@ -134,8 +134,13 @@ class EnhancedOutputManager:
             for pose, scores, conf_id in ranked_poses:
                 if pose is not None:
                     enhanced_pose = self._create_enhanced_pose(
-                        pose, "combo", scores, template, mcs_details,
-                        crystal_mol, pose_rank=conf_id
+                        pose,
+                        "combo",
+                        scores,
+                        template,
+                        mcs_details,
+                        crystal_mol,
+                        pose_rank=conf_id,
                     )
                     writer.write(enhanced_pose)
         return output_file
@@ -178,7 +183,7 @@ class EnhancedOutputManager:
             base_name = os.path.splitext(os.path.basename(self.pdb_id))[0]
         output_file = self.get_output_path(f"{base_name}_pipeline_results.json")
 
-        with open(output_file, 'w') as f:
+        with open(output_file, "w") as f:
             json.dump(results_data, f, indent=2, default=str)
 
         log.info(f"Saved pipeline results to: {output_file}")
@@ -216,7 +221,7 @@ class EnhancedOutputManager:
         # Validate pose before processing
         if pose is None:
             raise ValueError("Cannot create enhanced pose from None")
-        if not hasattr(pose, 'GetNumAtoms'):
+        if not hasattr(pose, "GetNumAtoms"):
             raise ValueError(
                 f"Invalid pose type: {type(pose)}, expected RDKit Mol object"
             )
@@ -231,9 +236,7 @@ class EnhancedOutputManager:
 
         # Set all Tanimoto scores
         for score_type, score_value in scores.items():
-            enhanced_pose.SetProp(
-                f"tanimoto_{score_type}_score", f"{score_value:.3f}"
-            )
+            enhanced_pose.SetProp(f"tanimoto_{score_type}_score", f"{score_value:.3f}")
 
         # Add template information
         self._add_template_properties(enhanced_pose, template)
@@ -273,9 +276,14 @@ class EnhancedOutputManager:
 
         # Copy template alignment properties
         template_props = [
-            "embedding_similarity", "ref_chains", "mob_chains", "ca_rmsd",
-            "aligned_residues_count", "total_ref_residues", "total_mob_residues",
-            "aligned_percentage"
+            "embedding_similarity",
+            "ref_chains",
+            "mob_chains",
+            "ca_rmsd",
+            "aligned_residues_count",
+            "total_ref_residues",
+            "total_mob_residues",
+            "aligned_percentage",
         ]
 
         for prop_name in template_props:
@@ -292,20 +300,17 @@ class EnhancedOutputManager:
         pose.SetProp("mcs_atom_count", str(mcs_details.get("atom_count", 0)))
         pose.SetProp("mcs_bond_count", str(mcs_details.get("bond_count", 0)))
         pose.SetProp(
-            "mcs_similarity_score",
-            f"{mcs_details.get('similarity_score', 0.0):.3f}"
+            "mcs_similarity_score", f"{mcs_details.get('similarity_score', 0.0):.3f}"
         )
 
         # Atom mapping (compact format)
         if mcs_details.get("query_atoms"):
             pose.SetProp(
-                "mcs_query_atoms",
-                ",".join(map(str, mcs_details["query_atoms"]))
+                "mcs_query_atoms", ",".join(map(str, mcs_details["query_atoms"]))
             )
         if mcs_details.get("template_atoms"):
             pose.SetProp(
-                "mcs_template_atoms",
-                ",".join(map(str, mcs_details["template_atoms"]))
+                "mcs_template_atoms", ",".join(map(str, mcs_details["template_atoms"]))
             )
 
         # Central atom fallback information
@@ -347,15 +352,11 @@ class EnhancedOutputManager:
             crystal_mol = Molecule.from_rdkit(crystal_clean)
 
             if pose_mol is None or crystal_mol is None:
-                log.debug(
-                    "RMSD skipped: failed to convert molecules to spyrmsd format"
-                )
+                log.debug("RMSD skipped: failed to convert molecules to spyrmsd format")
                 return float("nan")
 
             return rmsdwrapper(
-                pose_mol,
-                crystal_mol,
-                minimize=False, strip=True, symmetry=True
+                pose_mol, crystal_mol, minimize=False, strip=True, symmetry=True
             )[0]
         except Exception as e:
             log.debug(f"RMSD calculation failed: {e}")
@@ -376,9 +377,7 @@ class EnhancedOutputManager:
             return False
 
         if not isinstance(poses, dict):
-            log.warning(
-                f"Poses structure is not a dictionary, got: {type(poses)}"
-            )
+            log.warning(f"Poses structure is not a dictionary, got: {type(poses)}")
             return False
 
         if len(poses) == 0:
@@ -386,7 +385,7 @@ class EnhancedOutputManager:
             return False
 
         # Check if we have expected metric keys
-        expected_metrics = {'shape', 'color', 'combo'}
+        expected_metrics = {"shape", "color", "combo"}
         actual_metrics = set(poses.keys())
 
         if not actual_metrics.intersection(expected_metrics):
@@ -424,7 +423,7 @@ class EnhancedOutputManager:
         pose, scores = pose_data
 
         # Validate molecule
-        if pose is not None and not hasattr(pose, 'GetNumAtoms'):
+        if pose is not None and not hasattr(pose, "GetNumAtoms"):
             log.warning(
                 f"Pose for {metric} is not a valid RDKit molecule object: "
                 f"{type(pose)}"
@@ -433,9 +432,7 @@ class EnhancedOutputManager:
 
         # Validate scores
         if not isinstance(scores, dict):
-            log.warning(
-                f"Scores for {metric} is not a dictionary: {type(scores)}"
-            )
+            log.warning(f"Scores for {metric} is not a dictionary: {type(scores)}")
             return False
 
         if metric not in scores:
@@ -445,4 +442,4 @@ class EnhancedOutputManager:
             )
             return False
 
-        return True 
+        return True

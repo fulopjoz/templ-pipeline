@@ -62,7 +62,7 @@ class SecureFileUploadHandler:
         """
         self.workspace_manager = workspace_manager
         self.use_unified_workspace = workspace_manager is not None
-        
+
         if self.use_unified_workspace:
             # Use workspace manager's uploaded directory
             self.upload_dir = workspace_manager.uploaded_dir
@@ -164,16 +164,18 @@ class SecureFileUploadHandler:
             if self.use_unified_workspace and self.workspace_manager:
                 # Use workspace manager for integrated file management
                 secure_path = self.workspace_manager.save_uploaded_file(
-                    content, 
+                    content,
                     original_filename,
-                    secure_hash=hashlib.sha256(content).hexdigest()[:16]
+                    secure_hash=hashlib.sha256(content).hexdigest()[:16],
                 )
                 logger.info(
                     f"Securely saved file using workspace manager: {secure_path} ({len(content)} bytes)"
                 )
             else:
                 # Fallback to direct file saving
-                secure_filename = self._generate_secure_filename(original_filename, content)
+                secure_filename = self._generate_secure_filename(
+                    original_filename, content
+                )
                 secure_path = self.upload_dir / secure_filename
                 secure_path.write_bytes(content)
 

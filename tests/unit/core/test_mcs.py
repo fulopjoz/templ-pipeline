@@ -60,17 +60,17 @@ class TestMCS(unittest.TestCase):
         # Use standardized test molecules
         try:
             from tests.fixtures.data_factory import TestDataFactory
-            
+
             # Create standard test molecules
-            ethanol_data = TestDataFactory.create_molecule_data('simple_alkane')
-            aromatic_data = TestDataFactory.create_molecule_data('aromatic')
-            self.mol1 = ethanol_data['mol']  # Ethanol
-            self.mol4 = aromatic_data['mol']  # Benzene
-            
+            ethanol_data = TestDataFactory.create_molecule_data("simple_alkane")
+            aromatic_data = TestDataFactory.create_molecule_data("aromatic")
+            self.mol1 = ethanol_data["mol"]  # Ethanol
+            self.mol4 = aromatic_data["mol"]  # Benzene
+
             # Create additional molecules for MCS testing
             self.mol2 = Chem.MolFromSmiles("CCOC")  # Methyl ethyl ether
             self.mol3 = Chem.MolFromSmiles("CCCC")  # Butane
-            
+
         except ImportError:
             # Fallback to original molecule creation
             self.mol1 = Chem.MolFromSmiles("CCO")  # Ethanol
@@ -102,10 +102,10 @@ class TestMCS(unittest.TestCase):
         self.mol2.ClearProp("_Name")
         self.assertEqual(
             safe_name(self.mol2, "Default"),
-            "Default", 
+            "Default",
             "safe_name should return default name when molecule has no name",
         )
-        
+
         # Test with string input
         self.assertEqual(
             safe_name("test_name", "Default"),
@@ -146,7 +146,9 @@ class TestMCS(unittest.TestCase):
         # mol3 (butane) has 2 atoms matched, mol2 (methyl ethyl ether) has 3 atoms matched
         # Template 1 (mol2) is selected because it has the better MCS score (3 > 2)
         self.assertEqual(
-            idx, 1, "Template 1 is selected due to natural MCS scoring (highest score wins)"
+            idx,
+            1,
+            "Template 1 is selected due to natural MCS scoring (highest score wins)",
         )
 
     def test_find_mcs_no_match(self):
@@ -183,19 +185,23 @@ class TestMCS(unittest.TestCase):
 
         # Get initial energy (if available)
         result = simple_minimize_molecule(mol)
-        
+
         # Check that minimization reported success
-        self.assertTrue(result, "Simple minimization should succeed for standard molecule")
+        self.assertTrue(
+            result, "Simple minimization should succeed for standard molecule"
+        )
 
     def test_simple_minimize_molecule_no_conformer(self):
         """Test simple minimization behavior with no conformers."""
         # Create a molecule without conformers
         mol = Chem.MolFromSmiles("CCO")
         mol = Chem.AddHs(mol)
-        
+
         # Should return False for molecules without conformers
         result = simple_minimize_molecule(mol)
-        self.assertFalse(result, "Simple minimization should fail for molecule without conformers")
+        self.assertFalse(
+            result, "Simple minimization should fail for molecule without conformers"
+        )
 
     def test_simple_minimize_molecule_multiple_conformers(self):
         """Test simple minimization with multiple conformers."""
@@ -203,10 +209,13 @@ class TestMCS(unittest.TestCase):
         mol = Chem.MolFromSmiles("CCO")
         mol = Chem.AddHs(mol)
         AllChem.EmbedMultipleConfs(mol, 3)
-        
+
         # Should handle multiple conformers
         result = simple_minimize_molecule(mol)
-        self.assertTrue(result, "Simple minimization should succeed for molecule with multiple conformers")
+        self.assertTrue(
+            result,
+            "Simple minimization should succeed for molecule with multiple conformers",
+        )
 
     def test_constrained_embed_valid_mcs(self):
         """Test constrained embedding with a valid MCS."""
@@ -275,7 +284,9 @@ class TestMCS(unittest.TestCase):
         _, smarts = find_mcs(tgt, [ref])
 
         # Perform constrained embedding with parallel processing - use correct parameter name
-        result = constrained_embed(tgt, ref, smarts, n_conformers=5, n_workers_pipeline=2)
+        result = constrained_embed(
+            tgt, ref, smarts, n_conformers=5, n_workers_pipeline=2
+        )
 
         # Verify result has conformers
         self.assertGreater(
@@ -417,7 +428,7 @@ class TestMCSWithRealData(unittest.TestCase):
 
 class TestMCSErrorHandling(unittest.TestCase):
     """Test error handling and edge cases in MCS functionality."""
-    
+
     def test_find_mcs_invalid_molecules(self):
         """Test MCS finding with invalid molecules."""
         # Test with None molecules
@@ -427,9 +438,9 @@ class TestMCSErrorHandling(unittest.TestCase):
         except (AttributeError, TypeError):
             # Acceptable to raise error for None input
             pass
-        
+
         # Test with empty molecule list
-        mol1 = Chem.MolFromSmiles("CCO") 
+        mol1 = Chem.MolFromSmiles("CCO")
         try:
             result = find_mcs(mol1, [])
             # Should handle empty list gracefully
@@ -437,49 +448,51 @@ class TestMCSErrorHandling(unittest.TestCase):
         except (AttributeError, TypeError, IndexError, ValueError):
             # Acceptable to raise error for empty list (ValueError from max() on empty sequence)
             pass
-        
-        # Test with invalid molecule objects  
+
+        # Test with invalid molecule objects
         try:
             result = find_mcs("invalid", [mol1])
             self.fail("Should raise error for invalid target molecule")
         except (AttributeError, TypeError):
             # Expected to raise error for invalid input
             pass
-    
+
     def test_find_mcs_completely_different_molecules(self):
         """Test MCS finding with completely different molecules."""
         # Very different molecules
         mol1 = Chem.MolFromSmiles("CCCCCCCCCC")  # Alkane
-        mol2 = Chem.MolFromSmiles("c1ccccc1")   # Benzene
-        
+        mol2 = Chem.MolFromSmiles("c1ccccc1")  # Benzene
+
         idx, smarts = find_mcs(mol1, [mol2])
-        
+
         # Should find minimal common structure or return None
         if smarts:
             # Should be very simple pattern like single carbon
             self.assertLessEqual(len(smarts), 10)
-    
+
     def test_find_mcs_single_atom_molecules(self):
         """Test MCS finding with single atom molecules."""
         mol1 = Chem.MolFromSmiles("C")
         mol2 = Chem.MolFromSmiles("C")
-        
+
         idx, smarts = find_mcs(mol1, [mol2])
-        
+
         # Should handle single atom molecules gracefully
         # May return "*" as fallback or "[#6]" as specific pattern
         if smarts:
-            self.assertIn(smarts, ["*", "[#6]"])  # Accept either fallback or specific pattern
-    
+            self.assertIn(
+                smarts, ["*", "[#6]"]
+            )  # Accept either fallback or specific pattern
+
     def test_find_mcs_empty_molecules(self):
         """Test MCS finding with molecules with no atoms."""
         # Create empty molecule
         empty_mol = Chem.Mol()
         normal_mol = Chem.MolFromSmiles("CCO")
-        
+
         try:
             result = find_mcs(empty_mol, [normal_mol])
-            # Function should handle empty molecules gracefully 
+            # Function should handle empty molecules gracefully
             # May return (0, "*") for fallback case
             self.assertIsInstance(result, tuple)
             self.assertEqual(len(result), 2)
@@ -488,13 +501,13 @@ class TestMCSErrorHandling(unittest.TestCase):
         except (AttributeError, TypeError):
             # Acceptable to raise error for empty molecule
             pass
-    
+
     def test_constrained_embed_invalid_molecule(self):
         """Test constrained embedding with invalid molecule."""
         ref_mol = Chem.MolFromSmiles("CC")
         AllChem.EmbedMolecule(ref_mol)  # Give it 3D coords
         smarts = "[#6][#6]"  # Simple carbon-carbon pattern
-        
+
         # Test with None target molecule
         try:
             result = constrained_embed(None, ref_mol, smarts)
@@ -502,7 +515,7 @@ class TestMCSErrorHandling(unittest.TestCase):
         except (AttributeError, TypeError):
             # Acceptable to raise error for None input
             pass
-        
+
         # Test with invalid molecule object
         try:
             result = constrained_embed("invalid", ref_mol, smarts)
@@ -510,13 +523,13 @@ class TestMCSErrorHandling(unittest.TestCase):
         except (AttributeError, TypeError):
             # Expected to raise error for invalid input
             pass
-    
+
     def test_constrained_embed_invalid_pattern(self):
         """Test constrained embedding with invalid SMARTS pattern."""
         tgt_mol = Chem.MolFromSmiles("CCOC")
         ref_mol = Chem.MolFromSmiles("CCO")
         AllChem.EmbedMolecule(ref_mol)  # Give it 3D coords
-        
+
         # Test with invalid SMARTS pattern
         try:
             result = constrained_embed(tgt_mol, ref_mol, "INVALID_SMARTS")
@@ -525,15 +538,15 @@ class TestMCSErrorHandling(unittest.TestCase):
         except (AttributeError, TypeError):
             # Acceptable to raise error for invalid pattern
             pass
-    
+
     def test_constrained_embed_incompatible_pattern(self):
         """Test constrained embedding with incompatible pattern."""
         mol = Chem.MolFromSmiles("CCO")
         incompatible_pattern = Chem.MolFromSmiles("c1ccccc1")  # Benzene vs alkane
-        
+
         # First find MCS to get smarts pattern (should be very small or none)
         _, smarts = find_mcs(mol, [incompatible_pattern])
-        
+
         if smarts and smarts != "*":
             result = constrained_embed(mol, incompatible_pattern, smarts)
             # Should handle incompatible patterns gracefully
@@ -541,47 +554,48 @@ class TestMCSErrorHandling(unittest.TestCase):
         else:
             # No meaningful MCS found - this is expected for incompatible patterns
             self.assertIn(smarts, [None, "*"])  # Should be None or fallback pattern
-    
+
     def test_constrained_embed_zero_conformers(self):
         """Test constrained embedding with zero conformers requested."""
         mol = Chem.MolFromSmiles("CCOC")
         pattern = Chem.MolFromSmiles("CC")
-        
+
         # First find MCS to get smarts pattern
         _, smarts = find_mcs(mol, [pattern])
         self.assertIsNotNone(smarts, "Should find MCS between CCOC and CC")
-        
+
         result = constrained_embed(mol, pattern, smarts, n_conformers=0)
-        
+
         # Should return empty list, None, or single Mol for zero conformers (fallback case)
         self.assertIsInstance(result, (list, type(None), Chem.Mol))
-    
+
     def test_constrained_embed_large_number_conformers(self):
         """Test constrained embedding with very large number of conformers."""
         mol = Chem.MolFromSmiles("CCOC")
         pattern = Chem.MolFromSmiles("CC")
-        
+
         # First find MCS to get smarts pattern
         _, smarts = find_mcs(mol, [pattern])
         self.assertIsNotNone(smarts, "Should find MCS between CCOC and CC")
-        
+
         # Request many conformers (use smaller number for testing)
         result = constrained_embed(mol, pattern, smarts, n_conformers=1000)
-        
+
         # Should handle large requests gracefully (may return fewer than requested or single Mol for fallback)
         self.assertIsInstance(result, (list, type(None), Chem.Mol))
         if isinstance(result, list):
             self.assertLessEqual(len(result), 1000)
-    
+
 
 class TestMCSParametrized(unittest.TestCase):
     """Test MCS functionality with parametrized inputs."""
-    
+
     def test_find_mcs_various_molecule_pairs(self):
         """Test MCS finding with various molecule pairs."""
         # Use standardized MCS test pairs
         try:
             from tests.fixtures.data_factory import TestDataFactory
+
             test_pairs = TestDataFactory.create_mcs_test_pairs()
         except ImportError:
             # Fallback test pairs
@@ -594,18 +608,18 @@ class TestMCSParametrized(unittest.TestCase):
                 ("C1CCCCC1", "c1ccccc1", "Cyclohexane vs benzene"),
                 ("CC(C)C", "CCC", "Branched vs linear"),
             ]
-        
+
         for smiles1, smiles2, description in test_pairs:
             with self.subTest(smiles1=smiles1, smiles2=smiles2, desc=description):
                 mol1 = Chem.MolFromSmiles(smiles1)
                 mol2 = Chem.MolFromSmiles(smiles2)
-                
+
                 idx, smarts = find_mcs(mol1, [mol2])
-                
+
                 # All should return some result (even if no MCS found])
                 self.assertIsInstance(idx, (int, type(None)))
                 self.assertIsInstance(smarts, (str, type(None)))
-    
+
     def test_constrained_embed_various_patterns(self):
         """Test constrained embedding with various pattern types."""
         base_molecule = "CCCCCCCC"  # Octane
@@ -617,22 +631,22 @@ class TestMCSParametrized(unittest.TestCase):
             ("C=C", "Double bond"),
             ("C#C", "Triple bond"),
         ]
-        
+
         mol = Chem.MolFromSmiles(base_molecule)
-        
+
         for pattern_smiles, description in test_patterns:
             with self.subTest(pattern=pattern_smiles, desc=description):
                 pattern = Chem.MolFromSmiles(pattern_smiles)
-                
+
                 # First find MCS to get smarts pattern
                 _, smarts = find_mcs(mol, [pattern])
-                
+
                 if smarts:  # Only test if MCS found
                     result = constrained_embed(mol, pattern, smarts, n_conformers=5)
-                    
+
                     # Should return a list, None, or single Mol (fallback case)
                     self.assertIsInstance(result, (list, type(None), Chem.Mol))
-                    
+
                     # If conformers generated, they should be valid
                     if result:
                         if isinstance(result, list):
@@ -641,40 +655,40 @@ class TestMCSParametrized(unittest.TestCase):
                                 self.assertGreater(conf_mol.GetNumAtoms(), 0)
                         elif isinstance(result, Chem.Mol):
                             self.assertGreater(result.GetNumAtoms(), 0)
-    
+
     def test_constrained_embed_different_conformer_counts(self):
         """Test constrained embedding with different conformer counts."""
         mol = Chem.MolFromSmiles("CCCCCCCC")
         pattern = Chem.MolFromSmiles("CC")
-        
+
         # First find MCS to get smarts pattern
         _, smarts = find_mcs(mol, [pattern])
         self.assertIsNotNone(smarts, "Should find MCS between CCCCCCCC and CC")
-        
+
         conformer_counts = [1, 5, 10, 50, 100]
-        
+
         for num_conf in conformer_counts:
             with self.subTest(n_conformers=num_conf):
                 result = constrained_embed(mol, pattern, smarts, n_conformers=num_conf)
-                
+
                 self.assertIsInstance(result, (list, type(None), Chem.Mol))
                 # May return fewer conformers than requested (if list) or single Mol (fallback)
                 if isinstance(result, list):
                     self.assertLessEqual(len(result), num_conf)
-    
+
     def test_mcs_similarity_thresholds(self):
         """Test MCS behavior with different similarity thresholds."""
         mol1 = Chem.MolFromSmiles("CCCCCCCC")
         mol2 = Chem.MolFromSmiles("CCCCC")
-        
+
         # Test different approaches to MCS finding
         idx, smarts = find_mcs(mol1, [mol2])
-        
+
         if smarts:
             # Pattern should be reasonable
             pattern_mol = Chem.MolFromSmarts(smarts)
             self.assertIsNotNone(pattern_mol)
-            
+
             # Pattern should be simpler than either input molecule
             self.assertLessEqual(pattern_mol.GetNumAtoms(), mol1.GetNumAtoms())
             self.assertLessEqual(pattern_mol.GetNumAtoms(), mol2.GetNumAtoms())
@@ -682,35 +696,35 @@ class TestMCSParametrized(unittest.TestCase):
 
 class TestMCSBoundaryConditions(unittest.TestCase):
     """Test boundary conditions and edge cases in MCS functionality."""
-    
+
     def test_find_mcs_identical_molecules(self):
         """Test MCS finding with identical molecules."""
         mol = Chem.MolFromSmiles("CCCCCCCC")
-        
+
         idx, smarts = find_mcs(mol, [mol])
-        
+
         # Should find the entire molecule as MCS
         if smarts:
             pattern_mol = Chem.MolFromSmarts(smarts)
             # Pattern should match the original molecule size
             self.assertEqual(pattern_mol.GetNumAtoms(), mol.GetNumAtoms())
-    
+
     def test_find_mcs_very_large_molecules(self):
         """Test MCS finding with very large molecules."""
         # Generate large molecules
         large_smiles1 = "C" + "C" * 100  # 101 carbons
-        large_smiles2 = "C" + "C" * 95   # 96 carbons
-        
+        large_smiles2 = "C" + "C" * 95  # 96 carbons
+
         mol1 = Chem.MolFromSmiles(large_smiles1)
         mol2 = Chem.MolFromSmiles(large_smiles2)
-        
+
         if mol1 and mol2:
             idx, smarts = find_mcs(mol1, [mol2])
-            
+
             # Should handle large molecules without crashing
             self.assertIsInstance(idx, (int, type(None)))
             self.assertIsInstance(smarts, (str, type(None)))
-    
+
     def test_constrained_embed_complex_molecule(self):
         """Test constrained embedding with complex molecule structures."""
         complex_molecules = [
@@ -718,94 +732,96 @@ class TestMCSBoundaryConditions(unittest.TestCase):
             "C1CCC(CC1)N2CCN(CC2)C3=CC=CC=C3",  # Complex cyclic
             "CC1=CC=CC=C1C2=CC=CC=C2C(=O)NCCN(C)C",  # Multi-ring
         ]
-        
+
         simple_pattern = Chem.MolFromSmiles("CC")
-        
+
         for smiles in complex_molecules:
             with self.subTest(molecule=smiles):
                 mol = Chem.MolFromSmiles(smiles)
-                
+
                 if mol:
                     # First find MCS to get smarts pattern
                     _, smarts = find_mcs(mol, [simple_pattern])
-                    
+
                     if smarts:  # Only test if MCS found
-                        result = constrained_embed(mol, simple_pattern, smarts, n_conformers=3)
-                        
+                        result = constrained_embed(
+                            mol, simple_pattern, smarts, n_conformers=3
+                        )
+
                         # Should handle complex molecules gracefully
                         self.assertIsInstance(result, (list, type(None), Chem.Mol))
-    
+
     def test_constrained_embed_with_stereochemistry(self):
         """Test constrained embedding with stereochemical molecules."""
         # Molecules with stereocenters
         stereo_molecules = [
-            "C[C@H](O)C",     # Chiral center
-            "C[C@@H](O)C",    # Opposite chirality
-            "C/C=C/C",        # E alkene
-            "C/C=C\\C",       # Z alkene
+            "C[C@H](O)C",  # Chiral center
+            "C[C@@H](O)C",  # Opposite chirality
+            "C/C=C/C",  # E alkene
+            "C/C=C\\C",  # Z alkene
         ]
-        
+
         pattern = Chem.MolFromSmiles("CC")
-        
+
         for smiles in stereo_molecules:
             with self.subTest(molecule=smiles):
                 mol = Chem.MolFromSmiles(smiles)
-                
+
                 if mol:
                     # First find MCS to get smarts pattern
                     _, smarts = find_mcs(mol, [pattern])
-                    
+
                     if smarts:  # Only test if MCS found
                         result = constrained_embed(mol, pattern, smarts, n_conformers=3)
-                        
+
                         # Should handle stereochemistry appropriately
                         self.assertIsInstance(result, (list, type(None), Chem.Mol))
-    
+
     def test_memory_intensive_operations(self):
         """Test MCS operations that might be memory intensive."""
         # Create moderately complex molecules for memory testing
         mol1 = Chem.MolFromSmiles("CCCCCCCCCCCCCCCCCCCC")  # 20 carbons
-        mol2 = Chem.MolFromSmiles("CCCCCCCCCCCCCCCCC")     # 17 carbons
-        
+        mol2 = Chem.MolFromSmiles("CCCCCCCCCCCCCCCCC")  # 17 carbons
+
         if mol1 and mol2:
             # Test multiple MCS operations
             for i in range(10):
                 with self.subTest(iteration=i):
                     idx, smarts = find_mcs(mol1, [mol2])
-                    
+
                     # Should complete without memory issues
                     self.assertIsInstance(idx, (int, type(None)))
                     self.assertIsInstance(smarts, (str, type(None)))
-    
+
     def test_concurrent_mcs_operations(self):
         """Test MCS operations that might run concurrently."""
         import threading
         import time
-        
+
         results = []
         errors = []
-        
+
         def mcs_worker():
             try:
                 mol1 = Chem.MolFromSmiles("CCCCCCCC")
                 mol2 = Chem.MolFromSmiles("CCCCC")
-                
+
                 idx, smarts = find_mcs(mol1, [mol2])
                 results.append((idx, smarts))
             except Exception as e:
                 errors.append(e)
-        
+
         # Run multiple MCS operations concurrently
         threads = []
         for i in range(5):
             thread = threading.Thread(target=mcs_worker)
             threads.append(thread)
             thread.start()
-        
+
         # Wait for all threads to complete
         for thread in threads:
             thread.join(timeout=30)  # 30 second timeout
-        
+
         # Check that operations completed successfully
         self.assertEqual(len(errors), 0, f"Concurrent MCS operations failed: {errors}")
         self.assertEqual(len(results), 5, "Not all concurrent operations completed")

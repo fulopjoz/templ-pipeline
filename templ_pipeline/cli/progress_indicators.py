@@ -38,14 +38,14 @@ def simple_progress_wrapper(description: str, func: Callable, *args, **kwargs):
     """Simple progress wrapper that shows a basic spinner or progress message."""
     ux_config = get_ux_config()
     verbosity = ux_config.get_verbosity_level()
-    
+
     # Only show progress for normal verbosity or higher
     if verbosity == VerbosityLevel.MINIMAL:
         return func(*args, **kwargs)
-    
+
     print(f"Starting: {description}")
     start_time = time.time()
-    
+
     try:
         result = func(*args, **kwargs)
         elapsed = time.time() - start_time

@@ -15,6 +15,4 @@ try:
 except ImportError:
     create_benchmark_test_data = None
 
-__all__ = [
-    'TestDataFactory'
-]
+__all__ = ["TestDataFactory"]

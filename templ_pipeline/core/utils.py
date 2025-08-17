@@ -48,57 +48,61 @@ _SEED_SET = False
 
 def set_global_random_seed(seed: int = 42) -> None:
     """Set global random seed for reproducible results across all libraries.
-    
+
     This function sets random seeds for:
     - Python's built-in random module
     - NumPy's random number generator
     - RDKit's conformer generation (where supported)
     - Other scientific libraries as needed
-    
+
     Args:
         seed: Random seed value (default: 42)
     """
     global _GLOBAL_RANDOM_SEED, _SEED_SET
-    
+
     # Store the seed globally
     _GLOBAL_RANDOM_SEED = seed
     _SEED_SET = True
-    
+
     # Set Python's built-in random seed
     random.seed(seed)
-    
+
     # Set NumPy random seed
     np.random.seed(seed)
-    
+
     # Set RDKit random seed if available
     try:
         from rdkit import Chem
         from rdkit.Chem import AllChem
         import rdkit.rdBase
-        
+
         # RDKit uses this for conformer generation randomization
         # Updated for newer RDKit versions (2025.03.3+)
         rdkit.rdBase.SeedRandomNumberGenerator(seed)
-        
+
         logger.info(f"Global random seed set to {seed} (Python, NumPy, RDKit)")
     except ImportError:
-        logger.info(f"Global random seed set to {seed} (Python, NumPy only - RDKit not available)")
+        logger.info(
+            f"Global random seed set to {seed} (Python, NumPy only - RDKit not available)"
+        )
     except AttributeError:
         # Fallback for older RDKit versions
         try:
             Chem.SetRandomSeed(seed)
-            logger.info(f"Global random seed set to {seed} (Python, NumPy, RDKit legacy)")
+            logger.info(
+                f"Global random seed set to {seed} (Python, NumPy, RDKit legacy)"
+            )
         except AttributeError:
             logger.warning(f"Could not set RDKit random seed - function not available")
             logger.info(f"Global random seed set to {seed} (Python, NumPy only)")
-    
+
     # Set environment variable for child processes
-    os.environ['TEMPL_RANDOM_SEED'] = str(seed)
+    os.environ["TEMPL_RANDOM_SEED"] = str(seed)
 
 
 def get_global_random_seed() -> Optional[int]:
     """Get the current global random seed.
-    
+
     Returns:
         Current random seed or None if not set
     """
@@ -108,7 +112,7 @@ def get_global_random_seed() -> Optional[int]:
 
 def is_seed_set() -> bool:
     """Check if global random seed has been set.
-    
+
     Returns:
         True if seed has been set, False otherwise
     """
@@ -118,40 +122,40 @@ def is_seed_set() -> bool:
 
 def get_deterministic_seed(base_seed: Optional[int] = None, *components) -> int:
     """Generate a deterministic seed based on components for reproducible sub-processes.
-    
+
     This function creates deterministic seeds for parallel workers and sub-processes
     while maintaining reproducibility across runs.
-    
+
     Args:
         base_seed: Base seed to use (uses global seed if None)
         *components: Additional components to mix into the seed (strings, numbers, etc.)
-        
+
     Returns:
         Deterministic seed value
     """
     if base_seed is None:
         base_seed = get_global_random_seed() or 42
-    
+
     # Create a deterministic hash from components
     import hashlib
-    
+
     seed_string = f"{base_seed}"
     for component in components:
         seed_string += f"_{component}"
-    
+
     # Use SHA-256 hash to create deterministic seed
     hash_object = hashlib.sha256(seed_string.encode())
     hash_hex = hash_object.hexdigest()
-    
+
     # Convert first 8 characters to integer (sufficient for random seeds)
     deterministic_seed = int(hash_hex[:8], 16) % (2**31 - 1)  # Keep within int32 range
-    
+
     return deterministic_seed
 
 
 def ensure_reproducible_environment() -> None:
     """Ensure reproducible environment by checking and setting seeds if needed.
-    
+
     This function:
     1. Checks if seed is already set globally
     2. Checks environment variable for seed
@@ -159,14 +163,16 @@ def ensure_reproducible_environment() -> None:
     4. Validates that RDKit operations will be deterministic
     """
     global _GLOBAL_RANDOM_SEED, _SEED_SET
-    
+
     # Check if seed already set
     if _SEED_SET and _GLOBAL_RANDOM_SEED is not None:
-        logger.debug(f"Reproducible environment already configured with seed {_GLOBAL_RANDOM_SEED}")
+        logger.debug(
+            f"Reproducible environment already configured with seed {_GLOBAL_RANDOM_SEED}"
+        )
         return
-    
+
     # Check environment variable
-    env_seed = os.environ.get('TEMPL_RANDOM_SEED')
+    env_seed = os.environ.get("TEMPL_RANDOM_SEED")
     if env_seed:
         try:
             seed_value = int(env_seed)
@@ -174,8 +180,10 @@ def ensure_reproducible_environment() -> None:
             logger.info(f"Using random seed from environment: {seed_value}")
             return
         except ValueError:
-            logger.warning(f"Invalid TEMPL_RANDOM_SEED environment variable: {env_seed}")
-    
+            logger.warning(
+                f"Invalid TEMPL_RANDOM_SEED environment variable: {env_seed}"
+            )
+
     # Set default seed
     default_seed = 42
     set_global_random_seed(default_seed)
@@ -184,105 +192,113 @@ def ensure_reproducible_environment() -> None:
 
 # ZENODO-compatible file paths and version management
 DEFAULT_DATA_FILES = {
-    'protein_embeddings': 'templ_protein_embeddings_v1.0.0.npz',
-    'processed_ligands': 'templ_processed_ligands_v1.0.0.sdf.gz'
+    "protein_embeddings": "templ_protein_embeddings_v1.0.0.npz",
+    "processed_ligands": "templ_processed_ligands_v1.0.0.sdf.gz",
 }
 
 # Legacy file names for backward compatibility - DEPRECATED
-LEGACY_DATA_FILES = {
-    'processed_ligands': 'processed_ligands_new.sdf.gz'
-}
+LEGACY_DATA_FILES = {"processed_ligands": "processed_ligands_new.sdf.gz"}
 
 
 def get_data_file_path(file_type: str, base_dir: str = None) -> Optional[str]:
     """Get the path to a data file using ZENODO standardized paths.
-    
+
     Args:
         file_type: Type of file ('protein_embeddings', 'processed_ligands')
         base_dir: Base directory to search in (default: current directory)
-        
+
     Returns:
         Path to the data file, or None if not found
     """
     if base_dir is None:
         base_dir = "."
-    
+
     base_path = Path(base_dir)
-    
+
     # Use ZENODO standardized paths only
     if file_type in DEFAULT_DATA_FILES:
-        if file_type == 'protein_embeddings':
-            standard_path = base_path / "data" / "embeddings" / DEFAULT_DATA_FILES[file_type]
-        elif file_type == 'processed_ligands':
-            standard_path = base_path / "data" / "ligands" / DEFAULT_DATA_FILES[file_type]
+        if file_type == "protein_embeddings":
+            standard_path = (
+                base_path / "data" / "embeddings" / DEFAULT_DATA_FILES[file_type]
+            )
+        elif file_type == "processed_ligands":
+            standard_path = (
+                base_path / "data" / "ligands" / DEFAULT_DATA_FILES[file_type]
+            )
         else:
             standard_path = base_path / "data" / DEFAULT_DATA_FILES[file_type]
-            
+
         if standard_path.exists():
             return str(standard_path)
-    
+
     logger.warning(f"Data file not found for type '{file_type}' in {base_dir}")
     return None
 
 
 def get_default_embedding_path(base_dir: str = None) -> Optional[str]:
     """Get the default protein embedding file path."""
-    return get_data_file_path('protein_embeddings', base_dir)
+    return get_data_file_path("protein_embeddings", base_dir)
 
 
 def get_default_ligand_path(base_dir: str = None) -> Optional[str]:
     """Get the default processed ligands file path."""
-    return get_data_file_path('processed_ligands', base_dir)
-
-
+    return get_data_file_path("processed_ligands", base_dir)
 
 
 def validate_reproducibility() -> Dict[str, Any]:
     """Validate that the environment is properly configured for reproducible results.
-    
+
     Returns:
         Dictionary with reproducibility status and recommendations
     """
     status = {
-        'seed_set': is_seed_set(),
-        'global_seed': get_global_random_seed(),
-        'python_random_state': random.getstate()[1][0],  # First element of random state
-        'numpy_random_state': np.random.get_state()[1][0],  # First element of numpy state
-        'rdkit_available': False,
-        'rdkit_deterministic': False,
-        'recommendations': []
+        "seed_set": is_seed_set(),
+        "global_seed": get_global_random_seed(),
+        "python_random_state": random.getstate()[1][0],  # First element of random state
+        "numpy_random_state": np.random.get_state()[1][
+            0
+        ],  # First element of numpy state
+        "rdkit_available": False,
+        "rdkit_deterministic": False,
+        "recommendations": [],
     }
-    
+
     # Check RDKit determinism
     try:
         from rdkit import Chem
         from rdkit.Chem import AllChem
-        
-        status['rdkit_available'] = True
-        
+
+        status["rdkit_available"] = True
+
         # Test RDKit determinism by generating conformers with same seed
-        mol = Chem.MolFromSmiles('CCO')
+        mol = Chem.MolFromSmiles("CCO")
         AllChem.EmbedMolecule(mol, randomSeed=42)
         pos1 = mol.GetConformer().GetPositions()
-        
+
         AllChem.EmbedMolecule(mol, randomSeed=42)
         pos2 = mol.GetConformer().GetPositions()
-        
+
         # Check if positions are identical (within floating point precision)
         if np.allclose(pos1, pos2, atol=1e-10):
-            status['rdkit_deterministic'] = True
+            status["rdkit_deterministic"] = True
         else:
-            status['recommendations'].append('RDKit conformer generation may not be fully deterministic')
-            
+            status["recommendations"].append(
+                "RDKit conformer generation may not be fully deterministic"
+            )
+
     except ImportError:
-        status['recommendations'].append('RDKit not available - some operations may not be reproducible')
+        status["recommendations"].append(
+            "RDKit not available - some operations may not be reproducible"
+        )
     except Exception as e:
-        status['recommendations'].append(f'Error testing RDKit determinism: {e}')
-    
+        status["recommendations"].append(f"Error testing RDKit determinism: {e}")
+
     # Check if seed is set
-    if not status['seed_set']:
-        status['recommendations'].append('Call set_global_random_seed() for reproducible results')
-    
+    if not status["seed_set"]:
+        status["recommendations"].append(
+            "Call set_global_random_seed() for reproducible results"
+        )
+
     return status
 
 
@@ -317,60 +333,64 @@ def clear_global_molecule_cache():
     _GLOBAL_MOLECULE_CACHE = None
 
 
-def create_shared_molecule_cache(molecules: List[Any], cache_dir: Optional[Path] = None) -> str:
+def create_shared_molecule_cache(
+    molecules: List[Any], cache_dir: Optional[Path] = None
+) -> str:
     """Create a shared molecule cache file for multiprocessing.
-    
+
     Args:
         molecules: List of RDKit molecules to cache
         cache_dir: Directory to store cache file (default: temp directory)
-    
+
     Returns:
         Path to the cache file
     """
     import tempfile
     import pickle
     import os
-    
+
     if cache_dir is None:
         cache_dir = Path(tempfile.gettempdir())
-    
+
     cache_dir.mkdir(exist_ok=True, parents=True)
-    
+
     # Create unique cache file
     cache_file = cache_dir / f"templ_molecule_cache_{os.getpid()}_{len(molecules)}.pkl"
-    
+
     # Serialize molecules to file
-    with open(cache_file, 'wb') as f:
+    with open(cache_file, "wb") as f:
         pickle.dump(molecules, f, protocol=pickle.HIGHEST_PROTOCOL)
-    
+
     global _SHARED_CACHE_FILE
     _SHARED_CACHE_FILE = str(cache_file)
-    
+
     logger.info(f"Created shared molecule cache: {cache_file}")
     return str(cache_file)
 
 
 def load_shared_molecule_cache(cache_file: str) -> Optional[List[Any]]:
     """Load molecules from shared cache file.
-    
+
     Args:
         cache_file: Path to cache file
-        
+
     Returns:
         List of molecules or None if failed
     """
     import pickle
-    
+
     try:
         if not os.path.exists(cache_file):
             return None
-            
-        with open(cache_file, 'rb') as f:
+
+        with open(cache_file, "rb") as f:
             molecules = pickle.load(f)
-        
-        logger.info(f"Loaded {len(molecules)} molecules from shared cache: {cache_file}")
+
+        logger.info(
+            f"Loaded {len(molecules)} molecules from shared cache: {cache_file}"
+        )
         return molecules
-        
+
     except Exception as e:
         logger.warning(f"Failed to load shared cache {cache_file}: {e}")
         return None
@@ -392,14 +412,14 @@ def cleanup_shared_cache():
 def create_shared_embedding_cache(embedding_path: str, cache_name: str = None) -> str:
     """
     Create a shared embedding cache for multiprocessing.
-    
+
     This function loads the embedding database once and makes it available
     to all subprocesses via shared memory to prevent memory explosion.
-    
+
     Args:
         embedding_path: Path to the embedding NPZ file
         cache_name: Optional name for the shared cache (auto-generated if None)
-        
+
     Returns:
         Name of the shared cache that can be passed to subprocesses
     """
@@ -407,29 +427,29 @@ def create_shared_embedding_cache(embedding_path: str, cache_name: str = None) -
     import json
     import time
     from pathlib import Path
-    
+
     if cache_name is None:
         cache_name = f"templ_embeddings_{os.getpid()}_{int(time.time())}"
-    
+
     try:
         # Load embeddings from NPZ file
         data = np.load(embedding_path, allow_pickle=True)
         pdb_ids = data["pdb_ids"]
         embeddings = data["embeddings"]
         chain_ids = data.get("chain_ids", None)
-        
+
         # Create shared memory buffer
         from multiprocessing import shared_memory
-        
+
         # Serialize embedding data in a memory-efficient way
         import pickle
-        
+
         # Process embeddings in chunks to avoid keeping everything in memory
         embedding_db = {}
         embedding_chain_data = {}
-        
+
         logger.info(f"Processing {len(pdb_ids)} embeddings for shared cache...")
-        
+
         for i, pid in enumerate(pdb_ids):
             pid_upper = str(pid).upper()
             embedding_db[pid_upper] = embeddings[i]
@@ -437,43 +457,48 @@ def create_shared_embedding_cache(embedding_path: str, cache_name: str = None) -
                 embedding_chain_data[pid_upper] = chain_ids[i]
             else:
                 embedding_chain_data[pid_upper] = ""
-            
+
             # Log progress every 1000 embeddings
             if (i + 1) % 1000 == 0:
                 logger.debug(f"Processed {i + 1}/{len(pdb_ids)} embeddings")
-        
+
         # Create cache data
         cache_data = {
-            'embedding_db': embedding_db,
-            'embedding_chain_data': embedding_chain_data,
-            'total_embeddings': len(embedding_db),
-            'loaded_at': time.time()
+            "embedding_db": embedding_db,
+            "embedding_chain_data": embedding_chain_data,
+            "total_embeddings": len(embedding_db),
+            "loaded_at": time.time(),
         }
-        
+
         # Serialize the data
         serialized_data = pickle.dumps(cache_data)
-        
+
         # Create shared memory buffer
-        shm = shared_memory.SharedMemory(create=True, size=len(serialized_data), name=cache_name)
-        shm.buf[:len(serialized_data)] = serialized_data
-        
+        shm = shared_memory.SharedMemory(
+            create=True, size=len(serialized_data), name=cache_name
+        )
+        shm.buf[: len(serialized_data)] = serialized_data
+
         # Close the shared memory to free the handle (data remains in shared memory)
         shm.close()
-        
+
         # Clear the large dictionaries from memory immediately after creating shared cache
         del embedding_db
         del embedding_chain_data
         del cache_data
         del serialized_data
-        
+
         # Force garbage collection to free memory
         import gc
+
         gc.collect()
-        
-        logger.info(f"Created shared embedding cache '{cache_name}' with {len(pdb_ids)} embeddings")
-        
+
+        logger.info(
+            f"Created shared embedding cache '{cache_name}' with {len(pdb_ids)} embeddings"
+        )
+
         return cache_name
-        
+
     except Exception as e:
         logger.error(f"Failed to create shared embedding cache: {e}")
         raise
@@ -482,30 +507,32 @@ def create_shared_embedding_cache(embedding_path: str, cache_name: str = None) -
 def load_shared_embedding_cache(cache_name: str) -> Optional[Dict]:
     """
     Load embeddings from shared cache.
-    
+
     Args:
         cache_name: Name of the shared cache
-        
+
     Returns:
         Dictionary with embedding data or None if failed
     """
     try:
         from multiprocessing import shared_memory
         import pickle
-        
+
         # Attach to shared memory
         shm = shared_memory.SharedMemory(name=cache_name)
-        
+
         # Load serialized data
         serialized_data = bytes(shm.buf)
         cache_data = pickle.loads(serialized_data)
-        
+
         # Close shared memory
         shm.close()
-        
-        logger.info(f"Loaded {cache_data['total_embeddings']} embeddings from shared cache '{cache_name}'")
+
+        logger.info(
+            f"Loaded {cache_data['total_embeddings']} embeddings from shared cache '{cache_name}'"
+        )
         return cache_data
-        
+
     except Exception as e:
         logger.warning(f"Failed to load shared embedding cache '{cache_name}': {e}")
         return None
@@ -514,13 +541,13 @@ def load_shared_embedding_cache(cache_name: str) -> Optional[Dict]:
 def cleanup_shared_embedding_cache(cache_name: str):
     """
     Clean up shared embedding cache.
-    
+
     Args:
         cache_name: Name of the shared cache to clean up
     """
     try:
         from multiprocessing import shared_memory
-        
+
         # Try to close and unlink the shared memory
         try:
             shm = shared_memory.SharedMemory(name=cache_name)
@@ -531,23 +558,25 @@ def cleanup_shared_embedding_cache(cache_name: str):
             # Shared memory already cleaned up
             logger.debug(f"Shared memory {cache_name} already cleaned up")
         except Exception as e:
-            logger.warning(f"Failed to cleanup shared embedding cache {cache_name}: {e}")
-            
+            logger.warning(
+                f"Failed to cleanup shared embedding cache {cache_name}: {e}"
+            )
+
         # Additional cleanup for any remaining shared memory objects
         try:
             import multiprocessing.resource_tracker as rt
-            
+
             # Force cleanup of any remaining shared memory objects
-            if hasattr(rt, '_CLEANUP_CALLBACKS'):
+            if hasattr(rt, "_CLEANUP_CALLBACKS"):
                 for callback in rt._CLEANUP_CALLBACKS:
                     try:
                         callback()
                     except Exception:
                         pass
-                        
+
         except Exception as e:
             logger.debug(f"Additional shared memory cleanup failed: {e}")
-            
+
     except Exception as e:
         logger.warning(f"Failed to cleanup shared embedding cache {cache_name}: {e}")
 
@@ -556,15 +585,15 @@ def cleanup_shared_memory():
     """Clean up any remaining shared memory objects."""
     try:
         import multiprocessing.resource_tracker as rt
-        
+
         # Force cleanup of any remaining shared memory objects
-        if hasattr(rt, '_CLEANUP_CALLBACKS'):
+        if hasattr(rt, "_CLEANUP_CALLBACKS"):
             for callback in rt._CLEANUP_CALLBACKS:
                 try:
                     callback()
                 except Exception:
                     pass
-                    
+
     except Exception as e:
         logger.debug(f"Additional shared memory cleanup failed: {e}")
 
@@ -1024,7 +1053,9 @@ def find_ligand_by_pdb_id(
     return None, None
 
 
-def calculate_rmsd(pose_mol: Any, crystal_mol: Any, skip_alignment: bool = False) -> float:
+def calculate_rmsd(
+    pose_mol: Any, crystal_mol: Any, skip_alignment: bool = False
+) -> float:
     """Calculate RMSD with optional alignment step.
 
     Steps:
@@ -1032,10 +1063,10 @@ def calculate_rmsd(pose_mol: Any, crystal_mol: Any, skip_alignment: bool = False
     2. If `skip_alignment` is False and `rdShapeAlign` is available, the pose is aligned onto the crystal (combo alignment).
     3. RMSD is computed with ``spyrmsd`` (no further minimisation / symmetry correction handled internally).
     4. If any stage fails we fall back to a direct sPyRMSD calculation without alignment.
-    
+
     Args:
         pose_mol: Predicted pose molecule
-        crystal_mol: Crystal structure molecule  
+        crystal_mol: Crystal structure molecule
         skip_alignment: If True, skip alignment step for pose prediction benchmarking
     """
 
@@ -1193,7 +1224,9 @@ def get_shared_molecule_cache() -> Optional[Dict]:
 
 
 def load_molecules_with_shared_cache(
-    data_dir: Path, cache_key: str = "molecules", shared_cache_file: Optional[str] = None
+    data_dir: Path,
+    cache_key: str = "molecules",
+    shared_cache_file: Optional[str] = None,
 ) -> List[Any]:
     """Load molecules using shared cache if available, fallback to local cache."""
 

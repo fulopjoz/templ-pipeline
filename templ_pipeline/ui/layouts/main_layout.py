@@ -140,45 +140,52 @@ class MainLayout:
         """Render About TEMPL section"""
         with st.expander("About TEMPL", expanded=False):
             # Main description
-            st.markdown("""
+            st.markdown(
+                """
             **TEMPL** is a template-based method for rapid protein-ligand pose prediction that leverages 
             ligand similarity and template superposition for pose generation within known chemical space.
-            """)
-            
+            """
+            )
+
             st.markdown("---")
-            
+
             # Two-column layout for main content
             col1, col2 = st.columns(2)
-            
+
             with col1:
                 st.markdown("**Key Features**")
-                st.markdown("""
+                st.markdown(
+                    """
                 * **MCS-driven alignment** - Uses maximal common substructure matching
                 * **Constrained embedding** - ETKDG v3 conformer generation  
                 * **Shape scoring** - Pharmacophore-based pose selection
                 * **Built-in benchmarks** - Polaris and time-split PDBbind
                 * **CPU & GPU support** - Works on both CPU and GPU hardware
-                """)
-                
-            
+                """
+                )
+
             with col2:
                 st.markdown("**How It Works**")
-                st.markdown("""
+                st.markdown(
+                    """
                 1. **Template Matching** - Find similar protein-ligand complexes
                 2. **MCS Detection** - Identify common substructures with reference ligands
                 3. **Conformer Generation** - Create poses using constrained embedding
                 4. **Pose Ranking** - Score using shape and pharmacophore alignment
                 5. **Limitations**: Novel scaffolds, allosteric sites, insufficient templates
-                """)
+                """
+                )
 
     def _cleanup_application(self):
         """Perform comprehensive application cleanup with user feedback"""
         cleanup_results = []
-        
+
         try:
             # Clear Streamlit caches
             cache_result = self.cache_manager.clear_all_caches()
-            cleanup_results.append(f"Cleared Streamlit caches ({cache_result['clear_time']:.2f}s)")
+            cleanup_results.append(
+                f"Cleared Streamlit caches ({cache_result['clear_time']:.2f}s)"
+            )
         except Exception as e:
             cleanup_results.append(f"Cache clearing failed: {str(e)}")
             logger.error(f"Cache clearing failed: {e}")
@@ -186,8 +193,10 @@ class MainLayout:
         try:
             # Memory optimization
             memory_result = self.session.memory_manager.optimize_memory()
-            if memory_result.get('memory_saved_mb', 0) > 0:
-                cleanup_results.append(f"Freed {memory_result['memory_saved_mb']:.1f}MB memory")
+            if memory_result.get("memory_saved_mb", 0) > 0:
+                cleanup_results.append(
+                    f"Freed {memory_result['memory_saved_mb']:.1f}MB memory"
+                )
             else:
                 cleanup_results.append("Memory already optimized")
         except Exception as e:
@@ -205,6 +214,7 @@ class MainLayout:
         try:
             # Force garbage collection
             import gc
+
             collected = gc.collect()
             if collected > 0:
                 cleanup_results.append(f"Garbage collected {collected} objects")
@@ -219,7 +229,7 @@ class MainLayout:
             st.success("Application Cleanup Complete!")
             for result in cleanup_results:
                 st.write(result)
-            
+
             # Show memory stats after cleanup
             memory_stats = self.session.memory_manager.get_memory_stats()
             st.info(f"Current memory usage: {memory_stats['cache_size_mb']:.1f}MB")
@@ -233,7 +243,7 @@ class MainLayout:
         # Check if we have results to show
         has_results = self.session.has_results()
         logger.info(f"Main content rendering - has_results: {has_results}")
-        
+
         if has_results:
             # Handle automatic tab switching after prediction completion
             active_tab_index = (
@@ -246,15 +256,18 @@ class MainLayout:
                 )
 
             # Custom CSS to make tab text larger
-            st.markdown("""
+            st.markdown(
+                """
             <style>
             .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
                 font-size: 1.2rem;
                 font-weight: 600;
             }
             </style>
-            """, unsafe_allow_html=True)
-            
+            """,
+                unsafe_allow_html=True,
+            )
+
             # Use native Streamlit tabs - eliminates button visibility issues
             tab1, tab2 = st.tabs(["New Prediction", "Results"])
 
@@ -417,49 +430,54 @@ class MainLayout:
 
         with st.expander("Advanced Settings", expanded=False):
             st.markdown("##### Pipeline Configuration")
-            
+
             # GPU/Device selection
             device_pref = st.selectbox(
-                "Device Preference", 
-                ["auto", "gpu", "cpu"], 
+                "Device Preference",
+                ["auto", "gpu", "cpu"],
                 index=0,
-                help="Choose compute device. Auto will use GPU if available."
+                help="Choose compute device. Auto will use GPU if available.",
             )
-            
+
             # KNN threshold
             knn_threshold = st.slider(
-                "Template Selection (k-NN)", 
-                10, 500, 100,
-                help="Number of similar templates to consider"
+                "Template Selection (k-NN)",
+                10,
+                500,
+                100,
+                help="Number of similar templates to consider",
             )
-            
+
             # Similarity threshold
             similarity_threshold = st.slider(
-                "Similarity Threshold", 
-                0.0, 1.0, 0.9, 0.05,
-                help="Minimum similarity score for template selection"
+                "Similarity Threshold",
+                0.0,
+                1.0,
+                0.9,
+                0.05,
+                help="Minimum similarity score for template selection",
             )
-            
+
             # Chain selection
             chain_selection = st.text_input(
                 "Chain Selection",
                 value="auto",
-                help="Specify protein chain(s) to use (e.g., 'A', 'B', 'AB') or 'auto' for automatic selection"
+                help="Specify protein chain(s) to use (e.g., 'A', 'B', 'AB') or 'auto' for automatic selection",
             )
-            
 
-            
             # Removed Debug Mode and FAIR metadata toggles for a cleaner UI
 
             # Store settings in session
             self.session.set(SESSION_KEYS["USER_DEVICE_PREFERENCE"], device_pref)
             self.session.set(SESSION_KEYS["USER_KNN_THRESHOLD"], knn_threshold)
-            self.session.set(SESSION_KEYS["USER_SIMILARITY_THRESHOLD"], similarity_threshold)
+            self.session.set(
+                SESSION_KEYS["USER_SIMILARITY_THRESHOLD"], similarity_threshold
+            )
             self.session.set(SESSION_KEYS["USER_CHAIN_SELECTION"], chain_selection)
             # Ensure flags are off
             self.session.set(SESSION_KEYS["SHOW_FAIR_PANEL"], False)
             st.session_state["debug_mode"] = False
-            
+
             # Validation callback for chain selection
             def update_chain_selection():
                 """Update chain selection with validation"""
@@ -467,26 +485,24 @@ class MainLayout:
                     validated_chains = self._validate_chain_input(chain_selection)
                     if validated_chains != chain_selection:
                         st.warning(f"Chain selection normalized to: {validated_chains}")
-                        self.session.set(SESSION_KEYS["USER_CHAIN_SELECTION"], validated_chains)
+                        self.session.set(
+                            SESSION_KEYS["USER_CHAIN_SELECTION"], validated_chains
+                        )
                 else:
                     self.session.set(SESSION_KEYS["USER_CHAIN_SELECTION"], "auto")
-            
+
             # Validate chain selection
             update_chain_selection()
-            
 
-            
             # Performance monitoring
-            if hasattr(self, 'performance_monitor'):
+            if hasattr(self, "performance_monitor"):
                 stats = self.performance_monitor.get_statistics()
                 if stats:
                     st.markdown("##### Performance Statistics")
                     for component, component_stats in stats.items():
-                        if component_stats.get('count', 0) > 0:
-                            avg_time = component_stats.get('average', 0)
+                        if component_stats.get("count", 0) > 0:
+                            avg_time = component_stats.get("average", 0)
                             st.write(f"**{component}:** {avg_time:.2f}s avg")
-            
-
 
     def _render_action_button(self):
         """Render the main action button with loading states"""
@@ -601,8 +617,10 @@ class MainLayout:
                     try:
                         poses = results.get("poses", {})
                         logger.info(f"Storing {len(poses)} poses in session")
-                        logger.debug(f"Poses keys: {list(poses.keys()) if poses else 'None'}")
-                        
+                        logger.debug(
+                            f"Poses keys: {list(poses.keys()) if poses else 'None'}"
+                        )
+
                         # Validate poses before storing
                         if poses and isinstance(poses, dict):
                             # Check if poses contain valid data
@@ -610,13 +628,19 @@ class MainLayout:
                             for method, pose_data in poses.items():
                                 if isinstance(pose_data, tuple) and len(pose_data) == 2:
                                     mol, scores = pose_data
-                                    if hasattr(mol, 'ToBinary') and isinstance(scores, dict):
+                                    if hasattr(mol, "ToBinary") and isinstance(
+                                        scores, dict
+                                    ):
                                         valid_poses[method] = pose_data
                                     else:
-                                        logger.warning(f"Invalid pose data for method {method}: mol={type(mol)}, scores={type(scores)}")
+                                        logger.warning(
+                                            f"Invalid pose data for method {method}: mol={type(mol)}, scores={type(scores)}"
+                                        )
                                 else:
-                                    logger.warning(f"Invalid pose structure for method {method}: {type(pose_data)}")
-                            
+                                    logger.warning(
+                                        f"Invalid pose structure for method {method}: {type(pose_data)}"
+                                    )
+
                             if valid_poses:
                                 self.session.set(SESSION_KEYS["POSES"], valid_poses)
                                 logger.info(f"Stored {len(valid_poses)} valid poses")
@@ -624,7 +648,9 @@ class MainLayout:
                                 logger.error("No valid poses found to store")
                         else:
                             logger.error(f"Invalid poses data structure: {type(poses)}")
-                            self.session.set(SESSION_KEYS["POSES"], poses)  # Store anyway for debugging
+                            self.session.set(
+                                SESSION_KEYS["POSES"], poses
+                            )  # Store anyway for debugging
 
                         template_info = results.get("template_info")
                         self.session.set(SESSION_KEYS["TEMPLATE_INFO"], template_info)
@@ -643,33 +669,57 @@ class MainLayout:
                                 if not mcs_smarts_candidate:
                                     mcs_smarts_candidate = results.get("mcs_smarts")
                                 # Final fallback to structured details
-                                if not mcs_smarts_candidate and isinstance(results.get("mcs_details"), dict):
-                                    mcs_smarts_candidate = results["mcs_details"].get("smarts")
-                                if mcs_smarts_candidate and isinstance(mcs_smarts_candidate, str) and mcs_smarts_candidate.strip():
+                                if not mcs_smarts_candidate and isinstance(
+                                    results.get("mcs_details"), dict
+                                ):
+                                    mcs_smarts_candidate = results["mcs_details"].get(
+                                        "smarts"
+                                    )
+                                if (
+                                    mcs_smarts_candidate
+                                    and isinstance(mcs_smarts_candidate, str)
+                                    and mcs_smarts_candidate.strip()
+                                ):
                                     # Use pipeline service processor to normalize
-                                    processed = self.pipeline_service._process_mcs_info(mcs_smarts_candidate, template_info)
+                                    processed = self.pipeline_service._process_mcs_info(
+                                        mcs_smarts_candidate, template_info
+                                    )
                                     if processed:
                                         mcs_info = processed
-                                        logger.info("Reconstructed MCS info from template info fallback")
+                                        logger.info(
+                                            "Reconstructed MCS info from template info fallback"
+                                        )
                             except Exception as mcs_fallback_err:
-                                logger.warning(f"Failed to reconstruct MCS info: {mcs_fallback_err}")
+                                logger.warning(
+                                    f"Failed to reconstruct MCS info: {mcs_fallback_err}"
+                                )
 
                         self.session.set(SESSION_KEYS["MCS_INFO"], mcs_info)
                         logger.info(f"Stored MCS info: {mcs_info}")
                         logger.info(f"MCS info type: {type(mcs_info)}")
 
                         all_ranked_poses = results.get("all_ranked_poses")
-                        logger.info(f"DEBUG: Storing all_ranked_poses: type={type(all_ranked_poses)}, length={len(all_ranked_poses) if hasattr(all_ranked_poses, '__len__') else 'N/A'}")
-                        self.session.set(SESSION_KEYS["ALL_RANKED_POSES"], all_ranked_poses)
-                        
+                        logger.info(
+                            f"DEBUG: Storing all_ranked_poses: type={type(all_ranked_poses)}, length={len(all_ranked_poses) if hasattr(all_ranked_poses, '__len__') else 'N/A'}"
+                        )
+                        self.session.set(
+                            SESSION_KEYS["ALL_RANKED_POSES"], all_ranked_poses
+                        )
+
                         # Verify storage immediately
-                        stored_all_ranked = self.session.get(SESSION_KEYS["ALL_RANKED_POSES"])
-                        logger.info(f"DEBUG: Verified stored all_ranked_poses: type={type(stored_all_ranked)}, length={len(stored_all_ranked) if hasattr(stored_all_ranked, '__len__') else 'N/A'}")
+                        stored_all_ranked = self.session.get(
+                            SESSION_KEYS["ALL_RANKED_POSES"]
+                        )
+                        logger.info(
+                            f"DEBUG: Verified stored all_ranked_poses: type={type(stored_all_ranked)}, length={len(stored_all_ranked) if hasattr(stored_all_ranked, '__len__') else 'N/A'}"
+                        )
 
                         # Store template and query molecules for visualization
                         template_mol = results.get("template_mol")
                         if template_mol:
-                            self.session.set(SESSION_KEYS["TEMPLATE_USED"], template_mol)
+                            self.session.set(
+                                SESSION_KEYS["TEMPLATE_USED"], template_mol
+                            )
                             logger.info("Stored template molecule")
                             logger.info(f"Template molecule type: {type(template_mol)}")
                         else:
@@ -688,30 +738,46 @@ class MainLayout:
 
                         # Increment pipeline runs
                         self.session.increment_pipeline_runs()
-                        
+
                         # Verify results are stored properly
                         stored_poses = self.session.get(SESSION_KEYS["POSES"])
                         has_results = self.session.has_results()
                         logger.info(f"Verification - Has results: {has_results}")
-                        logger.info(f"Verification - Stored poses: {type(stored_poses)} with {len(stored_poses) if isinstance(stored_poses, dict) else 'N/A'} entries")
-                        
+                        logger.info(
+                            f"Verification - Stored poses: {type(stored_poses)} with {len(stored_poses) if isinstance(stored_poses, dict) else 'N/A'} entries"
+                        )
+
                         # Additional debugging
-                        logger.info(f"Verification - Session state poses: {type(st.session_state.get(SESSION_KEYS['POSES']))}")
-                        logger.info(f"Verification - Session state poses length: {len(st.session_state.get(SESSION_KEYS['POSES'], {}))}")
-                        logger.info(f"Verification - Best poses refs in session: {'best_poses_refs' in st.session_state}")
+                        logger.info(
+                            f"Verification - Session state poses: {type(st.session_state.get(SESSION_KEYS['POSES']))}"
+                        )
+                        logger.info(
+                            f"Verification - Session state poses length: {len(st.session_state.get(SESSION_KEYS['POSES'], {}))}"
+                        )
+                        logger.info(
+                            f"Verification - Best poses refs in session: {'best_poses_refs' in st.session_state}"
+                        )
                         if "best_poses_refs" in st.session_state:
                             refs = st.session_state["best_poses_refs"]
-                            logger.info(f"Verification - Best poses refs: {type(refs)}, length: {len(refs) if isinstance(refs, dict) else 'N/A'}")
-                        
+                            logger.info(
+                                f"Verification - Best poses refs: {type(refs)}, length: {len(refs) if isinstance(refs, dict) else 'N/A'}"
+                            )
+
                         if not has_results:
-                            logger.error("CRITICAL: Session shows no results despite successful storage attempt")
+                            logger.error(
+                                "CRITICAL: Session shows no results despite successful storage attempt"
+                            )
                             # Force store in session state directly as fallback
                             st.session_state[SESSION_KEYS["POSES"]] = poses
-                            logger.info("Forced direct storage in session state as fallback")
-                            
+                            logger.info(
+                                "Forced direct storage in session state as fallback"
+                            )
+
                             # Try to verify again
                             has_results_after_force = self.session.has_results()
-                            logger.info(f"Has results after forced storage: {has_results_after_force}")
+                            logger.info(
+                                f"Has results after forced storage: {has_results_after_force}"
+                            )
 
                     except Exception as e:
                         logger.error(f"Failed to store results: {e}", exc_info=True)

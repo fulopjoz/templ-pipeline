@@ -4,7 +4,6 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/fulopjoz/templ-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/fulopjoz/templ-pipeline/actions/workflows/ci.yml)
-[![Docker](https://github.com/fulopjoz/templ-pipeline/actions/workflows/docker.yml/badge.svg)](https://github.com/fulopjoz/templ-pipeline/actions/workflows/docker.yml)
 [![Citation](https://github.com/fulopjoz/templ-pipeline/actions/workflows/cffconvert.yml/badge.svg)](https://github.com/fulopjoz/templ-pipeline/actions/workflows/cffconvert.yml)
 [![Coverage](https://codecov.io/gh/fulopjoz/templ-pipeline/branch/master/graph/badge.svg)](https://codecov.io/gh/fulopjoz/templ-pipeline)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=fulopjoz_templ-pipeline&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=fulopjoz_templ-pipeline)

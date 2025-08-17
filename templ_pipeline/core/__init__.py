@@ -125,7 +125,7 @@ if TYPE_CHECKING:
 __all__ = [
     # Embedding
     "get_protein_sequence",
-    "get_protein_embedding", 
+    "get_protein_embedding",
     "initialize_esm_model",
     "calculate_embedding",
     "calculate_embedding_single",
@@ -161,7 +161,7 @@ __all__ = [
     # Templates
     "load_reference_protein",
     "load_target_data",
-    "transform_ligand", 
+    "transform_ligand",
     "filter_templates_by_ca_rmsd",
     "get_templates_with_progressive_fallback",
     "pdb_path",

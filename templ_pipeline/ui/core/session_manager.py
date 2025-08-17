@@ -120,14 +120,14 @@ class SessionManager:
                 if memory_value is not None:
                     logger.debug(f"Retrieved {key} from memory manager")
                     return memory_value
-                        
+
             except Exception as e:
                 logger.warning(f"Memory manager retrieval failed for {key}: {e}")
-        
+
         # Fallback to session state
         if key in st.session_state:
             return st.session_state[key]
-        
+
         # Return default
         return self.defaults.get(key, default)
 
@@ -141,10 +141,12 @@ class SessionManager:
         """
         # Add debugging for poses
         if key == SESSION_KEYS["POSES"]:
-            logger.info(f"Setting poses: {type(value)}, length: {len(value) if isinstance(value, dict) else 'N/A'}")
+            logger.info(
+                f"Setting poses: {type(value)}, length: {len(value) if isinstance(value, dict) else 'N/A'}"
+            )
             if isinstance(value, dict):
                 logger.info(f"Pose methods: {list(value.keys())}")
-        
+
         # Auto-detect large objects if not specified
         if track_large is None:
             track_large = key in self.large_object_keys or self._is_large_object(value)
@@ -159,40 +161,49 @@ class SessionManager:
                         logger.debug(f"Stored query molecule in memory manager")
                     # Also store in session state as fallback
                     st.session_state[key] = value
-                    
+
                 elif key == SESSION_KEYS["TEMPLATE_USED"] and value is not None:
                     success = self.memory_manager.store_molecule("template", value)
                     if success:
                         logger.debug(f"Stored template molecule in memory manager")
                     # Also store in session state as fallback
                     st.session_state[key] = value
-                    
+
                 elif key == SESSION_KEYS["POSES"] and value is not None:
                     # Always store in session state first as fallback
                     st.session_state[key] = value
                     # Timestamp to help determine freshness
                     try:
                         import time as _time
+
                         st.session_state["poses_timestamp"] = _time.time()
                     except Exception:
                         pass
-                    logger.info(f"Stored poses directly in session state as primary storage")
-                    
+                    logger.info(
+                        f"Stored poses directly in session state as primary storage"
+                    )
+
                     # Also try to store in memory manager for optimization
                     try:
                         success = self.memory_manager.store_pose_results(value)
                         if success:
-                            logger.info(f"Successfully stored poses in memory manager as secondary storage")
+                            logger.info(
+                                f"Successfully stored poses in memory manager as secondary storage"
+                            )
                         else:
-                            logger.warning(f"Failed to store poses in memory manager, but session state storage succeeded")
+                            logger.warning(
+                                f"Failed to store poses in memory manager, but session state storage succeeded"
+                            )
                             # Prevent stale best_poses_refs from previous runs
                             if "best_poses_refs" in st.session_state:
                                 del st.session_state["best_poses_refs"]
                     except Exception as mem_error:
-                        logger.warning(f"Memory manager storage failed for poses: {mem_error}, but session state storage succeeded")
+                        logger.warning(
+                            f"Memory manager storage failed for poses: {mem_error}, but session state storage succeeded"
+                        )
                         if "best_poses_refs" in st.session_state:
                             del st.session_state["best_poses_refs"]
-                    
+
                 else:
                     # General large object storage
                     success = self.memory_manager.store_large_object(key, value)
@@ -200,7 +211,7 @@ class SessionManager:
                         logger.debug(f"Stored {key} in memory manager")
                     # Always store in session state as well for backward compatibility
                     st.session_state[key] = value
-                    
+
             except Exception as e:
                 logger.warning(f"Memory manager storage failed for {key}: {e}")
                 # Fallback to session state
@@ -257,7 +268,7 @@ class SessionManager:
             self.memory_manager.optimize_memory()
         except Exception:
             pass
-            
+
         # Smart cache optimization for better performance
         try:
             cache_optimizer = get_cache_optimizer()
@@ -265,7 +276,7 @@ class SessionManager:
             logger.debug("Cache optimization completed during session clear")
         except Exception as e:
             logger.warning(f"Cache optimization failed during clear: {e}")
-        
+
         # Cleanup temporary files
         self._cleanup_temp_files()
 
@@ -339,26 +350,38 @@ class SessionManager:
         """
         # First check session state directly
         poses_in_session = st.session_state.get(SESSION_KEYS["POSES"], {})
-        if poses_in_session and isinstance(poses_in_session, dict) and len(poses_in_session) > 0:
+        if (
+            poses_in_session
+            and isinstance(poses_in_session, dict)
+            and len(poses_in_session) > 0
+        ):
             logger.debug(f"Found poses in session state: {len(poses_in_session)} poses")
             return True
-        
+
         # Check memory manager for pose results
         try:
             memory_poses = self.memory_manager.get_pose_results()
-            if memory_poses and isinstance(memory_poses, dict) and len(memory_poses) > 0:
-                logger.debug(f"Found poses in memory manager: {len(memory_poses)} poses")
+            if (
+                memory_poses
+                and isinstance(memory_poses, dict)
+                and len(memory_poses) > 0
+            ):
+                logger.debug(
+                    f"Found poses in memory manager: {len(memory_poses)} poses"
+                )
                 return True
         except Exception as e:
             logger.warning(f"Error checking memory manager for poses: {e}")
-        
+
         # Check for pose references in session state (memory manager storage)
         if "best_poses_refs" in st.session_state:
             refs = st.session_state["best_poses_refs"]
             if refs and isinstance(refs, dict) and len(refs) > 0:
-                logger.debug(f"Found pose references in session state: {len(refs)} references")
+                logger.debug(
+                    f"Found pose references in session state: {len(refs)} references"
+                )
                 return True
-        
+
         logger.debug("No poses found in session state or memory manager")
         return False
 
@@ -420,51 +443,55 @@ class SessionManager:
 
     def prepare_for_new_pipeline_run(self) -> Dict[str, Any]:
         """Prepare session for a new pipeline run with smart optimization
-        
+
         Returns:
             Dictionary with preparation results
         """
         try:
             # Auto-optimize caches if needed
             optimization_result = auto_optimize_if_needed()
-            logger.info(f"Cache auto-optimization: {optimization_result.get('action', 'none')}")
-            
+            logger.info(
+                f"Cache auto-optimization: {optimization_result.get('action', 'none')}"
+            )
+
             # Clear previous results to prevent confusion
             result_keys = [
                 SESSION_KEYS["POSES"],
-                SESSION_KEYS["ALL_RANKED_POSES"], 
+                SESSION_KEYS["ALL_RANKED_POSES"],
                 SESSION_KEYS["TEMPLATE_INFO"],
                 SESSION_KEYS["MCS_INFO"],
                 "poses_timestamp",
-                "best_poses_refs"
+                "best_poses_refs",
             ]
-            
+
             cleared_keys = []
             for key in result_keys:
                 if key in st.session_state:
                     del st.session_state[key]
                     cleared_keys.append(key)
-            
+
             # Increment pipeline run counter
             current_runs = self.get("pipeline_runs", 0)
             self.set("pipeline_runs", current_runs + 1)
-            
-            logger.info(f"Prepared for pipeline run #{current_runs + 1}, cleared {len(cleared_keys)} result keys")
-            
+
+            logger.info(
+                f"Prepared for pipeline run #{current_runs + 1}, cleared {len(cleared_keys)} result keys"
+            )
+
             return {
                 "success": True,
                 "pipeline_run_number": current_runs + 1,
                 "cleared_result_keys": len(cleared_keys),
                 "cache_optimization": optimization_result,
-                "message": f"Session prepared for pipeline run #{current_runs + 1}"
+                "message": f"Session prepared for pipeline run #{current_runs + 1}",
             }
-            
+
         except Exception as e:
             logger.error(f"Error preparing for pipeline run: {e}")
             return {
                 "success": False,
                 "error": str(e),
-                "message": "Failed to prepare session for pipeline run"
+                "message": "Failed to prepare session for pipeline run",
             }
 
     def export_state(self) -> Dict[str, Any]:
@@ -505,7 +532,7 @@ class SessionManager:
         # Check for RDKit molecules
         if hasattr(value, "ToBinary") and hasattr(value, "GetNumAtoms"):
             return True
-            
+
         # Check for pose dictionaries
         if isinstance(value, dict) and value:
             sample_key = next(iter(value))
@@ -513,15 +540,15 @@ class SessionManager:
             if isinstance(sample_value, tuple) and len(sample_value) == 2:
                 if hasattr(sample_value[0], "ToBinary"):
                     return True
-        
+
         # Check for large lists/tuples
         if isinstance(value, (list, tuple)) and len(value) > 10:
             return True
-            
+
         # Check for large dictionaries
         if isinstance(value, dict) and len(value) > 50:
             return True
-            
+
         return False
 
     def _cleanup_temp_files(self):
@@ -530,7 +557,7 @@ class SessionManager:
             import tempfile
             import os
             import glob
-            
+
             # Get workspace directory from session
             workspace_dir_key = SESSION_KEYS.get("WORKSPACE_DIR", "workspace_dir")
             workspace_dir = self.get(workspace_dir_key)
@@ -540,22 +567,30 @@ class SessionManager:
                 if os.path.exists(uploaded_dir):
                     for file_path in glob.glob(os.path.join(uploaded_dir, "*")):
                         try:
-                            if os.path.getctime(file_path) < (datetime.now().timestamp() - 3600):
+                            if os.path.getctime(file_path) < (
+                                datetime.now().timestamp() - 3600
+                            ):
                                 os.remove(file_path)
                                 logger.debug(f"Cleaned up old temp file: {file_path}")
                         except Exception as e:
-                            logger.warning(f"Failed to cleanup temp file {file_path}: {e}")
-            
+                            logger.warning(
+                                f"Failed to cleanup temp file {file_path}: {e}"
+                            )
+
             # Clean up system temp files with templ prefix
             temp_dir = tempfile.gettempdir()
             for file_path in glob.glob(os.path.join(temp_dir, "templ_*")):
                 try:
-                    if os.path.getctime(file_path) < (datetime.now().timestamp() - 3600):
+                    if os.path.getctime(file_path) < (
+                        datetime.now().timestamp() - 3600
+                    ):
                         os.remove(file_path)
                         logger.debug(f"Cleaned up old system temp file: {file_path}")
                 except Exception as e:
-                    logger.warning(f"Failed to cleanup system temp file {file_path}: {e}")
-                    
+                    logger.warning(
+                        f"Failed to cleanup system temp file {file_path}: {e}"
+                    )
+
         except Exception as e:
             logger.error(f"Error during temp file cleanup: {e}")
 

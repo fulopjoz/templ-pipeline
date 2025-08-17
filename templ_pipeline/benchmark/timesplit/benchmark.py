@@ -22,7 +22,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
-# Import the runner and infrastructure  
+# Import the runner and infrastructure
 from .simple_runner import SimpleTimeSplitRunner
 from templ_pipeline.core.hardware import get_suggested_worker_config
 
@@ -32,10 +32,10 @@ logger = logging.getLogger(__name__)
 def setup_workspace_directory(workspace_dir: Path) -> Dict[str, Path]:
     """
     Set up organized workspace directory structure matching polaris.
-    
+
     Args:
         workspace_dir: Base workspace directory
-        
+
     Returns:
         Dictionary of organized subdirectories
     """
@@ -46,15 +46,15 @@ def setup_workspace_directory(workspace_dir: Path) -> Dict[str, Path]:
         "logs": workspace_dir / "logs",
         "poses": workspace_dir / "raw_results" / "timesplit" / "poses",
     }
-    
+
     # Create all directories
     for dir_path in subdirs.values():
         dir_path.mkdir(parents=True, exist_ok=True)
-    
+
     logger.info(f"Workspace organized at: {workspace_dir}")
     for name, path in subdirs.items():
         logger.info(f"  {name}: {path}")
-    
+
     return subdirs
 
 
@@ -80,7 +80,7 @@ def run_timesplit_benchmark(
 ) -> Dict:
     """
     Main entry point for time-split benchmark execution.
-    
+
     Args:
         splits_to_run: List of splits to evaluate ['train', 'val', 'test']
         n_workers: Number of parallel workers
@@ -98,42 +98,42 @@ def run_timesplit_benchmark(
         enable_optimization: Enable force field optimization
         no_realign: Disable pose realignment
         per_worker_ram_gb: RAM limit per worker process
-        
+
     Returns:
         Dictionary with benchmark results and summary
     """
     # Set defaults
     if splits_to_run is None:
         splits_to_run = ["test"]  # Default to test split only
-    
+
     if n_workers is None:
         hardware_config = get_suggested_worker_config()
         n_workers = hardware_config["n_workers"]
-    
+
     # Set up results directory
     if results_dir is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         results_dir = f"timesplit_results_{timestamp}"
-    
+
     results_path = Path(results_dir)
     results_path.mkdir(parents=True, exist_ok=True)
-    
+
     logger.info(f"Starting time-split benchmark:")
     logger.info(f"  Splits: {', '.join(splits_to_run)}")
     logger.info(f"  Workers: {n_workers}")
     logger.info(f"  Conformers: {n_conformers}")
     logger.info(f"  Results: {results_path}")
-    
+
     # Initialize simplified benchmark runner
     logger.info("Creating SimpleTimeSplitRunner with enhanced shared data...")
     runner = SimpleTimeSplitRunner(
         data_dir=data_dir,
         results_dir=str(results_path),
         memory_efficient=True,  # Prevent memory explosion
-        use_shared_data=True    # Use shared data manager for memory efficiency
+        use_shared_data=True,  # Use shared data manager for memory efficiency
     )
     logger.info("✓ SimpleTimeSplitRunner created successfully")
-    
+
     # Track overall results
     all_results = {
         "benchmark_info": {
@@ -151,19 +151,19 @@ def run_timesplit_benchmark(
                 "align_metric": align_metric,
                 "enable_optimization": enable_optimization,
                 "no_realign": no_realign,
-            }
+            },
         },
         "split_results": {},
-        "overall_summary": {}
+        "overall_summary": {},
     }
-    
+
     try:
         # Run benchmarks for each split
         for split_name in splits_to_run:
             logger.info(f"\n{'='*60}")
             logger.info(f"EVALUATING {split_name.upper()} SPLIT")
             logger.info(f"{'='*60}")
-            
+
             try:
                 split_results = runner.run_split_benchmark(
                     split_name=split_name,
@@ -172,10 +172,10 @@ def run_timesplit_benchmark(
                     max_pdbs=max_pdbs,
                     timeout=timeout,
                 )
-                
+
                 all_results["split_results"][split_name] = split_results
                 logger.info(f"✓ {split_name} split completed successfully")
-                
+
             except Exception as e:
                 logger.error(f"✗ {split_name} split failed: {e}")
                 all_results["split_results"][split_name] = {
@@ -183,46 +183,54 @@ def run_timesplit_benchmark(
                     "error": str(e),
                     "split": split_name,
                 }
-        
+
         # Generate overall summary
         total_processed = sum(
-            result.get("processed", 0) 
+            result.get("processed", 0)
             for result in all_results["split_results"].values()
         )
         total_successful = sum(
-            result.get("successful", 0) 
+            result.get("successful", 0)
             for result in all_results["split_results"].values()
         )
-        
+
         all_results["overall_summary"] = {
             "total_splits_run": len(splits_to_run),
             "total_molecules_processed": total_processed,
             "total_successful": total_successful,
-            "overall_success_rate": (total_successful / total_processed * 100) if total_processed > 0 else 0,
+            "overall_success_rate": (
+                (total_successful / total_processed * 100) if total_processed > 0 else 0
+            ),
             "splits_completed": [
-                split for split, result in all_results["split_results"].items()
+                split
+                for split, result in all_results["split_results"].items()
                 if result.get("processed", 0) > 0
-            ]
+            ],
         }
-        
+
         # Save complete results
-        results_file = results_path / f"complete_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        with open(results_file, 'w') as f:
+        results_file = (
+            results_path
+            / f"complete_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        )
+        with open(results_file, "w") as f:
             json.dump(all_results, f, indent=2)
-        
+
         all_results["results_file"] = str(results_file)
         all_results["success"] = True
-        
+
         logger.info(f"\n{'='*60}")
         logger.info("BENCHMARK COMPLETED")
         logger.info(f"{'='*60}")
         logger.info(f"Total processed: {total_processed}")
         logger.info(f"Total successful: {total_successful}")
-        logger.info(f"Overall success rate: {all_results['overall_summary']['overall_success_rate']:.1f}%")
+        logger.info(
+            f"Overall success rate: {all_results['overall_summary']['overall_success_rate']:.1f}%"
+        )
         logger.info(f"Results saved to: {results_file}")
-        
+
         return all_results
-        
+
     finally:
         # Ensure proper cleanup of shared memory resources
         try:
@@ -231,19 +239,19 @@ def run_timesplit_benchmark(
             logger.info("✓ Shared memory cleanup completed")
         except Exception as e:
             logger.warning(f"Shared memory cleanup failed: {e}")
-            
+
         # Additional cleanup for any remaining shared memory objects
         try:
             import multiprocessing.resource_tracker as rt
-            
+
             # Force cleanup of any remaining shared memory objects
-            if hasattr(rt, '_CLEANUP_CALLBACKS'):
+            if hasattr(rt, "_CLEANUP_CALLBACKS"):
                 for callback in rt._CLEANUP_CALLBACKS:
                     try:
                         callback()
                     except Exception:
                         pass
-                        
+
         except Exception as e:
             logger.debug(f"Additional cleanup failed: {e}")
 
@@ -254,10 +262,10 @@ def build_parser() -> argparse.ArgumentParser:
         description="Time-split benchmark for TEMPL pipeline",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    
+
     # Get hardware defaults
     hardware_config = get_suggested_worker_config()
-    
+
     # Basic benchmark options
     parser.add_argument(
         "--splits",
@@ -302,7 +310,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=300,
         help="Timeout per molecule in seconds",
     )
-    
+
     # Input/output options
     parser.add_argument(
         "--data-dir",
@@ -322,7 +330,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Poses output directory",
     )
-    
+
     # Split-specific options
     parser.add_argument(
         "--train-only",
@@ -331,7 +339,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--val-only",
-        action="store_true", 
+        action="store_true",
         help="Evaluate only validation set",
     )
     parser.add_argument(
@@ -339,14 +347,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Evaluate only test set",
     )
-    
+
     # Quick mode
     parser.add_argument(
         "--quick",
         action="store_true",
         help="Quick mode: 10 conformers, 10 templates, first 10 molecules",
     )
-    
+
     # Ablation study options
     parser.add_argument(
         "--unconstrained",
@@ -369,7 +377,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable pose realignment",
     )
-    
+
     # Advanced options
     parser.add_argument(
         "--per-worker-ram-gb",
@@ -388,29 +396,29 @@ def build_parser() -> argparse.ArgumentParser:
         default="INFO",
         help="Set logging level",
     )
-    
+
     return parser
 
 
 def main(argv: List[str] = None) -> int:
     """
     Main CLI entry point for time-split benchmark.
-    
+
     Args:
         argv: Command line arguments (for testing)
-        
+
     Returns:
         Exit code (0 for success, 1 for failure)
     """
     parser = build_parser()
     args = parser.parse_args(argv or sys.argv[1:])
-    
+
     # Set up logging
     logging.basicConfig(
         level=getattr(logging, args.log_level),
-        format="%(asctime)s [%(levelname)s] %(name)s - %(message)s"
+        format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
     )
-    
+
     # Determine splits to run
     if args.train_only:
         splits_to_run = ["train"]
@@ -420,7 +428,7 @@ def main(argv: List[str] = None) -> int:
         splits_to_run = ["test"]
     else:
         splits_to_run = args.splits
-    
+
     # Apply quick mode overrides
     if args.quick:
         args.n_conformers = 10
@@ -428,7 +436,7 @@ def main(argv: List[str] = None) -> int:
         args.max_pdbs = 10
         args.n_workers = min(4, args.n_workers)
         logger.info("Quick mode: 10 conformers, 10 templates, 10 molecules max")
-    
+
     try:
         result = run_timesplit_benchmark(
             splits_to_run=splits_to_run,
@@ -448,29 +456,39 @@ def main(argv: List[str] = None) -> int:
             no_realign=args.no_realign,
             per_worker_ram_gb=args.per_worker_ram_gb,
         )
-        
+
         # Generate summary files after completion
         try:
-            from templ_pipeline.benchmark.summary_generator import BenchmarkSummaryGenerator
-            
+            from templ_pipeline.benchmark.summary_generator import (
+                BenchmarkSummaryGenerator,
+            )
+
             logger.info("Starting summary file generation...")
-            logger.info(f"Result keys: {list(result.keys()) if isinstance(result, dict) else 'not a dict'}")
+            logger.info(
+                f"Result keys: {list(result.keys()) if isinstance(result, dict) else 'not a dict'}"
+            )
             logger.info(f"Results file: {result.get('results_file')}")
-            logger.info(f"Results file exists: {Path(result['results_file']).exists() if result.get('results_file') else 'N/A'}")
-            
+            logger.info(
+                f"Results file exists: {Path(result['results_file']).exists() if result.get('results_file') else 'N/A'}"
+            )
+
             if result.get("results_file") and Path(result["results_file"]).exists():
                 generator = BenchmarkSummaryGenerator()
                 logger.info(f"Loading benchmark results from {result['results_file']}")
-                
+
                 # Load results for summary generation
-                with open(result["results_file"], 'r') as f:
+                with open(result["results_file"], "r") as f:
                     results_data = json.load(f)
-                
+
                 # Extract individual results for summary processing
                 individual_results = []
-                results_file_base = Path(result["results_file"]).parent  # Get base directory for resolving relative paths
-                
-                for split_name, split_data in results_data.get("split_results", {}).items():
+                results_file_base = Path(
+                    result["results_file"]
+                ).parent  # Get base directory for resolving relative paths
+
+                for split_name, split_data in results_data.get(
+                    "split_results", {}
+                ).items():
                     results_file = split_data.get("results_file")
                     if results_file:
                         # Handle both absolute and relative paths
@@ -478,12 +496,14 @@ def main(argv: List[str] = None) -> int:
                         if not results_file_path.is_absolute():
                             # For relative paths, resolve against the project root
                             # The relative paths in results JSON are from project root
-                            project_root = Path(__file__).parents[3]  # Go up from benchmark/timesplit/ to project root
+                            project_root = Path(__file__).parents[
+                                3
+                            ]  # Go up from benchmark/timesplit/ to project root
                             results_file_path = project_root / results_file_path
-                        
+
                         if results_file_path.exists():
                             # Load JSONL results and add split information
-                            with open(results_file_path, 'r') as f:
+                            with open(results_file_path, "r") as f:
                                 for line in f:
                                     if line.strip():
                                         result = json.loads(line)
@@ -492,40 +512,44 @@ def main(argv: List[str] = None) -> int:
                                         result["results_file"] = str(results_file_path)
                                         individual_results.append(result)
                         else:
-                            logger.warning(f"Results file not found: {results_file_path}")
-                
+                            logger.warning(
+                                f"Results file not found: {results_file_path}"
+                            )
+
                 if individual_results:
-                    logger.info(f"Found {len(individual_results)} individual results for summary generation")
+                    logger.info(
+                        f"Found {len(individual_results)} individual results for summary generation"
+                    )
                     # Generate summary with proper parameters
                     summary = generator.generate_unified_summary(
-                        results_data=individual_results, 
-                        benchmark_type="timesplit", 
-                        output_format="pandas"
+                        results_data=individual_results,
+                        benchmark_type="timesplit",
+                        output_format="pandas",
                     )
-                    
+
                     # Save to summaries directory
                     results_dir = Path(result["results_file"]).parent
                     summaries_dir = results_dir / "summaries"
                     summaries_dir.mkdir(exist_ok=True)
-                    
+
                     # Save summary files with proper base name and all formats
                     saved_files = generator.save_summary_files(
-                        summary, 
-                        summaries_dir, 
+                        summary,
+                        summaries_dir,
                         base_name="timesplit_benchmark_summary",
-                        formats=["json", "csv", "markdown"]
+                        formats=["json", "csv", "markdown"],
                     )
                     logger.info("✓ Summary files generated:")
                     for fmt, path in saved_files.items():
                         logger.info(f"  {fmt.upper()}: {path}")
                 else:
                     logger.warning("No individual results found for summary generation")
-        
+
         except Exception as e:
             logger.warning(f"Failed to generate summary files: {e}")
-        
+
         return 0 if result.get("success") else 1
-        
+
     except Exception as e:
         logger.error(f"Benchmark failed: {e}")
         return 1

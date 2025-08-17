@@ -146,7 +146,7 @@ class TestCLIPerformance:
         stdout, stderr, returncode = self.runner.capture_output(["--help"])
         assert returncode == 0, f"Help failed: {stderr}"
         assert "TEMPL" in stdout, "Help output missing"
-        
+
         # Verify that help works correctly
         # Note: Heavy modules may be loaded in test environment, but help should still work
         assert len(stdout) > 100, "Help output should be substantial"

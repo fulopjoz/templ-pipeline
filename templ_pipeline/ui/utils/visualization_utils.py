@@ -63,7 +63,7 @@ def generate_molecule_image(mol_binary, width=400, height=300, highlight_atoms=N
         return None
 
 
-@st.cache_data(ttl=300, show_spinner=False)  
+@st.cache_data(ttl=300, show_spinner=False)
 def cached_display_molecule_data(
     mol_binary, width=400, height=300, highlight_atoms=None
 ):
@@ -192,6 +192,7 @@ def safe_get_mcs_mol(mcs_data):
 
     try:
         from .molecular_utils import get_rdkit_modules
+
         Chem, AllChem, Draw = get_rdkit_modules()
     except ImportError as e:
         logger.error(f"safe_get_mcs_mol: RDKit import failed: {e}")
@@ -201,7 +202,7 @@ def safe_get_mcs_mol(mcs_data):
         # Handle different MCS data formats
         if isinstance(mcs_data, dict):
             logger.debug("safe_get_mcs_mol: Processing dictionary data")
-            
+
             # Try to get MCS molecule directly
             if "mcs_mol" in mcs_data:
                 mol = mcs_data["mcs_mol"]
@@ -211,11 +212,13 @@ def safe_get_mcs_mol(mcs_data):
                             return mol
                     except:
                         pass
-            
+
             # Try to get from SMARTS
             if "smarts" in mcs_data:
                 smarts = mcs_data["smarts"]
-                logger.debug(f"safe_get_mcs_mol: Creating molecule from SMARTS: {smarts}")
+                logger.debug(
+                    f"safe_get_mcs_mol: Creating molecule from SMARTS: {smarts}"
+                )
                 mol = Chem.MolFromSmarts(smarts)
                 if mol is not None:
                     try:
@@ -224,14 +227,18 @@ def safe_get_mcs_mol(mcs_data):
                         AllChem.Compute2DCoords(mol)
                         return mol
                     except Exception as e:
-                        logger.warning(f"safe_get_mcs_mol: SMARTS sanitization failed: {e}")
+                        logger.warning(
+                            f"safe_get_mcs_mol: SMARTS sanitization failed: {e}"
+                        )
                         # Return unsanitized molecule
                         return mol
-            
+
             # Try to get from mcs_smarts key
             if "mcs_smarts" in mcs_data:
                 smarts = mcs_data["mcs_smarts"]
-                logger.debug(f"safe_get_mcs_mol: Creating molecule from mcs_smarts: {smarts}")
+                logger.debug(
+                    f"safe_get_mcs_mol: Creating molecule from mcs_smarts: {smarts}"
+                )
                 mol = Chem.MolFromSmarts(smarts)
                 if mol is not None:
                     try:
@@ -239,7 +246,9 @@ def safe_get_mcs_mol(mcs_data):
                         AllChem.Compute2DCoords(mol)
                         return mol
                     except Exception as e:
-                        logger.warning(f"safe_get_mcs_mol: mcs_smarts sanitization failed: {e}")
+                        logger.warning(
+                            f"safe_get_mcs_mol: mcs_smarts sanitization failed: {e}"
+                        )
                         return mol
 
         # Handle list/tuple format (legacy)
@@ -263,7 +272,9 @@ def safe_get_mcs_mol(mcs_data):
                     AllChem.Compute2DCoords(mol)
                     return mol
                 except Exception as e:
-                    logger.warning(f"safe_get_mcs_mol: String SMARTS sanitization failed: {e}")
+                    logger.warning(
+                        f"safe_get_mcs_mol: String SMARTS sanitization failed: {e}"
+                    )
                     return mol
 
         # Handle direct molecule object
@@ -281,14 +292,16 @@ def safe_get_mcs_mol(mcs_data):
     return None
 
 
-def get_molecule_from_session(session_manager, key: str, fallback_smiles: str = None) -> Optional[Any]:
+def get_molecule_from_session(
+    session_manager, key: str, fallback_smiles: str = None
+) -> Optional[Any]:
     """Robustly retrieve molecule from session with memory manager integration
-    
+
     Args:
         session_manager: SessionManager instance
         key: Session key for the molecule
         fallback_smiles: Optional SMILES string as fallback
-        
+
     Returns:
         RDKit molecule object or None
     """
@@ -297,10 +310,11 @@ def get_molecule_from_session(session_manager, key: str, fallback_smiles: str = 
     except ImportError:
         logger.error("RDKit not available for molecule retrieval")
         return None
-    
+
     # First try to reconstruct from the latest INPUT_SMILES when key is QUERY_MOL
     try:
         from ..config.constants import SESSION_KEYS as _SK
+
         if key == _SK["QUERY_MOL"]:
             current_smiles = session_manager.get(_SK["INPUT_SMILES"])
             if current_smiles:
@@ -317,13 +331,13 @@ def get_molecule_from_session(session_manager, key: str, fallback_smiles: str = 
 
     # Then try to get from session by key
     mol_data = session_manager.get(key)
-    
+
     if mol_data is not None:
         # If it's already an RDKit molecule, return it
         if hasattr(mol_data, "ToBinary") and hasattr(mol_data, "GetNumAtoms"):
             if mol_data.GetNumAtoms() > 0:
                 return mol_data
-        
+
         # If it's binary data, try to deserialize
         if isinstance(mol_data, bytes):
             try:
@@ -332,7 +346,7 @@ def get_molecule_from_session(session_manager, key: str, fallback_smiles: str = 
                     return mol
             except Exception as e:
                 logger.warning(f"Failed to deserialize molecule from binary: {e}")
-        
+
         # If it's a string, try as SMILES
         if isinstance(mol_data, str):
             try:
@@ -341,29 +355,30 @@ def get_molecule_from_session(session_manager, key: str, fallback_smiles: str = 
                     return mol
             except Exception as e:
                 logger.warning(f"Failed to create molecule from SMILES: {e}")
-    
+
     # Try memory manager fallback for specific keys
     try:
         from ..core.memory_manager import get_memory_manager
         from ..config.constants import SESSION_KEYS
+
         memory_manager = get_memory_manager()
-        
+
         # Map session keys to memory manager keys
         memory_key_map = {
             SESSION_KEYS["QUERY_MOL"]: "query",
-            SESSION_KEYS["TEMPLATE_USED"]: "template"
+            SESSION_KEYS["TEMPLATE_USED"]: "template",
         }
-        
+
         memory_key = memory_key_map.get(key)
         if memory_key:
             mol = memory_manager.get_molecule(memory_key)
             if mol:
                 logger.debug(f"Retrieved molecule {key} from memory manager")
                 return mol
-                
+
     except Exception as e:
         logger.warning(f"Memory manager fallback failed for {key}: {e}")
-    
+
     # Enhanced fallback for template molecules using template_info
     if key == SESSION_KEYS.get("TEMPLATE_USED"):
         try:
@@ -374,49 +389,55 @@ def get_molecule_from_session(session_manager, key: str, fallback_smiles: str = 
                     try:
                         mol = Chem.MolFromSmiles(template_smiles)
                         if mol:
-                            logger.debug(f"Created template molecule from template_info SMILES: {template_smiles}")
+                            logger.debug(
+                                f"Created template molecule from template_info SMILES: {template_smiles}"
+                            )
                             return mol
                     except Exception as e:
-                        logger.warning(f"Failed to create template from template_info SMILES: {e}")
+                        logger.warning(
+                            f"Failed to create template from template_info SMILES: {e}"
+                        )
         except Exception as e:
             logger.warning(f"Template info fallback failed: {e}")
-    
+
     # Final fallback to SMILES
     if fallback_smiles:
         try:
             mol = Chem.MolFromSmiles(fallback_smiles)
             if mol:
-                logger.debug(f"Created molecule from fallback SMILES: {fallback_smiles}")
+                logger.debug(
+                    f"Created molecule from fallback SMILES: {fallback_smiles}"
+                )
                 return mol
         except Exception as e:
             logger.warning(f"Fallback SMILES failed: {e}")
-    
+
     logger.debug(f"Unable to retrieve molecule for key: {key}")
     return None
 
 
 def create_mcs_molecule_from_info(mcs_info: Any) -> Optional[Any]:
     """Create MCS molecule from various MCS info formats
-    
+
     Args:
         mcs_info: MCS information in various formats
-        
+
     Returns:
         RDKit molecule object for MCS or None
     """
     if not mcs_info:
         return None
-        
+
     try:
         from rdkit import Chem
         from rdkit.Chem import AllChem
     except ImportError:
         logger.error("RDKit not available for MCS processing")
         return None
-    
+
     # Collect all possible SMARTS patterns
     smarts_candidates = []
-    
+
     if isinstance(mcs_info, dict):
         # Try different SMARTS keys in order of preference
         for smarts_key in ["smarts", "mcs_smarts", "mcs_pattern"]:
@@ -424,7 +445,7 @@ def create_mcs_molecule_from_info(mcs_info: Any) -> Optional[Any]:
                 smarts_value = mcs_info[smarts_key]
                 if isinstance(smarts_value, str) and len(smarts_value.strip()) > 0:
                     smarts_candidates.append(smarts_value.strip())
-                    
+
         # Also check if there's a pre-created molecule
         if "mcs_mol" in mcs_info:
             mcs_mol = mcs_info["mcs_mol"]
@@ -434,7 +455,7 @@ def create_mcs_molecule_from_info(mcs_info: Any) -> Optional[Any]:
                         return mcs_mol
                 except Exception:
                     pass
-                    
+
     elif isinstance(mcs_info, str):
         smarts_value = mcs_info.strip()
         if len(smarts_value) > 0:
@@ -446,7 +467,7 @@ def create_mcs_molecule_from_info(mcs_info: Any) -> Optional[Any]:
                 return mcs_info
         except Exception:
             pass
-    
+
     # Try each SMARTS pattern
     for smarts in smarts_candidates:
         if smarts and isinstance(smarts, str) and len(smarts.strip()) > 0:
@@ -457,10 +478,14 @@ def create_mcs_molecule_from_info(mcs_info: Any) -> Optional[Any]:
                         # Try to sanitize and add 2D coordinates
                         Chem.SanitizeMol(mol)
                         AllChem.Compute2DCoords(mol)
-                        logger.debug(f"Successfully created MCS molecule from SMARTS: {smarts}")
+                        logger.debug(
+                            f"Successfully created MCS molecule from SMARTS: {smarts}"
+                        )
                         return mol
                     except Exception as e:
-                        logger.debug(f"Could not sanitize MCS molecule, returning unsanitized: {e}")
+                        logger.debug(
+                            f"Could not sanitize MCS molecule, returning unsanitized: {e}"
+                        )
                         # Return unsanitized molecule if sanitization fails
                         return mol
                 else:
@@ -468,6 +493,6 @@ def create_mcs_molecule_from_info(mcs_info: Any) -> Optional[Any]:
             except Exception as e:
                 logger.debug(f"Failed to create molecule from SMARTS '{smarts}': {e}")
                 continue
-    
+
     logger.debug("No valid SMARTS pattern found in MCS info")
     return None

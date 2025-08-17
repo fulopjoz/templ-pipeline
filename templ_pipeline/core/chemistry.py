@@ -30,12 +30,12 @@ ORGANOMETALLIC_ELEMENTS = {
     30: "Zn",  # Zinc
     25: "Mn",  # Manganese
     24: "Cr",  # Chromium
-    23: "V",   # Vanadium
+    23: "V",  # Vanadium
     22: "Ti",  # Titanium
     27: "Co",  # Cobalt
     28: "Ni",  # Nickel
     42: "Mo",  # Molybdenum
-    74: "W",   # Tungsten
+    74: "W",  # Tungsten
     44: "Ru",  # Ruthenium
     45: "Rh",  # Rhodium
     46: "Pd",  # Palladium
@@ -47,11 +47,12 @@ ORGANOMETALLIC_ELEMENTS = {
     80: "Hg",  # Mercury
     76: "Os",  # Osmium
     21: "Sc",  # Scandium
-    39: "Y",   # Yttrium
+    39: "Y",  # Yttrium
     40: "Zr",  # Zirconium
     41: "Nb",  # Niobium
     43: "Tc",  # Technetium
 }
+
 
 # Organometallic detection and handling
 def detect_and_substitute_organometallic(
@@ -119,6 +120,8 @@ def detect_and_substitute_organometallic(
         error_msg = f"Organometallic substitution failed for {molecule_name}: {e}"
         logger.warning(error_msg)
         return mol, False, [error_msg]
+
+
 # Molecule validation functions
 def has_rhenium_complex(mol: Chem.Mol, pdb_id: str = "") -> Tuple[bool, str]:
     """
@@ -159,9 +162,7 @@ def has_rhenium_complex(mol: Chem.Mol, pdb_id: str = "") -> Tuple[bool, str]:
 
 
 def is_large_peptide_or_polysaccharide(
-    mol: Chem.Mol,
-    residue_threshold: int = 8,
-    sugar_ring_threshold: int = 3
+    mol: Chem.Mol, residue_threshold: int = 8, sugar_ring_threshold: int = 3
 ) -> Tuple[bool, str]:
     """
     Unified filter: catches large peptides OR large polysaccharides.

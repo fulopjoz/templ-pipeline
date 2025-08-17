@@ -37,9 +37,11 @@ _esm_components = None
 # Check if ESM dependencies are available
 try:
     import torch
+
     # Fix torch.classes compatibility issue
     torch.classes.__path__ = []
     from transformers import EsmModel, EsmTokenizer
+
     ESM_AVAILABLE = True
 except ImportError:
     ESM_AVAILABLE = False
@@ -48,6 +50,7 @@ except ImportError:
 ESM_MAX_SEQUENCE_LENGTH = 1022
 # https://www.biorxiv.org/content/10.1101/2022.07.20.500902v2.full
 # https://github.com/gcorso/DiffDock/issues/199
+
 
 # GPU Detection Functions
 def _detect_gpu() -> bool:
@@ -96,16 +99,10 @@ def _get_gpu_info() -> Dict[str, Any]:
             "device": "cuda",
             "device_count": torch.cuda.device_count(),
             "device_name": torch.cuda.get_device_name(0),
-            "memory_total": (
-                torch.cuda.get_device_properties(0).total_memory / 1e9
-            ),
+            "memory_total": (torch.cuda.get_device_properties(0).total_memory / 1e9),
         }
     except Exception:
-        return {
-            "available": False,
-            "device": "cpu",
-            "error": "Failed to get GPU info"
-        }
+        return {"available": False, "device": "cpu", "error": "Failed to get GPU info"}
 
 
 # Configure logging - prevent duplicate handlers
@@ -126,9 +123,7 @@ try:
         get_default_embedding_path,
     )
 except ImportError:
-    logger.warning(
-        "Could not import utility functions from templ_pipeline.core.utils"
-    )
+    logger.warning("Could not import utility functions from templ_pipeline.core.utils")
     find_pdbbind_paths = None
     get_default_embedding_path = None
 
@@ -188,9 +183,7 @@ def _resolve_embedding_path(embedding_path: Optional[Union[str, Path]] = None) -
             return str(path)
 
     # If no existing path found, return the environment variable or default path
-    return (
-        env_path or "data/embeddings/templ_protein_embeddings_v1.0.0.npz"
-    )
+    return env_path or "data/embeddings/templ_protein_embeddings_v1.0.0.npz"
 
 
 def get_protein_sequence(
@@ -329,9 +322,7 @@ def get_protein_sequence(
             return None, []
 
         if "X" in final_seq:
-            logger.warning(
-                f"Sequence contains {final_seq.count('X')} unknown residues"
-            )
+            logger.warning(f"Sequence contains {final_seq.count('X')} unknown residues")
 
         return final_seq, used_chains
 
@@ -362,9 +353,7 @@ def initialize_esm_model() -> Optional[Dict[str, Any]]:
                 )
                 logger.info(f"Initializing ESM model on GPU")
             else:
-                logger.info(
-                    f"No GPU available, using CPU for embedding generation"
-                )
+                logger.info(f"No GPU available, using CPU for embedding generation")
 
             # Configure model with optimizations
             config = AutoConfig.from_pretrained(model_id)
@@ -441,19 +430,22 @@ def initialize_esm_model() -> Optional[Dict[str, Any]]:
     return _esm_components
 
 
-def calculate_embedding_single(sequence: str, esm_components: Dict[str, Any]) -> Optional[np.ndarray]:
+def calculate_embedding_single(
+    sequence: str, esm_components: Dict[str, Any]
+) -> Optional[np.ndarray]:
     """Calculate embedding for a single protein sequence."""
     if not ESM_AVAILABLE:
-        logger.error(
-            "ESM model not available - torch and transformers not installed"
-        )
+        logger.error("ESM model not available - torch and transformers not installed")
         return None
 
     import torch
 
     tokenizer, model = esm_components["tokenizer"], esm_components["model"]
     inputs = tokenizer(
-        sequence, return_tensors="pt", truncation=True, max_length=ESM_MAX_SEQUENCE_LENGTH
+        sequence,
+        return_tensors="pt",
+        truncation=True,
+        max_length=ESM_MAX_SEQUENCE_LENGTH,
     )
 
     # Move inputs to the same device as the model
@@ -513,6 +505,7 @@ def calculate_embedding(sequence: str) -> Optional[np.ndarray]:
     except Exception as e:
         logger.error(f"Error calculating embedding: {str(e)}")
         import traceback
+
         logger.error(traceback.format_exc())
         return None
 
@@ -541,9 +534,7 @@ def get_protein_embedding(
 
     # Log embedding generation start with device info
     gpu_info = _get_gpu_info()
-    device_info = (
-        f"GPU ({gpu_info['device_name']})" if gpu_info["available"] else "CPU"
-    )
+    device_info = f"GPU ({gpu_info['device_name']})" if gpu_info["available"] else "CPU"
     logger.info(f"Generating embedding for protein {pdb_id} using {device_info}")
 
     try:
@@ -598,16 +589,22 @@ def get_protein_embedding(
 
 def is_pdb_id_in_database(pdb_id: str, embedding_path: Optional[str] = None) -> bool:
     """Deprecated: use EmbeddingManager.has_embedding instead."""
-    logger.warning("is_pdb_id_in_database is deprecated; use EmbeddingManager.has_embedding instead")
+    logger.warning(
+        "is_pdb_id_in_database is deprecated; use EmbeddingManager.has_embedding instead"
+    )
     try:
-        manager = EmbeddingManager(embedding_path=_resolve_embedding_path(embedding_path))
+        manager = EmbeddingManager(
+            embedding_path=_resolve_embedding_path(embedding_path)
+        )
         return manager.has_embedding(pdb_id)
     except Exception:
         return False
 
 
 # Create a function to get sample PDB IDs from the database
-def get_sample_pdb_ids(embedding_path: Optional[str] = None, limit: int = 20) -> List[str]:
+def get_sample_pdb_ids(
+    embedding_path: Optional[str] = None, limit: int = 20
+) -> List[str]:
     """Deprecated utility; not used by core. Consider removing or moving to diagnostics."""
     try:
         resolved_path = _resolve_embedding_path(embedding_path)
@@ -616,6 +613,7 @@ def get_sample_pdb_ids(embedding_path: Optional[str] = None, limit: int = 20) ->
                 return []
             pdb_ids = [str(pid).upper() for pid in data["pdb_ids"]]
             import random
+
             return random.sample(pdb_ids, min(limit, len(pdb_ids)))
     except Exception:
         return []
@@ -679,9 +677,7 @@ class EmbeddingManager:
             # Ensure the base cache directory exists
             Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
             # Create model-specific subdirectory
-            model_dir_name = (
-                "esm2_t33_650M_UR50D"  # Should ideally come from model config or constant
-            )
+            model_dir_name = "esm2_t33_650M_UR50D"  # Should ideally come from model config or constant
             model_specific_cache_dir = Path(self.cache_dir) / model_dir_name
             model_specific_cache_dir.mkdir(parents=True, exist_ok=True)
             self.cache_dir = str(
@@ -802,9 +798,7 @@ class EmbeddingManager:
             logger.debug(f"Saved embedding to cache: {cache_path}")
             return True
         except Exception as e:
-            logger.error(
-                f"Failed to save embedding to cache for {pdb_id}: {str(e)}"
-            )
+            logger.error(f"Failed to save embedding to cache for {pdb_id}: {str(e)}")
             return False
 
     def _load_from_cache(
@@ -842,9 +836,7 @@ class EmbeddingManager:
 
             return None, None
         except Exception as e:
-            logger.error(
-                f"Failed to load embedding from cache for {pdb_id}: {str(e)}"
-            )
+            logger.error(f"Failed to load embedding from cache for {pdb_id}: {str(e)}")
             return None, None
 
     def is_in_cache(self, pdb_id: str, target_chain_id: Optional[str] = None) -> bool:
@@ -1094,9 +1086,7 @@ class EmbeddingManager:
             else:
                 logger.error(f"Failed to calculate on-demand embedding for {pdb_id}")
         else:
-            logger.error(
-                f"PDB file not found or invalid: {actual_pdb_file_to_use}"
-            )
+            logger.error(f"PDB file not found or invalid: {actual_pdb_file_to_use}")
 
         logger.error(
             f"Embedding for {pdb_id} could not be found or generated from any source"
@@ -1203,9 +1193,13 @@ class EmbeddingManager:
                 if sim >= similarity_threshold
             ]
         elif k is not None:
-            neighbors_with_sim = [(str(pid), float(sim)) for pid, sim in neighbor_candidates[:k]]
+            neighbors_with_sim = [
+                (str(pid), float(sim)) for pid, sim in neighbor_candidates[:k]
+            ]
         else:  # Default: return all sorted if neither k nor threshold is given
-            neighbors_with_sim = [(str(pid), float(sim)) for pid, sim in neighbor_candidates]
+            neighbors_with_sim = [
+                (str(pid), float(sim)) for pid, sim in neighbor_candidates
+            ]
 
         final_neighbors = neighbors_with_sim  # Type: List[Tuple[str, float]]
 
@@ -1249,12 +1243,16 @@ class EmbeddingManager:
         self, sequences: List[str], esm_components
     ) -> List[Optional[np.ndarray]]:
         """Deprecated batch API; returns [None] for compatibility."""
-        logger.warning("EmbeddingManager._process_sequence_batch is deprecated and returns no embeddings")
+        logger.warning(
+            "EmbeddingManager._process_sequence_batch is deprecated and returns no embeddings"
+        )
         return [None] * len(sequences)
 
     def prepare_batch_embeddings(self, pdb_ids: List[str]) -> int:
         """Deprecated batch API; returns 0 (no-op)."""
-        logger.warning("EmbeddingManager.prepare_batch_embeddings is deprecated and is a no-op")
+        logger.warning(
+            "EmbeddingManager.prepare_batch_embeddings is deprecated and is a no-op"
+        )
         self._batch_queue.clear()
         return 0
 
@@ -1335,7 +1333,7 @@ def get_embedding(
     emb, chains_used = embedding_result
     if emb is None:
         raise ValueError(f"Failed to retrieve embedding for PDB ID {pdb_id}")
-    
+
     # Ensure chains_used is a string, not None
     chains_str = chains_used if chains_used is not None else ""
     return emb, chains_str
@@ -1432,11 +1430,17 @@ def select_templates(
 
 def analyze_embedding_database(embedding_path: Optional[str] = None) -> Dict[str, Any]:
     """Deprecated diagnostic; kept for backward compatibility."""
-    logger.warning("analyze_embedding_database is deprecated and may be removed in a future release")
+    logger.warning(
+        "analyze_embedding_database is deprecated and may be removed in a future release"
+    )
     try:
         resolved_path = _resolve_embedding_path(embedding_path)
         if not resolved_path or not os.path.exists(resolved_path):
-            return {"status": "error", "message": f"Embedding file not found at {resolved_path}", "resolved_path": resolved_path}
+            return {
+                "status": "error",
+                "message": f"Embedding file not found at {resolved_path}",
+                "resolved_path": resolved_path,
+            }
         with np.load(resolved_path, allow_pickle=True) as data:
             keys = list(data.keys())
             pdb_count = len(data["pdb_ids"]) if "pdb_ids" in data else 0
@@ -1521,9 +1525,12 @@ def extract_pdb_id_from_path(file_path: str) -> Optional[str]:
         return None
 
 
-def filter_templates_by_ca_rmsd(all_templates: List[Any], ca_rmsd_threshold: float) -> List[Any]:
+def filter_templates_by_ca_rmsd(
+    all_templates: List[Any], ca_rmsd_threshold: float
+) -> List[Any]:
     """Deprecated duplicate; use templ_pipeline.core.templates.filter_templates_by_ca_rmsd instead."""
     from templ_pipeline.core.templates import filter_templates_by_ca_rmsd as _impl
+
     return _impl(all_templates, ca_rmsd_threshold)
 
 
@@ -1535,19 +1542,27 @@ def get_templates_with_progressive_fallback(
         get_templates_with_progressive_fallback as _impl,
         CA_RMSD_FALLBACK_THRESHOLDS,
     )
+
     thresholds: List[float] = (
-        fallback_thresholds if fallback_thresholds is not None else CA_RMSD_FALLBACK_THRESHOLDS
+        fallback_thresholds
+        if fallback_thresholds is not None
+        else CA_RMSD_FALLBACK_THRESHOLDS
     )
     return _impl(all_templates, thresholds)
 
 
-def clear_embedding_cache(clear_model_cache: bool = True, clear_disk_cache: bool = True, clear_memory_cache: bool = True) -> Dict[str, bool]:
+def clear_embedding_cache(
+    clear_model_cache: bool = True,
+    clear_disk_cache: bool = True,
+    clear_memory_cache: bool = True,
+) -> Dict[str, bool]:
     """Deprecated: prefer clearing cache via EmbeddingManager and torch APIs directly."""
     results: Dict[str, bool] = {}
     # Model cache
     try:
         if clear_model_cache and ESM_AVAILABLE:
             import torch
+
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
         results["model_cache"] = True if clear_model_cache else None  # type: ignore
@@ -1555,7 +1570,10 @@ def clear_embedding_cache(clear_model_cache: bool = True, clear_disk_cache: bool
         results["model_cache"] = False
     # Manager caches
     try:
-        if hasattr(EmbeddingManager, "_instance") and EmbeddingManager._instance is not None:
+        if (
+            hasattr(EmbeddingManager, "_instance")
+            and EmbeddingManager._instance is not None
+        ):
             manager = EmbeddingManager._instance
             if clear_disk_cache:
                 results["disk_cache"] = manager.clear_cache()

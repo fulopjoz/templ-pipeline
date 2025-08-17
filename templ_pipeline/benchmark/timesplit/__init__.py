@@ -17,6 +17,6 @@ from .benchmark import run_timesplit_benchmark
 from .simple_runner import SimpleTimeSplitRunner
 
 __all__ = [
-    "run_timesplit_benchmark", 
+    "run_timesplit_benchmark",
     "SimpleTimeSplitRunner",
 ]

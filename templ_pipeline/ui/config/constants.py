@@ -67,19 +67,21 @@ MAX_TEMPLATES = 500
 # - Higher thresholds appropriate for template-based pose prediction vs. ab-initio docking
 # - Conservative approach ensuring meaningful discrimination between pose qualities
 
-SCORE_EXCELLENT = 0.80  # Excellent: Top-tier poses, equivalent to RMSD ≤ 1.0 Å performance
-SCORE_GOOD = 0.65       # Good: High-quality poses, RMSD ≤ 2.0 Å standard for success  
-SCORE_FAIR = 0.45       # Fair: Moderate quality, requires validation (RMSD 2.0-3.0 Å range)
-SCORE_POOR = 0.0        # Poor: Below acceptable threshold for pose prediction
+SCORE_EXCELLENT = (
+    0.80  # Excellent: Top-tier poses, equivalent to RMSD ≤ 1.0 Å performance
+)
+SCORE_GOOD = 0.65  # Good: High-quality poses, RMSD ≤ 2.0 Å standard for success
+SCORE_FAIR = 0.45  # Fair: Moderate quality, requires validation (RMSD 2.0-3.0 Å range)
+SCORE_POOR = 0.0  # Poor: Below acceptable threshold for pose prediction
 
 # Individual component significance thresholds (based on pose prediction context)
-SHAPE_TANIMOTO_SIGNIFICANT = 0.80   # High shape similarity for reliable pose prediction
-COLOR_TANIMOTO_SIGNIFICANT = 0.50   # Meaningful pharmacophore alignment threshold
+SHAPE_TANIMOTO_SIGNIFICANT = 0.80  # High shape similarity for reliable pose prediction
+COLOR_TANIMOTO_SIGNIFICANT = 0.50  # Meaningful pharmacophore alignment threshold
 
 # Quality assessment labels for pose prediction
 QUALITY_LABELS = {
     "excellent": "Excellent - High confidence pose (≤1.0 Å expected)",
-    "good": "Good - Reliable pose prediction (≤2.0 Å expected)", 
+    "good": "Good - Reliable pose prediction (≤2.0 Å expected)",
     "fair": "Fair - Moderate confidence (2.0-3.0 Å expected)",
     "poor": "Poor - Low confidence, consider alternatives (>3.0 Å expected)",
 }

@@ -55,9 +55,7 @@ class DatasetSplits:
             len(self.test_pdbs),
         )
 
-    def _resolve_splits_dir(
-        self, splits_dir: Optional[Union[str, Path]]
-    ) -> Path:
+    def _resolve_splits_dir(self, splits_dir: Optional[Union[str, Path]]) -> Path:
         """Resolve the splits directory using sensible defaults.
 
         Preference order when `splits_dir` is not provided:
@@ -127,7 +125,9 @@ class DatasetSplits:
         if name == "test":
             return self.test_pdbs
 
-        raise ValueError("Unknown split name: %s. Use 'train', 'val', or 'test'." % split_name)
+        raise ValueError(
+            "Unknown split name: %s. Use 'train', 'val', or 'test'." % split_name
+        )
 
     def is_in_split(self, pdb_id: str, split_name: str) -> bool:
         """Check if a PDB ID is in a specific split."""

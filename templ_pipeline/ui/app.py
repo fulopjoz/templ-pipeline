@@ -38,7 +38,7 @@ def handle_health_check():
     # Check for health check endpoints
     if query_params.get("health") == "check" or query_params.get("healthz") is not None:
         logger.info("Health check requested")
-        
+
         # Perform basic health checks
         health_status = {
             "status": "healthy",
@@ -46,27 +46,29 @@ def handle_health_check():
             "python_version": sys.version,
             "working_directory": str(Path.cwd()),
         }
-        
+
         # Check critical imports
         try:
             from templ_pipeline.ui.config.settings import get_config
+
             health_status["config_import"] = "  OK"
         except ImportError as e:
             health_status["config_import"] = f"  FAIL: {e}"
             health_status["status"] = "unhealthy"
-        
+
         try:
             from templ_pipeline.ui.core.session_manager import get_session_manager
+
             health_status["session_manager_import"] = "  OK"
         except ImportError as e:
             health_status["session_manager_import"] = f"  FAIL: {e}"
             health_status["status"] = "unhealthy"
-        
+
         if health_status["status"] == "healthy":
             st.success("  TEMPL Pipeline Health Check: OK")
         else:
             st.error("  TEMPL Pipeline Health Check: FAILED")
-            
+
         st.json(health_status)
         st.stop()
 
@@ -75,7 +77,7 @@ def initialize_app():
     """Initialize application configuration and core services with comprehensive error handling"""
     try:
         logger.info("Starting application initialization...")
-        
+
         # Get configuration
         logger.info("Loading configuration...")
         config = get_config()
@@ -109,36 +111,38 @@ def initialize_app():
 
         logger.info("Application initialization completed successfully")
         return config, session
-        
+
     except Exception as e:
         logger.error(f"Failed to initialize application: {e}", exc_info=True)
-        
+
         # Display detailed error information
         st.error("Application Initialization Failed")
         st.error(f"Error: {str(e)}")
-        
+
         with st.expander("Detailed Error Information", expanded=True):
             st.code(traceback.format_exc())
-            
+
             # Show import status
             st.subheader("Import Status Check")
             imports_to_check = [
                 "templ_pipeline.ui.config.settings",
-                "templ_pipeline.ui.core.session_manager", 
+                "templ_pipeline.ui.core.session_manager",
                 "templ_pipeline.ui.core.hardware_manager",
-                "templ_pipeline.ui.layouts.main_layout"
+                "templ_pipeline.ui.layouts.main_layout",
             ]
-            
+
             for import_name in imports_to_check:
                 try:
                     __import__(import_name)
                     st.success(f"{import_name}")
                 except ImportError as ie:
                     st.error(f"{import_name}: {ie}")
-                    
+
         # Allow user to continue with basic functionality
-        st.info("You can try refreshing the page or check the server logs for more details.")
-        
+        st.info(
+            "You can try refreshing the page or check the server logs for more details."
+        )
+
         raise
 
 
@@ -148,7 +152,7 @@ def main():
             # page_title="TEMPL Pipeline",
             page_icon="♟",
             layout="wide",
-            initial_sidebar_state="expanded"
+            initial_sidebar_state="expanded",
         )
         with st.spinner("Initializing TEMPL Pipeline..."):
             # Add debug marker
@@ -162,7 +166,7 @@ def main():
             # Initialize application
             logger.info("Initializing application...")
             config, session = initialize_app()
-            
+
             logger.info("Application initialized successfully")
 
             # Debug: Log session state

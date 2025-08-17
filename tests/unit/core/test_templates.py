@@ -142,7 +142,7 @@ class TestGetTemplatesWithProgressiveFallback:
             )
 
         assert len(result_templates) == 1  # Should return best template
-        assert threshold_used == float('inf')
+        assert threshold_used == float("inf")
         assert use_central_atom
 
     def test_fallback_with_no_ca_rmsd_properties(self):
@@ -167,7 +167,7 @@ class TestGetTemplatesWithProgressiveFallback:
             )
 
         assert len(result_templates) == 0
-        assert threshold_used == float('inf')
+        assert threshold_used == float("inf")
         assert not use_central_atom
 
     def test_default_fallback_thresholds(self):

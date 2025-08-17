@@ -37,11 +37,11 @@ ATOM      8  C   GLY A   2      13.950  16.100  10.000  1.00 20.00           C
 ATOM      9  O   GLY A   2      13.950  14.870  10.000  1.00 20.00           O
 END
 """
-    
+
     pdb_file = os.path.join(temp_dir, "test_protein.pdb")
-    with open(pdb_file, 'w') as f:
+    with open(pdb_file, "w") as f:
         f.write(pdb_content)
-    
+
     return pdb_file
 
 
@@ -60,11 +60,11 @@ def test_sdf_file(temp_dir):
 M  END
 $$$$
 """
-    
+
     sdf_file = os.path.join(temp_dir, "test_ligand.sdf")
-    with open(sdf_file, 'w') as f:
+    with open(sdf_file, "w") as f:
         f.write(sdf_content)
-    
+
     return sdf_file
 
 
@@ -80,24 +80,29 @@ def test_molecule():
 def mock_pipeline_results():
     """Create mock pipeline results."""
     return {
-        'poses': {
-            'shape': (Chem.MolFromSmiles("CCO"), {'shape': 0.8, 'color': 0.6, 'combo': 0.7}),
-            'color': (Chem.MolFromSmiles("CCO"), {'shape': 0.7, 'color': 0.9, 'combo': 0.8}),
-            'combo': (Chem.MolFromSmiles("CCO"), {'shape': 0.75, 'color': 0.75, 'combo': 0.75})
+        "poses": {
+            "shape": (
+                Chem.MolFromSmiles("CCO"),
+                {"shape": 0.8, "color": 0.6, "combo": 0.7},
+            ),
+            "color": (
+                Chem.MolFromSmiles("CCO"),
+                {"shape": 0.7, "color": 0.9, "combo": 0.8},
+            ),
+            "combo": (
+                Chem.MolFromSmiles("CCO"),
+                {"shape": 0.75, "color": 0.75, "combo": 0.75},
+            ),
         },
-        'mcs_info': {
-            'mcs_smiles': 'CCO',
-            'mcs_size': 3,
-            'query_match': [0, 1, 2],
-            'template_match': [0, 1, 2]
+        "mcs_info": {
+            "mcs_smiles": "CCO",
+            "mcs_size": 3,
+            "query_match": [0, 1, 2],
+            "template_match": [0, 1, 2],
         },
-        'templates': [
-            ('1ABC', 0.95),
-            ('2DEF', 0.88),
-            ('3GHI', 0.82)
-        ],
-        'embedding': np.random.rand(1280),
-        'output_file': '/tmp/test_poses.sdf'
+        "templates": [("1ABC", 0.95), ("2DEF", 0.88), ("3GHI", 0.82)],
+        "embedding": np.random.rand(1280),
+        "output_file": "/tmp/test_poses.sdf",
     }
 
 
@@ -106,13 +111,11 @@ def mock_pipeline_service():
     """Create a mock pipeline service."""
     mock_service = Mock()
     mock_service.run_pipeline.return_value = {
-        'poses': {
-            'shape': (Chem.MolFromSmiles("CCO"), {'shape': 0.8, 'color': 0.6})
-        },
-        'mcs_info': {'mcs_smiles': 'CCO'},
-        'templates': [('1ABC', 0.95)],
-        'embedding': np.random.rand(1280),
-        'output_file': '/tmp/test_output.sdf'
+        "poses": {"shape": (Chem.MolFromSmiles("CCO"), {"shape": 0.8, "color": 0.6})},
+        "mcs_info": {"mcs_smiles": "CCO"},
+        "templates": [("1ABC", 0.95)],
+        "embedding": np.random.rand(1280),
+        "output_file": "/tmp/test_output.sdf",
     }
     return mock_service
 
@@ -121,14 +124,16 @@ def mock_pipeline_service():
 def streamlit_app_env():
     """Setup environment for Streamlit app testing."""
     # Mock Streamlit's session state
-    with patch('streamlit.session_state') as mock_session_state:
-        mock_session_state.configure_mock(**{
-            'pipeline_results': None,
-            'current_step': 'input',
-            'error_message': None,
-            'processing': False,
-            'uploaded_files': []
-        })
+    with patch("streamlit.session_state") as mock_session_state:
+        mock_session_state.configure_mock(
+            **{
+                "pipeline_results": None,
+                "current_step": "input",
+                "error_message": None,
+                "processing": False,
+                "uploaded_files": [],
+            }
+        )
         yield mock_session_state
 
 
@@ -139,9 +144,9 @@ def mock_hardware_manager():
     mock_manager.get_optimal_workers.return_value = 4
     mock_manager.has_gpu.return_value = True
     mock_manager.get_memory_info.return_value = {
-        'total': 16 * 1024 * 1024 * 1024,  # 16GB
-        'available': 8 * 1024 * 1024 * 1024,  # 8GB
-        'percent': 50.0
+        "total": 16 * 1024 * 1024 * 1024,  # 16GB
+        "available": 8 * 1024 * 1024 * 1024,  # 8GB
+        "percent": 50.0,
     }
     return mock_manager
 
@@ -153,9 +158,9 @@ def mock_embedding_manager():
     mock_manager.load_database.return_value = True
     mock_manager.generate_embedding.return_value = np.random.rand(1280)
     mock_manager.find_similar_templates.return_value = [
-        ('1ABC', 0.95),
-        ('2DEF', 0.88),
-        ('3GHI', 0.82)
+        ("1ABC", 0.95),
+        ("2DEF", 0.88),
+        ("3GHI", 0.82),
     ]
     return mock_manager
 
@@ -165,7 +170,7 @@ def playwright_browser():
     """Create a Playwright browser instance for the session."""
     try:
         from playwright.sync_api import sync_playwright
-        
+
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             yield browser
@@ -189,15 +194,9 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')"
     )
-    config.addinivalue_line(
-        "markers", "integration: marks tests as integration tests"
-    )
-    config.addinivalue_line(
-        "markers", "e2e: marks tests as end-to-end tests"
-    )
-    config.addinivalue_line(
-        "markers", "ui: marks tests as UI tests"
-    )
+    config.addinivalue_line("markers", "integration: marks tests as integration tests")
+    config.addinivalue_line("markers", "e2e: marks tests as end-to-end tests")
+    config.addinivalue_line("markers", "ui: marks tests as UI tests")
 
 
 def pytest_collection_modifyitems(config, items):
@@ -221,7 +220,7 @@ def pytest_runtest_setup(item):
             import playwright
         except ImportError:
             pytest.skip("Playwright not available for E2E tests")
-    
+
     # Skip UI tests if Streamlit not available
     if item.get_closest_marker("ui"):
         try:

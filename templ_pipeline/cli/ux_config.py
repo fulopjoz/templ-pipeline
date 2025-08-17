@@ -394,13 +394,17 @@ class TEMPLUXConfig:
         if self.get_effective_experience_level() == ExperienceLevel.BEGINNER:
             if command == "run":
                 # Only show ligand hint if no ligand input is provided
-                if not partial_args.get("ligand_smiles") and not partial_args.get("ligand_file"):
+                if not partial_args.get("ligand_smiles") and not partial_args.get(
+                    "ligand_file"
+                ):
                     hints.append(
                         "TIP: You need either --ligand-smiles or --ligand-file to specify your query molecule"
                     )
 
                 # Only show protein hint if no protein input is provided
-                if not partial_args.get("protein_file") and not partial_args.get("protein_pdb_id"):
+                if not partial_args.get("protein_file") and not partial_args.get(
+                    "protein_pdb_id"
+                ):
                     hints.append(
                         "TIP: You need either --protein-file or --protein-pdb-id to specify your target protein"
                     )
@@ -470,15 +474,15 @@ def configure_logging_for_verbosity(
     """Configure logging based on verbosity level with optional log file support."""
     root_logger = logging.getLogger()
     cli_logger = logging.getLogger(logger_name)
-    
+
     # Configure benchmark logging to be less verbose
     benchmark_loggers = [
         "templ_pipeline.core.hardware",
-        "templ_pipeline.core.embedding", 
+        "templ_pipeline.core.embedding",
         "templ_pipeline.benchmark.runner",
-        "templ_pipeline.core.utils"
+        "templ_pipeline.core.utils",
     ]
-    
+
     for logger_name_config in benchmark_loggers:
         logger = logging.getLogger(logger_name_config)
         logger.setLevel(logging.WARNING)  # Suppress DEBUG/INFO during benchmarks
@@ -499,7 +503,7 @@ def configure_logging_for_verbosity(
 
     # Create console handler - suppress most logging for cleaner CLI output
     console_handler = logging.StreamHandler()
-    
+
     if verbosity == VerbosityLevel.MINIMAL:
         root_logger.setLevel(logging.WARNING)
         cli_logger.setLevel(logging.WARNING)
@@ -508,7 +512,9 @@ def configure_logging_for_verbosity(
     elif verbosity == VerbosityLevel.NORMAL:
         root_logger.setLevel(logging.CRITICAL)  # Suppress all logging except critical
         cli_logger.setLevel(logging.INFO)
-        console_handler.setLevel(logging.CRITICAL)  # Only show critical errors on console
+        console_handler.setLevel(
+            logging.CRITICAL
+        )  # Only show critical errors on console
         console_handler.setFormatter(normal_formatter)
     elif verbosity == VerbosityLevel.DETAILED:
         root_logger.setLevel(logging.INFO)
@@ -522,39 +528,42 @@ def configure_logging_for_verbosity(
         console_handler.setFormatter(detailed_formatter)
 
     root_logger.addHandler(console_handler)
-    
+
     # Suppress specific noisy loggers for cleaner CLI output
     if verbosity in [VerbosityLevel.MINIMAL, VerbosityLevel.NORMAL]:
         # Suppress embedding module warnings
         embedding_logger = logging.getLogger("templ_pipeline.core.embedding")
         embedding_logger.setLevel(logging.CRITICAL)
-        
+
         # Suppress other potentially noisy loggers
         for logger_name in ["templ_pipeline.core", "rdkit", "sklearn"]:
             noisy_logger = logging.getLogger(logger_name)
             noisy_logger.setLevel(logging.CRITICAL)
-    
+
     # Add file handler if log file path is provided
     if log_file_path:
         try:
             import os
+
             os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
-            
+
             # Main log file - INFO+ messages
             file_handler = logging.FileHandler(log_file_path)
             file_handler.setLevel(logging.INFO)
             file_handler.setFormatter(file_formatter)
             root_logger.addHandler(file_handler)
-            
+
             # Error log file - WARNING+ messages only
             error_log_path = log_file_path.replace(".log", "_errors.log")
             error_handler = logging.FileHandler(error_log_path)
             error_handler.setLevel(logging.WARNING)
             error_handler.setFormatter(file_formatter)
             root_logger.addHandler(error_handler)
-            
+
             # Log the file creation
-            root_logger.info(f"Logging to files: {log_file_path} (INFO+), {error_log_path} (WARNING+)")
+            root_logger.info(
+                f"Logging to files: {log_file_path} (INFO+), {error_log_path} (WARNING+)"
+            )
         except Exception as e:
             root_logger.warning(f"Failed to create log files: {e}")
 
@@ -563,31 +572,31 @@ def configure_benchmark_logging(
     benchmark_name: str,
     workspace_dir: str,
     suppress_console: bool = True,
-    log_level: str = "INFO"
+    log_level: str = "INFO",
 ):
     """
     Configure logging specifically for benchmark operations with clean progress bar support.
-    
+
     This function sets up file-only logging to keep terminal output clean for progress bars.
-    
+
     Args:
         benchmark_name: Name of the benchmark (e.g., 'polaris', 'timesplit')
         workspace_dir: Directory where log files should be created
         suppress_console: Whether to suppress all console output except progress bars
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR)
-    
+
     Returns:
         Dictionary with log file paths
     """
     from templ_pipeline.core.benchmark_logging import BenchmarkLoggingConfig
-    
+
     config = BenchmarkLoggingConfig(
         workspace_dir=workspace_dir,
         benchmark_name=benchmark_name,
         log_level=log_level,
-        suppress_console=suppress_console
+        suppress_console=suppress_console,
     )
-    
+
     return config.setup_file_logging()
 
 

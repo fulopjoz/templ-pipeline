@@ -57,27 +57,27 @@ class PredictionContext:
 @dataclass
 class FileMetadata:
     """Metadata about a managed file."""
-    
+
     path: str
     filename: str
     size_bytes: int
     created_time: float
     modified_time: float
     file_type: str  # 'poses', 'metadata', 'log', 'archive', 'temp'
-    category: str   # 'result', 'intermediate', 'analysis', 'backup'
+    category: str  # 'result', 'intermediate', 'analysis', 'backup'
     context: Optional[Dict[str, Any]] = None
     checksum: Optional[str] = None
-    
+
     @property
     def age_hours(self) -> float:
         """Get file age in hours."""
         return (datetime.now().timestamp() - self.created_time) / 3600.0
-    
+
     @property
     def size_mb(self) -> float:
         """Get file size in MB."""
         return self.size_bytes / (1024 * 1024)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return asdict(self)
@@ -196,10 +196,7 @@ class AdaptiveFileNamingEngine:
         return hashlib.md5(hash_input.encode()).hexdigest()[:8]
 
     def generate_related_filename(
-        self, 
-        base_filename: str, 
-        file_type: str,
-        extension: Optional[str] = None
+        self, base_filename: str, file_type: str, extension: Optional[str] = None
     ) -> str:
         """
         Generate related filename from base filename.
@@ -213,26 +210,26 @@ class AdaptiveFileNamingEngine:
             Related filename
         """
         base_path = Path(base_filename)
-        name_parts = base_path.stem.split('_')
-        
+        name_parts = base_path.stem.split("_")
+
         # Remove existing type suffix if present
-        if name_parts[-1] in ['poses', 'metadata', 'log', 'archive', 'analysis']:
+        if name_parts[-1] in ["poses", "metadata", "log", "archive", "analysis"]:
             name_parts = name_parts[:-1]
-        
+
         # Add new type suffix
-        new_name = '_'.join(name_parts + [file_type])
-        
+        new_name = "_".join(name_parts + [file_type])
+
         # Determine extension
         if extension is None:
-            if file_type == 'metadata':
-                extension = 'json'
-            elif file_type == 'log':
-                extension = 'log'
-            elif file_type == 'archive':
-                extension = 'zip'
+            if file_type == "metadata":
+                extension = "json"
+            elif file_type == "log":
+                extension = "log"
+            elif file_type == "archive":
+                extension = "zip"
             else:
                 extension = base_path.suffix[1:]  # Remove dot
-        
+
         return f"{new_name}.{extension}"
 
 
@@ -248,10 +245,10 @@ class FileManager:
     """
 
     def __init__(
-        self, 
+        self,
         output_dir: Optional[str] = None,
         run_id: Optional[str] = None,
-        workspace_manager: Optional[Any] = None
+        workspace_manager: Optional[Any] = None,
     ):
         """
         Initialize the file manager.
@@ -264,7 +261,7 @@ class FileManager:
         self.naming_engine = AdaptiveFileNamingEngine()
         self.workspace_manager = workspace_manager
         self.run_id = run_id
-        
+
         # Setup output directory
         if workspace_manager:
             self.output_dir = workspace_manager.output_dir
@@ -292,7 +289,7 @@ class FileManager:
         context: PredictionContext,
         file_type: str = "poses",
         extension: str = "sdf",
-        relative: bool = False
+        relative: bool = False,
     ) -> str:
         """
         Generate filename with full path.
@@ -314,10 +311,8 @@ class FileManager:
         elif file_type == "archive":
             extension = "zip"
 
-        filename = self.naming_engine.generate_filename(
-            context, file_type, extension
-        )
-        
+        filename = self.naming_engine.generate_filename(context, file_type, extension)
+
         if relative:
             return filename
         else:
@@ -331,7 +326,7 @@ class FileManager:
         file_type: str = "poses",
         extension: str = "sdf",
         metadata: Optional[Dict[str, Any]] = None,
-        calculate_checksum: bool = True
+        calculate_checksum: bool = True,
     ) -> str:
         """
         Save content to file with tracking.
@@ -348,33 +343,29 @@ class FileManager:
             Path to saved file
         """
         output_file = self.generate_filename(context, file_type, extension)
-        
+
         # Ensure output directory exists
         Path(output_file).parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Save content based on type
         if isinstance(content, str):
-            Path(output_file).write_text(content, encoding='utf-8')
+            Path(output_file).write_text(content, encoding="utf-8")
         elif isinstance(content, bytes):
             Path(output_file).write_bytes(content)
         else:
             # Try to serialize as JSON
-            Path(output_file).write_text(json.dumps(content, indent=2), encoding='utf-8')
-        
+            Path(output_file).write_text(
+                json.dumps(content, indent=2), encoding="utf-8"
+            )
+
         # Calculate checksum if requested
         checksum = None
         if calculate_checksum:
             checksum = self._calculate_file_checksum(output_file)
-        
+
         # Track the file
-        self._register_file(
-            output_file, 
-            file_type, 
-            context,
-            metadata,
-            checksum
-        )
-        
+        self._register_file(output_file, file_type, context, metadata, checksum)
+
         logger.info(f"Saved {file_type} file: {output_file}")
         return output_file
 
@@ -383,7 +374,7 @@ class FileManager:
         poses: Dict[str, Tuple[Any, Dict[str, float]]],
         context: PredictionContext,
         template_info: Optional[Dict[str, Any]] = None,
-        include_metadata: bool = True
+        include_metadata: bool = True,
     ) -> Tuple[str, Optional[str]]:
         """
         Save poses to SDF file using adaptive naming.
@@ -398,11 +389,13 @@ class FileManager:
             Tuple of (poses_file_path, metadata_file_path)
         """
         from rdkit import Chem
-        
+
         # Create wrapper function
         def generate_properties_for_sdf(mol, method, score, template_pdb, props):
             if _original_generate_properties is not None:
-                return _original_generate_properties(mol, method, score, template_pdb, props)
+                return _original_generate_properties(
+                    mol, method, score, template_pdb, props
+                )
             else:
                 # Fallback implementation
                 for prop_name, prop_value in props.items():
@@ -413,7 +406,7 @@ class FileManager:
                 return mol
 
         output_file = self.generate_filename(context, "poses", "sdf")
-        
+
         # Ensure output directory exists
         Path(output_file).parent.mkdir(parents=True, exist_ok=True)
 
@@ -456,7 +449,7 @@ class FileManager:
                 "pose_count": len(poses),
                 "methods": list(poses.keys()),
                 "template_info": template_info,
-            }
+            },
         )
 
         metadata_file = None
@@ -471,13 +464,9 @@ class FileManager:
                 "creation_time": datetime.now().isoformat(),
                 "run_id": context.run_id or "unknown",
             }
-            
+
             metadata_file = self.save_file(
-                metadata,
-                context,
-                "metadata",
-                "json",
-                {"related_file": output_file}
+                metadata, context, "metadata", "json", {"related_file": output_file}
             )
 
         logger.info(f"Successfully saved poses to {output_file}")
@@ -487,7 +476,7 @@ class FileManager:
         self,
         analysis_data: Dict[str, Any],
         context: PredictionContext,
-        analysis_type: str = "general"
+        analysis_type: str = "general",
     ) -> str:
         """
         Save analysis results to file.
@@ -507,20 +496,20 @@ class FileManager:
             "context": context.to_dict(),
             "data": analysis_data,
         }
-        
+
         return self.save_file(
             analysis_with_metadata,
             context,
             "analysis",
             "json",
-            {"analysis_type": analysis_type}
+            {"analysis_type": analysis_type},
         )
 
     def create_archive(
         self,
         context: PredictionContext,
         include_temp: bool = False,
-        file_types: Optional[List[str]] = None
+        file_types: Optional[List[str]] = None,
     ) -> str:
         """
         Create archive of related files.
@@ -534,16 +523,16 @@ class FileManager:
             Path to created archive
         """
         archive_file = self.generate_filename(context, "archive", "zip")
-        
+
         # Find related files
         related_files = self._find_related_files(context, file_types)
-        
-        with zipfile.ZipFile(archive_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
+
+        with zipfile.ZipFile(archive_file, "w", zipfile.ZIP_DEFLATED) as zipf:
             for file_path in related_files:
                 if Path(file_path).exists():
                     arcname = Path(file_path).name
                     zipf.write(file_path, arcname)
-        
+
         # Track the archive
         self._register_file(
             archive_file,
@@ -552,29 +541,27 @@ class FileManager:
             {
                 "archived_files": len(related_files),
                 "file_list": [Path(f).name for f in related_files],
-            }
+            },
         )
-        
+
         logger.info(f"Created archive: {archive_file}")
         return archive_file
 
     def _find_related_files(
-        self, 
-        context: PredictionContext, 
-        file_types: Optional[List[str]] = None
+        self, context: PredictionContext, file_types: Optional[List[str]] = None
     ) -> List[str]:
         """Find files related to a prediction context."""
         related_files = []
-        
+
         # Generate expected filenames for this context
         if file_types is None:
             file_types = ["poses", "metadata", "log", "analysis"]
-        
+
         for file_type in file_types:
             filename = self.generate_filename(context, file_type, "sdf")
             if Path(filename).exists():
                 related_files.append(filename)
-        
+
         return related_files
 
     def _register_file(
@@ -583,12 +570,12 @@ class FileManager:
         file_type: str,
         context: PredictionContext,
         metadata: Optional[Dict[str, Any]] = None,
-        checksum: Optional[str] = None
+        checksum: Optional[str] = None,
     ):
         """Register a file for tracking."""
         try:
             stat_info = Path(file_path).stat()
-            
+
             file_metadata = FileMetadata(
                 path=file_path,
                 filename=Path(file_path).name,
@@ -598,20 +585,22 @@ class FileManager:
                 file_type=file_type,
                 category=self._determine_category(file_type),
                 context=context.to_dict(),
-                checksum=checksum
+                checksum=checksum,
             )
-            
+
             self.managed_files[file_path] = file_metadata
-            
+
             # Record in history
-            self.file_history.append({
-                "action": "created",
-                "file_path": file_path,
-                "file_type": file_type,
-                "timestamp": datetime.now().isoformat(),
-                "metadata": metadata,
-            })
-            
+            self.file_history.append(
+                {
+                    "action": "created",
+                    "file_path": file_path,
+                    "file_type": file_type,
+                    "timestamp": datetime.now().isoformat(),
+                    "metadata": metadata,
+                }
+            )
+
         except Exception as e:
             logger.warning(f"Could not register file {file_path}: {e}")
 
@@ -649,26 +638,24 @@ class FileManager:
             "categories": {},
             "recent_files": [],
         }
-        
+
         # Count by type and category
         for file_metadata in self.managed_files.values():
             # By type
             if file_metadata.file_type not in summary["file_types"]:
                 summary["file_types"][file_metadata.file_type] = 0
             summary["file_types"][file_metadata.file_type] += 1
-            
+
             # By category
             if file_metadata.category not in summary["categories"]:
                 summary["categories"][file_metadata.category] = 0
             summary["categories"][file_metadata.category] += 1
-        
+
         # Recent files (last 5)
         recent_files = sorted(
-            self.managed_files.values(),
-            key=lambda f: f.created_time,
-            reverse=True
+            self.managed_files.values(), key=lambda f: f.created_time, reverse=True
         )[:5]
-        
+
         summary["recent_files"] = [
             {
                 "filename": f.filename,
@@ -678,7 +665,7 @@ class FileManager:
             }
             for f in recent_files
         ]
-        
+
         return summary
 
     def create_prediction_context(
@@ -717,12 +704,13 @@ class FileManager:
 
 # Backward compatibility classes and functions
 
+
 class OutputManager(FileManager):
     """Backward compatibility wrapper for OutputManager."""
-    
+
     def __init__(self, output_dir: str = "output", run_id: Optional[str] = None):
         super().__init__(output_dir=output_dir, run_id=run_id)
-    
+
     def generate_output_filename(
         self,
         context: PredictionContext,
@@ -731,7 +719,7 @@ class OutputManager(FileManager):
     ) -> str:
         """Backward compatibility method."""
         return self.generate_filename(context, file_type, extension)
-    
+
     def get_output_summary(self) -> Dict[str, Any]:
         """Backward compatibility method."""
         return self.get_file_summary()
@@ -741,15 +729,14 @@ class OutputManager(FileManager):
 def create_file_manager(
     output_dir: Optional[str] = None,
     run_id: Optional[str] = None,
-    workspace_manager: Optional[Any] = None
+    workspace_manager: Optional[Any] = None,
 ) -> FileManager:
     """Create a file manager instance."""
     return FileManager(output_dir, run_id, workspace_manager)
 
 
 def create_output_manager(
-    output_dir: str = "output", 
-    run_id: Optional[str] = None
+    output_dir: str = "output", run_id: Optional[str] = None
 ) -> OutputManager:
     """Create an output manager instance for backward compatibility."""
     return OutputManager(output_dir, run_id)
@@ -777,9 +764,6 @@ def generate_adaptive_filename(
     """
     engine = AdaptiveFileNamingEngine()
     context = PredictionContext(
-        pdb_id=pdb_id, 
-        template_source=template_source, 
-        batch_id=batch_id, 
-        smiles=smiles
+        pdb_id=pdb_id, template_source=template_source, batch_id=batch_id, smiles=smiles
     )
     return engine.generate_filename(context, "poses", extension)

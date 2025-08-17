@@ -19,11 +19,15 @@ from rdkit import Chem
 @pytest.fixture
 def sample_molecules():
     """Create sample RDKit molecules for testing."""
-    smiles_list = ['CCO', 'c1ccccc1', 'CC(=O)O', 'CCCCCC']
-    return [Chem.MolFromSmiles(smiles) for smiles in smiles_list if Chem.MolFromSmiles(smiles)]
+    smiles_list = ["CCO", "c1ccccc1", "CC(=O)O", "CCCCCC"]
+    return [
+        Chem.MolFromSmiles(smiles)
+        for smiles in smiles_list
+        if Chem.MolFromSmiles(smiles)
+    ]
 
 
-@pytest.fixture  
+@pytest.fixture
 def temp_dirs():
     """Create temporary directories for testing."""
     test_dir = tempfile.mkdtemp()
@@ -40,7 +44,7 @@ class TestCoreFunctionPerformance:
         """Test MCS calculation performance using actual find_mcs function."""
         if len(sample_molecules) < 2:
             pytest.skip("Need at least 2 molecules for MCS test")
-            
+
         try:
             from templ_pipeline.core.mcs import find_mcs
         except ImportError:
@@ -73,6 +77,7 @@ class TestCoreFunctionPerformance:
 
         # Ensure molecules have conformers
         from rdkit.Chem import AllChem
+
         AllChem.EmbedMolecule(mol1)
         AllChem.EmbedMolecule(mol2)
 
@@ -97,16 +102,16 @@ class TestCoreFunctionPerformance:
 
         # Mock the singleton instance to avoid initialization issues
         start_time = time.time()
-        
+
         # Test with a mock embedding file
-        with patch.object(EmbeddingManager, '_instance', None):
-            with patch('numpy.load') as mock_load:
-                mock_load.return_value = {'embeddings': np.random.rand(10, 1280)}
-                
+        with patch.object(EmbeddingManager, "_instance", None):
+            with patch("numpy.load") as mock_load:
+                mock_load.return_value = {"embeddings": np.random.rand(10, 1280)}
+
                 try:
                     manager = EmbeddingManager("/fake/path")
                     elapsed = time.time() - start_time
-                    
+
                     assert elapsed < 5.0  # Should initialize quickly
                     assert manager is not None
                 except Exception:
@@ -127,10 +132,10 @@ class TestCoreFunctionPerformance:
 
         assert elapsed < 10.0  # Should initialize within 10 seconds
         assert pipeline is not None
-        assert hasattr(pipeline, 'config')
+        assert hasattr(pipeline, "config")
 
 
-@pytest.mark.performance  
+@pytest.mark.performance
 class TestMemoryUsage:
     """Monitor memory usage during processing."""
 
@@ -175,7 +180,7 @@ class TestMemoryUsage:
         del molecules
 
         final_memory = self.get_memory_usage()
-        
+
         # Memory should be released after processing
         memory_retained = final_memory - initial_memory
         assert memory_retained < 200  # Less than 200MB retained
@@ -188,7 +193,7 @@ class TestMemoryUsage:
 
         # Create large data structure
         large_data = np.random.rand(1000, 1000)  # ~8MB array
-        
+
         peak_memory = self.get_memory_usage()
         del large_data
 
@@ -215,23 +220,23 @@ class TestScalabilityLimits:
             pytest.skip("Need multiple molecules for scaling test")
 
         target_mol = sample_molecules[0]
-        
+
         # Test with increasing numbers of reference molecules
-        molecule_counts = [1, 2, min(3, len(sample_molecules)-1)]
+        molecule_counts = [1, 2, min(3, len(sample_molecules) - 1)]
         times = []
 
         for count in molecule_counts:
-            ref_mols = sample_molecules[1:count+1]
-            
+            ref_mols = sample_molecules[1 : count + 1]
+
             start_time = time.time()
             result = find_mcs(target_mol, ref_mols)
             elapsed = time.time() - start_time
-            
+
             times.append(elapsed)
 
         # Performance should scale reasonably (not exponentially)
         assert all(t < 30 for t in times)  # All under 30 seconds
-        
+
         # Later tests shouldn't be dramatically slower
         if len(times) > 1:
             max_slowdown = 10  # Max 10x slowdown
@@ -248,18 +253,18 @@ class TestScalabilityLimits:
             pytest.skip("No molecules available")
 
         mol = sample_molecules[0]
-        
+
         # Test with different conformer counts
         conformer_counts = [1, 5, 10]
         times = []
 
         for count in conformer_counts:
             mol_copy = Chem.Mol(mol)
-            
+
             start_time = time.time()
             AllChem.EmbedMultipleConfs(mol_copy, numConfs=count)
             elapsed = time.time() - start_time
-            
+
             times.append(elapsed)
 
         # Should complete within reasonable time
@@ -272,12 +277,12 @@ class TestScalabilityLimits:
 
         # Test processing batches of increasing size
         batch_sizes = [1, 3, min(5, len(sample_molecules))]
-        
+
         for batch_size in batch_sizes:
             batch = sample_molecules[:batch_size]
-            
+
             start_time = time.time()
-            
+
             # Mock batch processing operation
             results = []
             for mol in batch:
@@ -285,7 +290,7 @@ class TestScalabilityLimits:
                     # Simple operation: count atoms
                     atom_count = mol.GetNumAtoms()
                     results.append({"atom_count": atom_count})
-            
+
             elapsed = time.time() - start_time
 
             # Should complete efficiently
@@ -300,7 +305,7 @@ class TestResourceManagement:
     def test_file_handle_management(self, temp_dirs):
         """Test that file handles are properly managed."""
         import gc
-        
+
         # Create temporary files
         temp_files = []
         for i in range(10):
@@ -311,7 +316,7 @@ class TestResourceManagement:
         # Read files and ensure handles are closed
         data = []
         for temp_file in temp_files:
-            with open(temp_file, 'r') as f:
+            with open(temp_file, "r") as f:
                 data.append(f.read())
 
         # Force garbage collection
@@ -325,7 +330,7 @@ class TestResourceManagement:
     def test_molecule_object_cleanup(self, sample_molecules):
         """Test molecule object cleanup."""
         import gc
-        
+
         # Create many molecule copies
         mol_copies = []
         for _ in range(100):
@@ -355,12 +360,12 @@ def test_end_to_end_performance(sample_molecules, temp_dirs):
         pytest.skip("Pipeline not available")
 
     pipeline = TEMPLPipeline(output_dir=temp_dirs)
-    
+
     start_time = time.time()
-    
+
     # Test basic pipeline operations
     result = pipeline.load_target_data()  # Should return quickly
-    
+
     elapsed = time.time() - start_time
 
     assert elapsed < 30.0  # Should complete within 30 seconds

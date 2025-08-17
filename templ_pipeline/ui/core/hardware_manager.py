@@ -61,7 +61,7 @@ def _cached_hardware_detection() -> HardwareInfo:
         # Use thread-safe timeout instead of signal-based timeout
         import concurrent.futures
         import functools
-        
+
         def detect_gpu():
             """GPU detection function that can be run with timeout"""
             # Use safer PyTorch import to avoid Streamlit file watcher conflicts
@@ -92,19 +92,21 @@ def _cached_hardware_detection() -> HardwareInfo:
             else:
                 logger.info("No CUDA-capable GPU detected")
                 return False, "cpu", [], 0.0
-        
+
         # Use ThreadPoolExecutor with timeout instead of signal
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(detect_gpu)
             try:
-                gpu_available, device_type, gpu_models, gpu_memory_gb = future.result(timeout=5.0)
+                gpu_available, device_type, gpu_models, gpu_memory_gb = future.result(
+                    timeout=5.0
+                )
             except concurrent.futures.TimeoutError:
                 logger.warning("GPU detection timed out - using CPU")
                 gpu_available = False
                 device_type = "cpu"
                 gpu_models = []
                 gpu_memory_gb = 0.0
-                
+
     except ImportError:
         logger.info("PyTorch not available for GPU detection")
     except Exception as e:
@@ -127,7 +129,9 @@ def _cached_hardware_detection() -> HardwareInfo:
     # Calculate optimal workers
     if gpu_available:
         # GPU can handle more concurrent operations
-        base_workers = min(cpu_count, 32)  # Increased from 16 to 32 for better utilization
+        base_workers = min(
+            cpu_count, 32
+        )  # Increased from 16 to 32 for better utilization
     else:
         # CPU-only: Use more cores but leave some for system
         if cpu_count >= 16:

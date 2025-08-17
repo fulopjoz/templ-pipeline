@@ -175,30 +175,31 @@ class InputSection:
                 self.session.set(SESSION_KEYS["CUSTOM_TEMPLATES"], None)
             except Exception:
                 pass
+
             # Define callback function for setting example PDB ID
             def set_example_pdb(pdb_value):
                 st.session_state.pdb_id_input = pdb_value
-            
+
             # Create columns for input, example button, and validation tick
             col_inp, col_btn, col_tick = st.columns([4, 1, 0.5])
-            
+
             with col_inp:
                 pdb_id = st.text_input(
                     "PDB ID",
                     placeholder="Enter 4-character PDB ID",
                     key="pdb_id_input",
                 )
-            
+
             with col_btn:
                 # Add some spacing to align with the input field
                 st.markdown("<br>", unsafe_allow_html=True)
                 example_pdb = "2etr"
                 st.button(
-                    "Use Example", 
-                    key="use_example_pdb", 
+                    "Use Example",
+                    key="use_example_pdb",
                     help="Fill with example PDB ID",
                     on_click=set_example_pdb,
-                    args=[example_pdb]
+                    args=[example_pdb],
                 )
 
             if pdb_id:
@@ -239,24 +240,26 @@ class InputSection:
                     file_path = save_uploaded_file(uploaded_file)
 
                     # Integrate with pipeline system for robust processing
-                    success, message, extracted_pdb_id, embedding_info = integrate_uploaded_pdb_with_pipeline(
-                        file_path, self.session
+                    success, message, extracted_pdb_id, embedding_info = (
+                        integrate_uploaded_pdb_with_pipeline(file_path, self.session)
                     )
-                    
+
                     if success:
                         # Store file path and PDB ID in session
                         self.session.set(SESSION_KEYS["PROTEIN_FILE_PATH"], file_path)
-                        
+
                         if extracted_pdb_id:
                             # Store extracted PDB ID for database integration
-                            self.session.set(SESSION_KEYS["PROTEIN_PDB_ID"], extracted_pdb_id)
+                            self.session.set(
+                                SESSION_KEYS["PROTEIN_PDB_ID"], extracted_pdb_id
+                            )
                             # Store embedding info for pipeline use
                             if embedding_info:
                                 self.session.set("pdb_embedding_info", embedding_info)
                         else:
                             # Clear PDB ID if not found
                             self.session.set(SESSION_KEYS["PROTEIN_PDB_ID"], None)
-                            
+
                         # Clear custom templates when using file upload
                         self.session.set(SESSION_KEYS["CUSTOM_TEMPLATES"], None)
 
@@ -264,11 +267,15 @@ class InputSection:
                         if "Successfully processed" in message:
                             st.success(message)
                             if embedding_info and embedding_info.get("success"):
-                                st.info(f"✓ Vector embedding ready: {embedding_info['message']}")
+                                st.info(
+                                    f"✓ Vector embedding ready: {embedding_info['message']}"
+                                )
                         else:
                             st.warning(message)
                             if extracted_pdb_id:
-                                st.info("Note: The pipeline will attempt to generate embeddings during processing.")
+                                st.info(
+                                    "Note: The pipeline will attempt to generate embeddings during processing."
+                                )
                     else:
                         st.error(f"Failed to process PDB file: {message}")
                         # Clear session data on failure

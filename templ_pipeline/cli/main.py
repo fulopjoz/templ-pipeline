@@ -52,7 +52,11 @@ from .ux_config import (
     ExperienceLevel,
 )
 from .help_system import create_enhanced_parser, handle_help_request
-from .progress_indicators import progress_context, OperationType, simple_progress_wrapper
+from .progress_indicators import (
+    progress_context,
+    OperationType,
+    simple_progress_wrapper,
+)
 
 # Import version information
 try:
@@ -200,7 +204,7 @@ def setup_parser():
         choices=["minimal", "normal", "detailed", "debug"],
         help="Output verbosity level",
     )
-    
+
     # Add random seed for reproducible results
     parser.add_argument(
         "--seed",
@@ -414,7 +418,7 @@ def setup_parser():
         help="Comma-separated list of PDB IDs to allow as templates (for dataset filtering)",
     )
     run_parser.add_argument(
-        "--exclude-pdb-ids", 
+        "--exclude-pdb-ids",
         type=str,
         default=None,
         help="Comma-separated list of PDB IDs to exclude as templates (for leave-one-out)",
@@ -540,7 +544,7 @@ def setup_parser():
         help="Maximum system memory to use in GiB (overrides auto-detection)",
     )
     benchmark_parser.add_argument(
-        "--worker-strategy", 
+        "--worker-strategy",
         choices=["auto", "io-bound", "cpu-bound", "memory-bound"],
         default="auto",
         help="Worker allocation strategy based on workload characteristics",
@@ -552,7 +556,7 @@ def setup_parser():
     )
     benchmark_parser.add_argument(
         "--disable-auto-scaling",
-        action="store_true", 
+        action="store_true",
         help="Disable automatic worker scaling based on system load",
     )
     benchmark_parser.add_argument(
@@ -881,72 +885,97 @@ def generate_poses_command(args):
 def _is_pre_pipeline_failure(error_message: str) -> bool:
     """
     Classify error messages to determine if failure occurred before pipeline processing.
-    
-    Pre-pipeline failures are data availability/loading issues that prevent the 
+
+    Pre-pipeline failures are data availability/loading issues that prevent the
     molecule from entering the actual processing pipeline.
-    
+
     Args:
         error_message: Error message from pipeline execution
-        
+
     Returns:
         True if this is a pre-pipeline exclusion, False otherwise
     """
     if not error_message:
         return False
-        
+
     error_lower = error_message.lower()
-    
+
     # Pre-pipeline exclusions (data availability issues)
     pre_pipeline_patterns = [
-        "file not found", "could not load", "invalid file", "missing file",
-        "file does not exist", "cannot read", "failed to load", "io error",
-        "permission denied", "access denied", "corrupted file",
-        "invalid smiles", "smiles parsing failed", "molecule parsing failed",
-        "rdkit sanitization", "molecule creation failed",
-        "protein structure", "pdb parsing", "structure loading",
-        "embedding file", "database connection", "network error"
+        "file not found",
+        "could not load",
+        "invalid file",
+        "missing file",
+        "file does not exist",
+        "cannot read",
+        "failed to load",
+        "io error",
+        "permission denied",
+        "access denied",
+        "corrupted file",
+        "invalid smiles",
+        "smiles parsing failed",
+        "molecule parsing failed",
+        "rdkit sanitization",
+        "molecule creation failed",
+        "protein structure",
+        "pdb parsing",
+        "structure loading",
+        "embedding file",
+        "database connection",
+        "network error",
     ]
-    
+
     # Check if error matches pre-pipeline patterns
     for pattern in pre_pipeline_patterns:
         if pattern in error_lower:
             return True
-    
+
     return False
 
 
 def _is_pipeline_filtering(error_message: str) -> bool:
     """
     Determine if error message indicates molecular filtering (vs pipeline failure).
-    
+
     Pipeline filtering excludes molecules based on chemical properties that make
     them unsuitable for processing (peptides, polysaccharides, etc.). These should
     be excluded from success rate denominators.
-    
+
     Args:
         error_message: Error message from pipeline execution
-        
+
     Returns:
         True if this represents molecular filtering, False otherwise
     """
     if not error_message:
         return False
-        
+
     error_lower = error_message.lower()
-    
+
     # Molecular filtering patterns (chemical property exclusions)
     filtering_patterns = [
-        "large peptide", "target is a large peptide", "peptide (", "residues >",
-        "polysaccharide", "complex polysaccharide", "sugar rings >", "sugar-like rings",
-        "rhenium complex", "cannot be processed", "pipeline is designed for drug-like",
-        "specialized conformational sampling", "filtered:", "validation failed:"
+        "large peptide",
+        "target is a large peptide",
+        "peptide (",
+        "residues >",
+        "polysaccharide",
+        "complex polysaccharide",
+        "sugar rings >",
+        "sugar-like rings",
+        "rhenium complex",
+        "cannot be processed",
+        "pipeline is designed for drug-like",
+        "specialized conformational sampling",
+        "filtered:",
+        "validation failed:",
     ]
-    
+
     # Check if error matches filtering patterns
     for pattern in filtering_patterns:
         if pattern in error_lower:
             return True
-    
+
     return False
 
 
@@ -976,12 +1005,20 @@ def run_command(args):
 
         # Parse PDB ID lists
         allowed_pdb_ids = None
-        if hasattr(args, 'allowed_pdb_ids') and args.allowed_pdb_ids:
-            allowed_pdb_ids = set(pdb_id.strip().upper() for pdb_id in args.allowed_pdb_ids.split(',') if pdb_id.strip())
-            
+        if hasattr(args, "allowed_pdb_ids") and args.allowed_pdb_ids:
+            allowed_pdb_ids = set(
+                pdb_id.strip().upper()
+                for pdb_id in args.allowed_pdb_ids.split(",")
+                if pdb_id.strip()
+            )
+
         exclude_pdb_ids = None
-        if hasattr(args, 'exclude_pdb_ids') and args.exclude_pdb_ids:
-            exclude_pdb_ids = set(pdb_id.strip().upper() for pdb_id in args.exclude_pdb_ids.split(',') if pdb_id.strip())
+        if hasattr(args, "exclude_pdb_ids") and args.exclude_pdb_ids:
+            exclude_pdb_ids = set(
+                pdb_id.strip().upper()
+                for pdb_id in args.exclude_pdb_ids.split(",")
+                if pdb_id.strip()
+            )
 
         # Run pipeline with progress indication
         def run_pipeline():
@@ -1009,30 +1046,42 @@ def run_command(args):
         if results.get("success") and results.get("poses"):
             logger.info(f"CLI_RMSD: Starting RMSD calculation for successful pipeline")
             logger.info(f"CLI_RMSD:   Pipeline success: {results.get('success')}")
-            logger.info(f"CLI_RMSD:   Poses available: {list(results.get('poses', {}).keys())}")
-            
+            logger.info(
+                f"CLI_RMSD:   Poses available: {list(results.get('poses', {}).keys())}"
+            )
+
             try:
                 # Try to get crystal structure for RMSD calculation
-                crystal_mol = getattr(pipeline, 'crystal_mol', None)
+                crystal_mol = getattr(pipeline, "crystal_mol", None)
                 has_crystal = crystal_mol is not None
-                
+
                 logger.info(f"CLI_RMSD: Crystal structure availability check:")
-                logger.info(f"CLI_RMSD:   Pipeline has crystal_mol attribute: {hasattr(pipeline, 'crystal_mol')}")
+                logger.info(
+                    f"CLI_RMSD:   Pipeline has crystal_mol attribute: {hasattr(pipeline, 'crystal_mol')}"
+                )
                 logger.info(f"CLI_RMSD:   Crystal molecule is not None: {has_crystal}")
-                
+
                 if has_crystal:
-                    logger.info(f"CLI_RMSD:   Crystal molecule atoms: {crystal_mol.GetNumAtoms()}")
-                    logger.info(f"CLI_RMSD:   Crystal molecule conformers: {crystal_mol.GetNumConformers()}")
-                
+                    logger.info(
+                        f"CLI_RMSD:   Crystal molecule atoms: {crystal_mol.GetNumAtoms()}"
+                    )
+                    logger.info(
+                        f"CLI_RMSD:   Crystal molecule conformers: {crystal_mol.GetNumConformers()}"
+                    )
+
                 if crystal_mol is not None:
                     from templ_pipeline.core.scoring import rmsd_raw
                     from rdkit import Chem
                     import numpy as np
-                    
+
                     crystal_noH = Chem.RemoveHs(crystal_mol)
-                    logger.info(f"CLI_RMSD: Processing crystal structure for comparison")
-                    logger.info(f"CLI_RMSD:   Crystal atoms after H removal: {crystal_noH.GetNumAtoms()}")
-                    
+                    logger.info(
+                        f"CLI_RMSD: Processing crystal structure for comparison"
+                    )
+                    logger.info(
+                        f"CLI_RMSD:   Crystal atoms after H removal: {crystal_noH.GetNumAtoms()}"
+                    )
+
                     # Calculate RMSD for each metric's best pose
                     for metric, (pose, scores) in results["poses"].items():
                         if pose is not None:
@@ -1041,37 +1090,47 @@ def run_command(args):
                                 rmsd = rmsd_raw(pose_noH, crystal_noH)
                                 rmsd_values[metric] = {
                                     "rmsd": float(rmsd) if not np.isnan(rmsd) else None,
-                                    "score": float(scores.get(metric, 0.0))
+                                    "score": float(scores.get(metric, 0.0)),
                                 }
                                 if not np.isnan(rmsd):
-                                    logger.info(f"CLI_RMSD: Calculated RMSD for {metric}: {rmsd:.3f}Å")
+                                    logger.info(
+                                        f"CLI_RMSD: Calculated RMSD for {metric}: {rmsd:.3f}Å"
+                                    )
                                 else:
-                                    logger.debug(f"CLI_RMSD: RMSD calculation returned NaN for {metric} - likely molecular structure incompatibility")
+                                    logger.debug(
+                                        f"CLI_RMSD: RMSD calculation returned NaN for {metric} - likely molecular structure incompatibility"
+                                    )
                             except Exception as e:
-                                logger.warning(f"CLI_RMSD: RMSD calculation failed for {metric}: {e}")
+                                logger.warning(
+                                    f"CLI_RMSD: RMSD calculation failed for {metric}: {e}"
+                                )
                                 rmsd_values[metric] = {
                                     "rmsd": None,
-                                    "score": float(scores.get(metric, 0.0))
+                                    "score": float(scores.get(metric, 0.0)),
                                 }
                 else:
                     # No crystal structure available - just include scores
-                    logger.warning(f"CLI_RMSD: No crystal structure available - using score-only fallback")
+                    logger.warning(
+                        f"CLI_RMSD: No crystal structure available - using score-only fallback"
+                    )
                     for metric, (pose, scores) in results["poses"].items():
                         if pose is not None:
                             rmsd_values[metric] = {
                                 "rmsd": None,
-                                "score": float(scores.get(metric, 0.0))
+                                "score": float(scores.get(metric, 0.0)),
                             }
-                            logger.info(f"CLI_RMSD: Score-only entry for {metric}: {scores.get(metric, 0.0):.3f}")
+                            logger.info(
+                                f"CLI_RMSD: Score-only entry for {metric}: {scores.get(metric, 0.0):.3f}"
+                            )
             except Exception as e:
                 logger.error(f"CLI_RMSD: RMSD calculation setup failed: {e}")
                 logger.error(f"CLI_RMSD: Traceback: {traceback.format_exc()}")
 
         # Determine pipeline stage for benchmark tracking
-        made_it_to_mcs = getattr(pipeline, 'made_it_to_mcs', False)
+        made_it_to_mcs = getattr(pipeline, "made_it_to_mcs", False)
         success = results.get("success", False)
         error_message = results.get("error", "")
-        
+
         # Comprehensive pipeline stage classification
         if made_it_to_mcs:
             # Reached MCS stage (success or failure in MCS/conformer generation/pose scoring)
@@ -1084,7 +1143,7 @@ def run_command(args):
                 # These are excluded from success rate denominators
                 pipeline_stage = "pre_pipeline_excluded"
             elif _is_pipeline_filtering(error_message):
-                # Molecular filtering (peptides, polysaccharides, chemical validation)  
+                # Molecular filtering (peptides, polysaccharides, chemical validation)
                 # These are excluded from success rate denominators
                 pipeline_stage = "pipeline_filtered"
             else:
@@ -1100,25 +1159,37 @@ def run_command(args):
             "success": results.get("success", False),
             "pipeline_stage": pipeline_stage,
             "made_it_to_mcs": made_it_to_mcs,
-            "total_templates_in_database": len(results.get('templates', [])),
-            "templates_used_for_poses": results.get('template_processing_pipeline', {}).get('final_usable_templates', 0),
-            "template_filtering_info": results.get('filtering_info', {}),
-            "template_processing_pipeline": results.get('template_processing_pipeline', {}),
-            "template_database_stats": getattr(pipeline, 'template_filtering_stats', {}),
-            "template_embedding_similarities": results.get('template_similarities', {}),
-            "poses_count": len(results.get('poses', {})),
-            "output_file": results.get('output_file', 'unknown'),
-            "rmsd_values": rmsd_values
+            "total_templates_in_database": len(results.get("templates", [])),
+            "templates_used_for_poses": results.get(
+                "template_processing_pipeline", {}
+            ).get("final_usable_templates", 0),
+            "template_filtering_info": results.get("filtering_info", {}),
+            "template_processing_pipeline": results.get(
+                "template_processing_pipeline", {}
+            ),
+            "template_database_stats": getattr(
+                pipeline, "template_filtering_stats", {}
+            ),
+            "template_embedding_similarities": results.get("template_similarities", {}),
+            "poses_count": len(results.get("poses", {})),
+            "output_file": results.get("output_file", "unknown"),
+            "rmsd_values": rmsd_values,
         }
-        
+
         # Import json and numpy for output
         import json
         import numpy as np
-        
+
         # Output JSON on a single line for easy parsing (only if requested)
         if getattr(args, "json_output", False):
-            print("TEMPL_JSON_RESULT:" + json.dumps(json_output, default=lambda x: float(x) if isinstance(x, np.floating) else x))
-        
+            print(
+                "TEMPL_JSON_RESULT:"
+                + json.dumps(
+                    json_output,
+                    default=lambda x: float(x) if isinstance(x, np.floating) else x,
+                )
+            )
+
         # Also output human-readable summary for backwards compatibility
         print(f"Pipeline completed successfully!")
         print(f"Found {len(results.get('templates', []))} templates")
@@ -1149,20 +1220,20 @@ def load_template_molecules_from_sdf(template_pdbs):
 def _resolve_workspace_dir(workspace_dir):
     """Resolve workspace directory with backward compatibility for old locations."""
     from pathlib import Path
-    
+
     workspace_path = Path(workspace_dir)
-    
+
     # If the new path exists, use it
     if workspace_path.exists():
         return workspace_path
-    
+
     # Check if this might be an old workspace name in root directory
     workspace_name = workspace_path.name
     old_location = Path(workspace_name)
     if old_location.exists():
         logger.info(f"Found workspace in old location: {old_location}")
         return old_location
-    
+
     # If neither exists, return the original path (might be created later)
     return workspace_path
 
@@ -1173,79 +1244,95 @@ def _generate_unified_summary(workspace_dir, benchmark_type):
         from templ_pipeline.benchmark.summary_generator import BenchmarkSummaryGenerator
         import json
         from pathlib import Path
-        
+
         # Resolve workspace directory with backward compatibility
         workspace_dir = _resolve_workspace_dir(workspace_dir)
-        
+
         generator = BenchmarkSummaryGenerator()
         raw_results_dir = workspace_dir / "raw_results"
         summaries_dir = workspace_dir / "summaries"
-        
+
         # Find result files based on benchmark type
         result_files = []
         if benchmark_type == "polaris":
             # Look for Polaris JSON results in workspace directory first, then fallback to old location
             polaris_workspace_dir = raw_results_dir / "polaris"
             polaris_fallback_dir = Path("benchmarks") / "results" / "polaris"
-            
+
             logger.info(f"Searching for Polaris results in: {polaris_workspace_dir}")
             if polaris_workspace_dir.exists():
                 json_files = list(polaris_workspace_dir.glob("*.json"))
                 result_files.extend(json_files)
-                logger.info(f"Found {len(json_files)} JSON files in workspace directory")
+                logger.info(
+                    f"Found {len(json_files)} JSON files in workspace directory"
+                )
             else:
-                logger.info(f"Workspace directory {polaris_workspace_dir} does not exist")
-                
+                logger.info(
+                    f"Workspace directory {polaris_workspace_dir} does not exist"
+                )
+
             if not result_files and polaris_fallback_dir.exists():
                 fallback_files = list(polaris_fallback_dir.glob("*.json"))
                 result_files.extend(fallback_files)
-                logger.info(f"Found {len(fallback_files)} JSON files in fallback directory: {polaris_fallback_dir}")
-            
+                logger.info(
+                    f"Found {len(fallback_files)} JSON files in fallback directory: {polaris_fallback_dir}"
+                )
+
             # Check old location for backward compatibility
             old_polaris_dir = Path("templ_benchmark_results_polaris")
             if not result_files and old_polaris_dir.exists():
                 old_files = list(old_polaris_dir.glob("*.json"))
                 result_files.extend(old_files)
-                logger.info(f"Found {len(old_files)} JSON files in old polaris directory: {old_polaris_dir}")
-            
+                logger.info(
+                    f"Found {len(old_files)} JSON files in old polaris directory: {old_polaris_dir}"
+                )
+
             # Additional search in raw_results_dir root
             if not result_files and raw_results_dir.exists():
                 root_files = list(raw_results_dir.glob("*.json"))
                 result_files.extend(root_files)
-                logger.info(f"Found {len(root_files)} JSON files in raw results root directory")
+                logger.info(
+                    f"Found {len(root_files)} JSON files in raw results root directory"
+                )
         elif benchmark_type == "timesplit":
             # Look for Timesplit JSONL results - check multiple locations
             jsonl_locations = [
                 raw_results_dir / "timesplit" / "results_stream.jsonl",
-                raw_results_dir / "results_stream.jsonl", 
+                raw_results_dir / "results_stream.jsonl",
                 workspace_dir / "raw_results" / "timesplit" / "results_stream.jsonl",
-                workspace_dir / "timesplit_stream_results" / "results_stream.jsonl"
+                workspace_dir / "timesplit_stream_results" / "results_stream.jsonl",
             ]
-            
-            logger.info(f"Searching for Timesplit results in {len(jsonl_locations)} locations")
+
+            logger.info(
+                f"Searching for Timesplit results in {len(jsonl_locations)} locations"
+            )
             for jsonl_path in jsonl_locations:
                 logger.info(f"Checking: {jsonl_path}")
                 if jsonl_path.exists():
                     result_files.append(jsonl_path)
                     logger.info(f"Found timesplit results: {jsonl_path}")
                     break
-            
+
             # Also look for any other JSON/JSONL files as fallback
             if not result_files and raw_results_dir.exists():
                 jsonl_files = list(raw_results_dir.glob("**/*.jsonl"))
                 json_files = list(raw_results_dir.glob("**/*.json"))
                 result_files.extend(jsonl_files)
                 result_files.extend(json_files)
-                logger.info(f"Fallback search found {len(jsonl_files)} JSONL and {len(json_files)} JSON files")
-        
+                logger.info(
+                    f"Fallback search found {len(jsonl_files)} JSONL and {len(json_files)} JSON files"
+                )
+
         if not result_files:
-            logger.warning(f"No result files found for {benchmark_type} benchmark summary")
+            logger.warning(
+                f"No result files found for {benchmark_type} benchmark summary"
+            )
             logger.warning(f"Searched in: {raw_results_dir}")
             if raw_results_dir.exists():
                 all_files = list(raw_results_dir.rglob("*"))
                 logger.warning(f"Files found in results dir: {all_files}")
             return
-        
+
         # Load and combine results
         all_results = {}
         for file_path in result_files:
@@ -1254,28 +1341,30 @@ def _generate_unified_summary(workspace_dir, benchmark_type):
                 if file_path.suffix == ".jsonl":
                     # JSONL format
                     results = []
-                    with open(file_path, 'r') as f:
+                    with open(file_path, "r") as f:
                         for line_num, line in enumerate(f, 1):
                             if line.strip():
                                 try:
                                     results.append(json.loads(line))
                                 except json.JSONDecodeError as je:
-                                    logger.warning(f"Invalid JSON on line {line_num} in {file_path}: {je}")
+                                    logger.warning(
+                                        f"Invalid JSON on line {line_num} in {file_path}: {je}"
+                                    )
                     logger.info(f"Loaded {len(results)} results from {file_path}")
                     all_results[file_path.stem] = results
                 elif file_path.suffix == ".json":
                     # JSON format
-                    with open(file_path, 'r') as f:
+                    with open(file_path, "r") as f:
                         results = json.load(f)
                     logger.info(f"Loaded JSON results from {file_path}")
                     all_results[file_path.stem] = results
             except Exception as e:
                 logger.warning(f"Failed to load {file_path}: {e}")
-        
+
         if not all_results:
             logger.warning("No valid results loaded for summary generation")
             return
-        
+
         # Generate summary
         # Flatten individual results for timesplit benchmarks
         if benchmark_type == "timesplit":
@@ -1284,31 +1373,37 @@ def _generate_unified_summary(workspace_dir, benchmark_type):
                 if file_stem.startswith("results_") and isinstance(file_data, list):
                     # This is a JSONL file with individual results
                     individual_results.extend(file_data)
-            
+
             if individual_results:
-                logger.info(f"Using {len(individual_results)} individual results for timesplit summary")
+                logger.info(
+                    f"Using {len(individual_results)} individual results for timesplit summary"
+                )
                 results_data = individual_results
             else:
                 logger.info("No individual results found, using complete results data")
-                results_data = list(all_results.values())[0] if len(all_results) == 1 else all_results
+                results_data = (
+                    list(all_results.values())[0]
+                    if len(all_results) == 1
+                    else all_results
+                )
         else:
             # For other benchmark types, use original logic
-            results_data = list(all_results.values())[0] if len(all_results) == 1 else all_results
-            
+            results_data = (
+                list(all_results.values())[0] if len(all_results) == 1 else all_results
+            )
+
         summary = generator.generate_unified_summary(results_data, benchmark_type)
-        
+
         # Save summary files
         saved_files = generator.save_summary_files(
-            summary, 
-            summaries_dir,
-            f"{benchmark_type}_benchmark_summary"
+            summary, summaries_dir, f"{benchmark_type}_benchmark_summary"
         )
-        
+
         if saved_files:
             logger.info(f"Generated summary files:")
             for fmt, path in saved_files.items():
                 logger.info(f"  {fmt.upper()}: {path}")
-        
+
     except Exception as e:
         logger.warning(f"Failed to generate unified summary: {e}")
 
@@ -1317,7 +1412,8 @@ def _optimize_hardware_config(args):
     """Simplified hardware config: decide n_workers and memory based on args and system."""
     try:
         import psutil
-        total_mem_gb = psutil.virtual_memory().total / (1024 ** 3)
+
+        total_mem_gb = psutil.virtual_memory().total / (1024**3)
         physical_cpus = psutil.cpu_count(logical=False) or 4
         logical_cpus = psutil.cpu_count(logical=True) or physical_cpus
     except ImportError:
@@ -1369,45 +1465,50 @@ def benchmark_command(args):
     hardware_config = _optimize_hardware_config(args)
     args.n_workers = hardware_config["n_workers"]
     args.per_worker_ram_gb = hardware_config["per_worker_ram_gb"]
-    
+
     # Log hardware optimization decisions
     logger.info(f"Hardware optimization: {hardware_config['profile']} profile")
     logger.info(f"Workers: {args.n_workers}, Strategy: {hardware_config['strategy']}")
-    if hardware_config.get('memory_optimized'):
-        logger.info(f"Memory optimized: {hardware_config['total_memory_gb']:.1f}GB available")
+    if hardware_config.get("memory_optimized"):
+        logger.info(
+            f"Memory optimized: {hardware_config['total_memory_gb']:.1f}GB available"
+        )
 
     if args.suite == "polaris":
         # Create organized workspace directory for polaris benchmark results
         from datetime import datetime
         from pathlib import Path
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        workspace_dir = Path("benchmarks") / "polaris" / f"benchmark_polaris_{timestamp}"
+        workspace_dir = (
+            Path("benchmarks") / "polaris" / f"benchmark_polaris_{timestamp}"
+        )
         workspace_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Create subdirectories for organization
         (workspace_dir / "raw_results").mkdir(exist_ok=True)
         (workspace_dir / "summaries").mkdir(exist_ok=True)
         logs_dir = workspace_dir / "logs"
         logs_dir.mkdir(exist_ok=True)
-        
+
         print("DEBUG: Polaris benchmark requested")
         try:
             from templ_pipeline.benchmark.polaris.benchmark import (
                 main as benchmark_main,
             )
-            
+
             # Determine log level based on verbosity
             if hasattr(args, "verbose") and args.verbose:
                 log_level = "DEBUG"
             else:
                 log_level = "INFO"
-                
+
             logger.info(f"Starting Polaris benchmark with {args.n_workers} workers")
             logger.info(f"Workspace directory: {workspace_dir}/")
 
             # Convert CLI args to benchmark args with organized workspace structure
             benchmark_args = []
-            
+
             if hasattr(args, "n_workers") and args.n_workers:
                 benchmark_args.extend(["--n-workers", str(args.n_workers)])
             if hasattr(args, "n_conformers") and args.n_conformers:
@@ -1418,14 +1519,14 @@ def benchmark_command(args):
                 benchmark_args.extend(["--log-level", "DEBUG"])
             else:
                 benchmark_args.extend(["--log-level", "INFO"])
-            
+
             # Pass workspace directory to polaris benchmark for organized structure
             benchmark_args.extend(["--workspace-dir", str(workspace_dir)])
-            
+
             # Add pose saving arguments (polaris will organize automatically in workspace)
             if hasattr(args, "poses_dir") and args.poses_dir:
                 benchmark_args.extend(["--poses-dir", args.poses_dir])
-            
+
             # Add ablation study flags
             if hasattr(args, "unconstrained") and args.unconstrained:
                 benchmark_args.append("--unconstrained")
@@ -1438,16 +1539,16 @@ def benchmark_command(args):
 
             # Setup file-only logging for clean progress bar display
             from templ_pipeline.core.benchmark_logging import benchmark_logging_context
-            
+
             # Use benchmark logging context for clean terminal output
             with benchmark_logging_context(
                 workspace_dir=workspace_dir,
                 benchmark_name="polaris",
                 log_level=log_level,
-                suppress_console=False  # Allow progress bars to show
+                suppress_console=False,  # Allow progress bars to show
             ) as log_info:
                 logger.info(f"Logs will be written to: {logs_dir}")
-                
+
                 result = benchmark_main(benchmark_args)
 
                 # Generate unified summary for Polaris results
@@ -1467,20 +1568,23 @@ def benchmark_command(args):
         # Create organized workspace directory for time-split benchmark results
         from datetime import datetime
         from pathlib import Path
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        workspace_dir = Path("benchmarks") / "pdbbind" / f"benchmark_timesplit_{timestamp}"
+        workspace_dir = (
+            Path("benchmarks") / "pdbbind" / f"benchmark_timesplit_{timestamp}"
+        )
         workspace_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Create subdirectories for organization
         (workspace_dir / "raw_results").mkdir(exist_ok=True)
         (workspace_dir / "summaries").mkdir(exist_ok=True)
         logs_dir = workspace_dir / "logs"
         logs_dir.mkdir(exist_ok=True)
-        
+
         # Setup structured log files
         main_log_file = logs_dir / "benchmark.log"
         error_log_file = logs_dir / "errors.log"
-        
+
         try:
             from templ_pipeline.benchmark.timesplit import run_timesplit_benchmark
 
@@ -1497,7 +1601,7 @@ def benchmark_command(args):
 
             # Setup file-only logging for clean progress bar display
             from templ_pipeline.core.benchmark_logging import benchmark_logging_context
-            
+
             # Determine log level based on verbosity
             if hasattr(args, "verbose") and args.verbose:
                 log_level = "DEBUG"
@@ -1509,26 +1613,32 @@ def benchmark_command(args):
                 workspace_dir=workspace_dir,
                 benchmark_name="timesplit",
                 log_level=log_level,
-                suppress_console=False  # Allow progress bars to show
+                suppress_console=False,  # Allow progress bars to show
             ) as log_info:
-                logger.info(f"Starting Timesplit benchmark for splits: {', '.join(splits_to_run)}")
-                logger.info(f"Using {args.n_workers} workers, {args.n_conformers} conformers")
+                logger.info(
+                    f"Starting Timesplit benchmark for splits: {', '.join(splits_to_run)}"
+                )
+                logger.info(
+                    f"Using {args.n_workers} workers, {args.n_conformers} conformers"
+                )
                 logger.info(f"Workspace directory: {workspace_dir}/")
                 logger.info(f"Logs will be written to: {logs_dir}")
 
                 # Use workspace subdirectory for timesplit results
                 timesplit_results_dir = workspace_dir / "raw_results" / "timesplit"
                 timesplit_results_dir.mkdir(parents=True, exist_ok=True)
-                
+
                 # Setup poses directory
                 poses_dir = None
                 if hasattr(args, "save_poses") and args.save_poses:
-                    poses_dir = str(workspace_dir / "raw_results" / "timesplit" / "poses")
-                
+                    poses_dir = str(
+                        workspace_dir / "raw_results" / "timesplit" / "poses"
+                    )
+
                 # Discover data directory dynamically
                 import os
                 from pathlib import Path as PathlibPath
-                
+
                 # Try multiple potential data directory locations
                 potential_data_dirs = [
                     PathlibPath(__file__).resolve().parent.parent / "data",
@@ -1542,7 +1652,11 @@ def benchmark_command(args):
                 for candidate_path in potential_data_dirs:
                     if (
                         candidate_path.exists()
-                        and (candidate_path / "ligands" / "templ_processed_ligands_v1.0.0.sdf.gz").exists()
+                        and (
+                            candidate_path
+                            / "ligands"
+                            / "templ_processed_ligands_v1.0.0.sdf.gz"
+                        ).exists()
                     ):
                         data_dir = str(candidate_path)
                         break
@@ -1554,9 +1668,9 @@ def benchmark_command(args):
                         data_dir = env_data_dir
                     else:
                         data_dir = "/data/pdbbind"  # Final fallback
-                
+
                 logger.info(f"Using data directory: {data_dir}")
-                
+
                 # Run the new timesplit benchmark
                 result = run_timesplit_benchmark(
                     splits_to_run=splits_to_run,
@@ -1583,7 +1697,9 @@ def benchmark_command(args):
                     logger.info(f"Workspace directory: {workspace_dir}")
                     return 0
                 else:
-                    logger.error(f"Timesplit benchmark failed: {result.get('error', 'Unknown error')}")
+                    logger.error(
+                        f"Timesplit benchmark failed: {result.get('error', 'Unknown error')}"
+                    )
                     return 1
         except ImportError as e:
             logger.error(f"Time-split benchmark module not available: {e}")
@@ -1627,11 +1743,12 @@ def main():
             verbosity = VerbosityLevel(args.verbosity)
             configure_logging_for_verbosity(verbosity, "templ-cli")
             ux_config.update_preferences(default_verbosity=verbosity)
-        
+
         # Set random seed for reproducible results
         if hasattr(args, "seed") and args.seed is not None:
             try:
                 from templ_pipeline.core.utils import set_global_random_seed
+
                 set_global_random_seed(args.seed)
                 logger.info(f"Random seed set to {args.seed} for reproducible results")
             except ImportError:
@@ -1640,6 +1757,7 @@ def main():
             # Set default seed if none specified
             try:
                 from templ_pipeline.core.utils import ensure_reproducible_environment
+
                 ensure_reproducible_environment()
             except ImportError:
                 logger.warning("Could not ensure reproducible environment")
@@ -1666,7 +1784,9 @@ def main():
             and args.similarity_threshold is not None
         ):
             if not (0.0 <= args.similarity_threshold <= 1.0):
-                print("Similarity threshold must be between 0.0 and 1.0", file=sys.stderr)
+                print(
+                    "Similarity threshold must be between 0.0 and 1.0", file=sys.stderr
+                )
                 return 2
 
         # Check file existence

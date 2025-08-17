@@ -317,7 +317,9 @@ class TestEmbeddingManager(unittest.TestCase):
         self.cache_dir = os.path.join(self.temp_dir, "embedding_cache")
 
         # Create mock embedding file
-        self.mock_embedding_path = os.path.join(self.temp_dir, "mock_templ_protein_embeddings_v1.0.0.npz")
+        self.mock_embedding_path = os.path.join(
+            self.temp_dir, "mock_templ_protein_embeddings_v1.0.0.npz"
+        )
 
         # Actually write a mock npz file for tests
         mock_pdb_ids = np.array(["1abc", "2xyz", "3pqr"], dtype=object)
@@ -357,7 +359,9 @@ class TestEmbeddingManager(unittest.TestCase):
             )
             # Check that embeddings were loaded (don't hardcode exact count as it may vary)
             self.assertGreater(
-                len(manager.embedding_db), 0, "Should load at least some embeddings from file"
+                len(manager.embedding_db),
+                0,
+                "Should load at least some embeddings from file",
             )
             self.assertGreater(
                 len(manager.embedding_chain_data),
@@ -369,8 +373,9 @@ class TestEmbeddingManager(unittest.TestCase):
             if len(manager.embedding_db) == 3:
                 # This is the expected case when using our mock file
                 self.assertEqual(
-                    len(manager.embedding_chain_data), 3, 
-                    "Mock file should have 3 chain data entries"
+                    len(manager.embedding_chain_data),
+                    3,
+                    "Mock file should have 3 chain data entries",
                 )
         except Exception as e:
             self.fail(f"EmbeddingManager initialization failed: {e}")

@@ -19,6 +19,7 @@ from rdkit import Chem
 # Import smart caching system
 try:
     from .test_fixture_caching import fixture_manager, cached_fixture
+
     CACHING_AVAILABLE = True
 except ImportError:
     CACHING_AVAILABLE = False
@@ -27,12 +28,13 @@ except ImportError:
 try:
     from .fixtures.data_factory import TestDataFactory
     from .fixtures.pipeline_fixtures import (
-        standard_test_molecules, 
+        standard_test_molecules,
         standard_test_proteins,
         mock_embeddings,
-        mcs_test_pairs
+        mcs_test_pairs,
     )
     from .fixtures.benchmark_fixtures import benchmark_target_data
+
     FIXTURES_AVAILABLE = True
 except ImportError:
     # Fallback for development
@@ -153,16 +155,20 @@ def ui_test_environment():
         if len(args) == 1 and callable(args[0]) and not kwargs:
             return args[0]
         else:
+
             def decorator(func):
                 return func
+
             return decorator
 
     def mock_cache_resource(*args, **kwargs):
         if len(args) == 1 and callable(args[0]) and not kwargs:
             return args[0]
         else:
+
             def decorator(func):
                 return func
+
             return decorator
 
     # Configure mock attributes
@@ -336,7 +342,7 @@ def test_molecules():
     if FIXTURES_AVAILABLE:
         # Use standardized test data factory
         molecules = {}
-        for mol_type in ['simple_alkane', 'aromatic', 'complex_drug', 'invalid']:
+        for mol_type in ["simple_alkane", "aromatic", "complex_drug", "invalid"]:
             molecules[mol_type] = TestDataFactory.create_molecule_data(mol_type)
         return molecules
     else:
@@ -353,11 +359,11 @@ def test_molecules():
         }
 
 
-@pytest.fixture(scope="session") 
+@pytest.fixture(scope="session")
 def session_test_embeddings():
     """
     Session-wide test embeddings for expensive operations.
-    
+
     Returns:
         numpy.ndarray: Standardized test embeddings
     """
@@ -365,6 +371,7 @@ def session_test_embeddings():
         return TestDataFactory.create_embedding_data(size=1280, num_proteins=10)
     else:
         import numpy as np
+
         np.random.seed(42)
         embeddings = np.random.rand(10, 1280).astype(np.float32)
         np.random.seed()
@@ -375,27 +382,27 @@ def session_test_embeddings():
 def session_test_proteins():
     """
     Session-wide test protein data.
-    
+
     Returns:
         dict: Standardized test protein data
     """
     if FIXTURES_AVAILABLE:
         proteins = {}
-        for protein_type in ['minimal', 'multi_chain']:
+        for protein_type in ["minimal", "multi_chain"]:
             proteins[protein_type] = TestDataFactory.create_protein_data(protein_type)
         return proteins
     else:
         return {
-            'minimal': {
-                'content': """HEADER    TEST PROTEIN                            01-JAN-00   TEST            
+            "minimal": {
+                "content": """HEADER    TEST PROTEIN                            01-JAN-00   TEST            
 ATOM      1  N   ALA A   1      20.154  16.967  12.784  1.00 10.00           N  
 ATOM      2  CA  ALA A   1      19.030  16.101  12.345  1.00 10.00           C  
 ATOM      3  C   ALA A   1      18.899  14.793  13.116  1.00 10.00           C  
 ATOM      4  O   ALA A   1      19.505  14.548  14.163  1.00 10.00           O  
 END""",
-                'chains': ['A'],
-                'atoms': 4,
-                'type': 'minimal'
+                "chains": ["A"],
+                "atoms": 4,
+                "type": "minimal",
             }
         }
 
@@ -404,7 +411,7 @@ END""",
 def session_mcs_test_pairs():
     """
     Session-wide MCS test pairs for parametrized testing.
-    
+
     Returns:
         list: List of (mol1_smiles, mol2_smiles, description) tuples
     """
@@ -412,9 +419,9 @@ def session_mcs_test_pairs():
         return TestDataFactory.create_mcs_test_pairs()
     else:
         return [
-            ('CCO', 'CCC', 'Similar alkanes'),
-            ('CCO', 'CCOC', 'Alcohol vs ether'),
-            ('c1ccccc1', 'c1ccccc1O', 'Benzene vs phenol')
+            ("CCO", "CCC", "Similar alkanes"),
+            ("CCO", "CCOC", "Alcohol vs ether"),
+            ("c1ccccc1", "c1ccccc1O", "Benzene vs phenol"),
         ]
 
 
@@ -469,27 +476,27 @@ def output_dir(temp_dir):
 def centralized_output_dir(tmp_path):
     """
     Centralized output directory fixture using standardized structure.
-    
+
     Args:
         tmp_path: pytest temporary path fixture
-        
+
     Returns:
         Path to centralized test output directory
     """
     from templ_pipeline.core.workspace_manager import DirectoryManager
-    
+
     # Create centralized output structure for tests
-    output_root = tmp_path / "output" 
+    output_root = tmp_path / "output"
     output_root.mkdir(exist_ok=True)
-    
+
     manager = DirectoryManager(
         base_name="test_run",
         run_id="test",
         auto_cleanup=True,
         centralized_output=True,
-        output_root=str(output_root)
+        output_root=str(output_root),
     )
-    
+
     return manager.directory
 
 
@@ -497,20 +504,20 @@ def centralized_output_dir(tmp_path):
 def test_directory_manager(tmp_path):
     """
     Standardized directory manager for tests.
-    
+
     Args:
         tmp_path: pytest temporary path fixture
-        
+
     Returns:
         DirectoryManager configured for testing
     """
     from templ_pipeline.core.workspace_manager import DirectoryManager
-    
+
     return DirectoryManager(
         base_name="test",
         auto_cleanup=True,
         centralized_output=True,
-        output_root=str(tmp_path / "output")
+        output_root=str(tmp_path / "output"),
     )
 
 
@@ -526,7 +533,7 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "slow: mark test as slow running")
     config.addinivalue_line("markers", "fast: mark test as fast running")
     config.addinivalue_line("markers", "cached: mark test as using cached fixtures")
-    
+
     # Initialize fixture cache if available
     if CACHING_AVAILABLE:
         fixture_manager.cache.clear()  # Start with clean cache
@@ -545,18 +552,20 @@ def pytest_collection_modifyitems(config, items):
 
 # Cached fixtures for expensive operations
 if CACHING_AVAILABLE:
-    
+
     @cached_fixture(scope="session")
     def cached_rdkit_modules():
         """Cached RDKit modules with enhanced loading."""
         import time
+
         start_time = time.time()
-        
+
         try:
             from rdkit import Chem, AllChem, Draw
             from rdkit import RDLogger
+
             RDLogger.DisableLog("rdApp.*")
-            
+
             # Pre-load common functionality
             # Create some test molecules to warm up the RDKit cache
             test_smiles = ["CCO", "c1ccccc1", "CC(=O)O"]
@@ -564,81 +573,87 @@ if CACHING_AVAILABLE:
                 mol = Chem.MolFromSmiles(smiles)
                 if mol:
                     AllChem.Compute2DCoords(mol)
-            
+
             load_time = time.time() - start_time
             print(f"RDKit modules loaded and cached in {load_time:.3f}s")
-            
+
             return Chem, AllChem, Draw
         except ImportError:
             pytest.skip("RDKit not available")
-    
+
     @cached_fixture(scope="session")
     def cached_protein_data():
         """Cached protein test data."""
         import time
+
         start_time = time.time()
-        
+
         # Simulate expensive protein loading
         protein_data = {
-            '1abc': {
-                'sequence': 'MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQAPILSRVGDGTQDNLSGAEKAVQVKVKALPDAQFEVVHSLAKWKRQTLGQHDFSAGEGLYTHMKALRPDEDRLSPLHSVYVDQWDWERVMGDGERQFSTLKSTVEAIWAGIKATEAAVSEEFGLAPFLPDQIHFVHSQELLSRYPDLDAKGRERAIAKDLGAVFLVGIGGKLSDGHRHDVRAPDYDDWUQTPQWNSPSYQPQLYITAQQTQRAADLGDGWKWSDLFLGPGMSEQHLAQQGKQGKGQ',
-                'pdb_id': '1abc',
-                'chains': ['A', 'B'],
-                'embedding': [0.1] * 1280
+            "1abc": {
+                "sequence": "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQAPILSRVGDGTQDNLSGAEKAVQVKVKALPDAQFEVVHSLAKWKRQTLGQHDFSAGEGLYTHMKALRPDEDRLSPLHSVYVDQWDWERVMGDGERQFSTLKSTVEAIWAGIKATEAAVSEEFGLAPFLPDQIHFVHSQELLSRYPDLDAKGRERAIAKDLGAVFLVGIGGKLSDGHRHDVRAPDYDDWUQTPQWNSPSYQPQLYITAQQTQRAADLGDGWKWSDLFLGPGMSEQHLAQQGKQGKGQ",
+                "pdb_id": "1abc",
+                "chains": ["A", "B"],
+                "embedding": [0.1] * 1280,
             },
-            '2xyz': {
-                'sequence': 'MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG',
-                'pdb_id': '2xyz',
-                'chains': ['A'],
-                'embedding': [0.2] * 1280
-            }
+            "2xyz": {
+                "sequence": "MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG",
+                "pdb_id": "2xyz",
+                "chains": ["A"],
+                "embedding": [0.2] * 1280,
+            },
         }
-        
+
         load_time = time.time() - start_time
         print(f"Protein data loaded and cached in {load_time:.3f}s")
-        
+
         return protein_data
-    
+
     @cached_fixture(scope="session")
     def cached_ligand_data():
         """Cached ligand test data."""
         import time
+
         start_time = time.time()
-        
+
         ligand_data = {
-            'simple_molecules': [
-                {'smiles': 'CCO', 'name': 'ethanol'},
-                {'smiles': 'CC(=O)O', 'name': 'acetic_acid'},
-                {'smiles': 'c1ccccc1', 'name': 'benzene'}
+            "simple_molecules": [
+                {"smiles": "CCO", "name": "ethanol"},
+                {"smiles": "CC(=O)O", "name": "acetic_acid"},
+                {"smiles": "c1ccccc1", "name": "benzene"},
             ],
-            'complex_molecules': [
-                {'smiles': 'CN1C=NC2=C1C(=O)N(C(=O)N2C)C', 'name': 'caffeine'},
-                {'smiles': 'CC(C)CC1=CC=C(C=C1)C(C)C(=O)O', 'name': 'ibuprofen'}
-            ]
+            "complex_molecules": [
+                {"smiles": "CN1C=NC2=C1C(=O)N(C(=O)N2C)C", "name": "caffeine"},
+                {"smiles": "CC(C)CC1=CC=C(C=C1)C(C)C(=O)O", "name": "ibuprofen"},
+            ],
         }
-        
+
         load_time = time.time() - start_time
         print(f"Ligand data loaded and cached in {load_time:.3f}s")
-        
+
         return ligand_data
-    
+
     @cached_fixture(scope="session")
     def cached_benchmark_data():
         """Cached benchmark test data."""
         import time
+
         start_time = time.time()
-        
+
         # Simulate expensive benchmark data generation
         benchmark_data = {
-            'targets': [f'target_{i}' for i in range(100)],
-            'ligands': [f'ligand_{i}' for i in range(500)],
-            'embeddings': {f'target_{i}': [i/100] * 1280 for i in range(100)},
-            'ground_truth': {f'target_{i}': [f'ligand_{j}' for j in range(i, i+5)] for i in range(0, 100, 5)}
+            "targets": [f"target_{i}" for i in range(100)],
+            "ligands": [f"ligand_{i}" for i in range(500)],
+            "embeddings": {f"target_{i}": [i / 100] * 1280 for i in range(100)},
+            "ground_truth": {
+                f"target_{i}": [f"ligand_{j}" for j in range(i, i + 5)]
+                for i in range(0, 100, 5)
+            },
         }
-        
+
         load_time = time.time() - start_time
         print(f"Benchmark data loaded and cached in {load_time:.3f}s")
-        
+
         return benchmark_data
 
 
@@ -646,17 +661,17 @@ def pytest_sessionfinish(session, exitstatus):
     """Report cache statistics and cleanup at session end."""
     if CACHING_AVAILABLE:
         stats = fixture_manager.get_cache_stats()
-        
-        if stats['memory_hits'] + stats['file_hits'] + stats['misses'] > 0:
-            print("\n" + "="*60)
+
+        if stats["memory_hits"] + stats["file_hits"] + stats["misses"] > 0:
+            print("\n" + "=" * 60)
             print("FIXTURE CACHE PERFORMANCE")
-            print("="*60)
+            print("=" * 60)
             print(f"Hit Rate: {stats['hit_rate']:.1%}")
             print(f"Memory Hits: {stats['memory_hits']}")
             print(f"File Hits: {stats['file_hits']}")
             print(f"Cache Misses: {stats['misses']}")
             print(f"Memory Usage: {stats['memory_usage_mb']:.1f} MB")
-            print("="*60)
-        
+            print("=" * 60)
+
         # Cleanup
         fixture_manager.cleanup_session_fixtures()

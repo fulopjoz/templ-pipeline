@@ -88,31 +88,33 @@ class ProgressConfig:
     @staticmethod
     def get_postfix_format(success_rate: float, errors: int = 0):
         return {"success": f"{success_rate:.1f}%", "errors": errors}
-    
+
     @staticmethod
     def get_tqdm_config(desc: str = None):
         """Get complete tqdm configuration for benchmark progress bars"""
         config = {
-            'bar_format': ProgressConfig.get_bar_format(),
-            'ncols': 100,
-            'leave': True,
-            'file': sys.stdout,
-            'disable': False
+            "bar_format": ProgressConfig.get_bar_format(),
+            "ncols": 100,
+            "leave": True,
+            "file": sys.stdout,
+            "disable": False,
         }
         if desc:
-            config['desc'] = desc
+            config["desc"] = desc
         return config
 
 
-def setup_benchmark_logging(log_level: str = "INFO", workspace_dir: Optional[Path] = None):
+def setup_benchmark_logging(
+    log_level: str = "INFO", workspace_dir: Optional[Path] = None
+):
     """Configure logging for benchmark with file-only output and clean progress bars"""
     # Import the new benchmark logging system
     from templ_pipeline.core.benchmark_logging import (
-        benchmark_logging_context, 
+        benchmark_logging_context,
         suppress_worker_logging,
-        create_benchmark_logger
+        create_benchmark_logger,
     )
-    
+
     # If workspace directory is provided, set up file-only logging
     if workspace_dir:
         # The context manager will be used by the calling function
@@ -257,7 +259,7 @@ def run_templ_pipeline_single_unified(
     allowed_pdb_ids: Optional[set] = None,
 ) -> Dict:
     """Run TEMPL pipeline for a single molecule using unified TEMPLPipeline infrastructure.
-    
+
     This function bridges Polaris benchmark with unified architecture by:
     1. Converting molecules to SMILES for TEMPLPipeline
     2. Using TEMPLPipeline.run_full_pipeline() as execution engine
@@ -274,21 +276,21 @@ def run_templ_pipeline_single_unified(
         "molecule_name": safe_name(query_mol, "unknown"),
         "filter_reason": None,
     }
-    
+
     start_time = time.time()
-    
+
     try:
         # Convert query molecule to SMILES for TEMPLPipeline
         query_smiles = Chem.MolToSmiles(query_mol)
         if not query_smiles:
             result["error"] = "Failed to convert query molecule to SMILES"
             return result
-        
+
         # Create temporary directory for pipeline execution
         with tempfile.TemporaryDirectory() as temp_dir:
             # Initialize TEMPLPipeline with temporary output directory
             pipeline = TEMPLPipeline(output_dir=temp_dir)
-            
+
             # Run the full pipeline using unified infrastructure
             # Note: We pass a dummy protein_pdb_id since Polaris doesn't use protein-specific templates
             pipeline_result = pipeline.run_full_pipeline(
@@ -298,26 +300,32 @@ def run_templ_pipeline_single_unified(
                 n_workers=n_workers,
                 allowed_pdb_ids=allowed_pdb_ids,
             )
-            
-            if pipeline_result.get("success", False) and "poses" in pipeline_result and pipeline_result["poses"]:
+
+            if (
+                pipeline_result.get("success", False)
+                and "poses" in pipeline_result
+                and pipeline_result["poses"]
+            ):
                 result["success"] = True
-                result["n_conformers_generated"] = pipeline_result.get("template_info", {}).get("num_conformers_generated", n_conformers)
-                
+                result["n_conformers_generated"] = pipeline_result.get(
+                    "template_info", {}
+                ).get("num_conformers_generated", n_conformers)
+
                 # Extract and calculate RMSD values from TEMPLPipeline poses
                 if reference_mol is not None and pipeline_result["poses"]:
                     reference_noH = Chem.RemoveHs(Chem.Mol(reference_mol))
-                    
+
                     # Process each pose metric from TEMPLPipeline
                     for metric, pose_data in pipeline_result["poses"].items():
                         if isinstance(pose_data, tuple) and len(pose_data) == 2:
                             pose_mol, scores_dict = pose_data
-                            
+
                             if pose_mol is not None and pose_mol.GetNumConformers() > 0:
                                 # Calculate RMSD between pose and reference
                                 try:
                                     pose_noH = Chem.RemoveHs(Chem.Mol(pose_mol))
                                     rmsd = rmsd_raw(pose_noH, reference_noH)
-                                    
+
                                     # Extract score (prioritize shape/combo metrics for Polaris compatibility)
                                     score = 0.0
                                     if isinstance(scores_dict, dict):
@@ -326,29 +334,37 @@ def run_templ_pipeline_single_unified(
                                         elif "score" in scores_dict:
                                             score = float(scores_dict["score"])
                                         elif "similarity_score" in scores_dict:
-                                            score = float(scores_dict["similarity_score"])
-                                    
+                                            score = float(
+                                                scores_dict["similarity_score"]
+                                            )
+
                                     # Store results using Polaris format
-                                    metric_key = "canimotocombo" if metric == "combo" else metric
+                                    metric_key = (
+                                        "canimotocombo" if metric == "combo" else metric
+                                    )
                                     result["rmsd_values"][metric_key] = {
                                         "rmsd": float(rmsd),
-                                        "score": float(score)
+                                        "score": float(score),
                                     }
-                                    
+
                                 except Exception as e:
-                                    logging.warning(f"Failed to calculate RMSD for metric {metric}: {e}")
+                                    logging.warning(
+                                        f"Failed to calculate RMSD for metric {metric}: {e}"
+                                    )
                                     continue
-                
+
                 # Extract template information if available
                 if "template_info" in pipeline_result:
                     result["template_used"] = pipeline_result["template_info"]
-                    
+
             else:
-                result["error"] = pipeline_result.get("error", "TEMPLPipeline execution failed")
-                
+                result["error"] = pipeline_result.get(
+                    "error", "TEMPLPipeline execution failed"
+                )
+
     except Exception as e:
         result["error"] = f"Unified pipeline execution failed: {str(e)}"
-    
+
     result["processing_time"] = time.time() - start_time
     return result
 
@@ -369,10 +385,10 @@ def run_templ_pipeline_single(
     allowed_pdb_ids: Optional[set] = None,
 ) -> Dict:
     """Run TEMPL pipeline for a single molecule with comprehensive result tracking.
-    
+
     This function maintains backwards compatibility with Polaris-specific interface
     while delegating to unified TEMPLPipeline infrastructure for actual execution.
-    
+
     Legacy Polaris Interface Wrapper:
     - Handles template filtering and exclusion logic
     - Delegates to run_templ_pipeline_single_unified() for execution
@@ -426,13 +442,19 @@ def run_templ_pipeline_single(
         if unconstrained:
             # Use unconstrained embedding for ablation study
             from templ_pipeline.core.mcs import central_atom_embed
+
             confs = central_atom_embed(
                 query_noH, template_mol, n_conformers, n_workers, enable_optimization
             )
         else:
             # Generate constrained conformers (using same algorithm as TEMPLPipeline)
             confs = constrained_embed(
-                query_noH, template_mol, smarts, n_conformers, n_workers, enable_optimization
+                query_noH,
+                template_mol,
+                smarts,
+                n_conformers,
+                n_workers,
+                enable_optimization,
             )
         result["n_conformers_generated"] = confs.GetNumConformers()
 
@@ -443,7 +465,11 @@ def run_templ_pipeline_single(
 
         # Select best poses (using same algorithm as TEMPLPipeline)
         best_poses = select_best(
-            confs, template_mol, no_realign=no_realign, n_workers=n_workers, align_metric=align_metric
+            confs,
+            template_mol,
+            no_realign=no_realign,
+            n_workers=n_workers,
+            align_metric=align_metric,
         )
 
         # Calculate RMSD to reference
@@ -457,28 +483,32 @@ def run_templ_pipeline_single(
                         "rmsd": rmsd,
                         "score": scores[metric],
                     }
-                    
+
                     # Save pose if requested
                     if save_poses and poses_output_dir:
                         try:
                             pose_path = _save_pose(
-                                pose, 
-                                result["molecule_name"], 
-                                metric, 
+                                pose,
+                                result["molecule_name"],
+                                metric,
                                 poses_output_dir,
                                 {
                                     "rmsd": rmsd,
                                     "score": scores[metric],
                                     "template_used": result["template_used"],
-                                    "n_conformers_generated": result["n_conformers_generated"],
-                                }
+                                    "n_conformers_generated": result[
+                                        "n_conformers_generated"
+                                    ],
+                                },
                             )
                             if "pose_files" not in result:
                                 result["pose_files"] = {}
                             result["pose_files"][metric] = pose_path
                         except Exception as e:
-                            logging.warning(f"Failed to save pose for {metric}: {str(e)}")
-                            
+                            logging.warning(
+                                f"Failed to save pose for {metric}: {str(e)}"
+                            )
+
                 except Exception as e:
                     logging.warning(
                         f"RMSD calculation failed for {metric} on {result['molecule_name']}: {str(e)}"
@@ -506,10 +536,11 @@ def run_templ_pipeline_single(
 # Worker function for multiprocessing (must be at module level for pickling)
 # -----------------------------------------------------------------------------
 
+
 def worker_wrapper_with_memory_limit(per_worker_ram_gb, *args, **kwargs):
     """Worker wrapper that sets memory limits before calling the pipeline."""
     try:
-        max_bytes = int(per_worker_ram_gb * 1024 ** 3)
+        max_bytes = int(per_worker_ram_gb * 1024**3)
         resource.setrlimit(resource.RLIMIT_AS, (max_bytes, max_bytes))
     except Exception as e:
         logging.warning(f"Could not set memory limit: {e}")
@@ -603,7 +634,7 @@ def evaluate_with_leave_one_out(
             errors = 0
 
             tqdm_config = ProgressConfig.get_tqdm_config(desc)
-            tqdm_config['total'] = len(futures)
+            tqdm_config["total"] = len(futures)
             with tqdm(**tqdm_config) as pbar:
 
                 for future, mol_name, query_mol in futures:
@@ -688,7 +719,7 @@ def evaluate_with_leave_one_out(
             errors = 0
 
             tqdm_config = ProgressConfig.get_tqdm_config(desc)
-            tqdm_config['total'] = len(future_to_mol)
+            tqdm_config["total"] = len(future_to_mol)
             with tqdm(**tqdm_config) as pbar:
 
                 for future in as_completed(future_to_mol):
@@ -803,7 +834,22 @@ def evaluate_with_templates(
 
                 future = pool.schedule(
                     worker_wrapper_with_memory_limit,
-                    args=[per_worker_ram_gb, query_mol, template_mols, query_mol, None, n_conformers, 1, save_poses, poses_output_dir, unconstrained, align_metric, enable_optimization, no_realign, allowed_pdb_ids],
+                    args=[
+                        per_worker_ram_gb,
+                        query_mol,
+                        template_mols,
+                        query_mol,
+                        None,
+                        n_conformers,
+                        1,
+                        save_poses,
+                        poses_output_dir,
+                        unconstrained,
+                        align_metric,
+                        enable_optimization,
+                        no_realign,
+                        allowed_pdb_ids,
+                    ],
                     timeout=MOLECULE_TIMEOUT,
                 )
                 futures.append((future, mol_name, query_mol))
@@ -814,7 +860,7 @@ def evaluate_with_templates(
             errors = 0
 
             tqdm_config = ProgressConfig.get_tqdm_config(desc)
-            tqdm_config['total'] = len(futures)
+            tqdm_config["total"] = len(futures)
             with tqdm(**tqdm_config) as pbar:
 
                 for future, mol_name, query_mol in futures:
@@ -899,7 +945,7 @@ def evaluate_with_templates(
             errors = 0
 
             tqdm_config = ProgressConfig.get_tqdm_config(desc)
-            tqdm_config['total'] = len(future_to_mol)
+            tqdm_config["total"] = len(future_to_mol)
             with tqdm(**tqdm_config) as pbar:
 
                 for future in as_completed(future_to_mol):
@@ -1229,7 +1275,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Workspace directory for organized logging and file management",
     )
-    
+
     # Ablation study arguments
     p.add_argument(
         "--unconstrained",
@@ -1252,21 +1298,21 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable pose realignment (use AlignMol scores only for ranking)",
     )
-    
+
     p.add_argument(
         "--allowed-pdb-ids",
         type=str,
         default=None,
         help="Comma-separated list of allowed PDB IDs for filtering templates (optional)",
     )
-    
+
     p.add_argument(
         "--per-worker-ram-gb",
         type=float,
         default=4.0,
         help="Maximum RAM (GiB) per worker process (prevents memory explosion, default: 4.0)",
     )
-    
+
     return p
 
 
@@ -1318,20 +1364,22 @@ def main(argv: List[str] | None = None):
     # Parse allowed_pdb_ids argument if provided
     allowed_pdb_ids = None
     if getattr(args, "allowed_pdb_ids", None):
-        allowed_pdb_ids = set(x.strip() for x in args.allowed_pdb_ids.split(",") if x.strip())
+        allowed_pdb_ids = set(
+            x.strip() for x in args.allowed_pdb_ids.split(",") if x.strip()
+        )
 
     # Override OUTPUT_DIR if specified
     if args.output_dir != OUTPUT_DIR:
         OUTPUT_DIR = args.output_dir
-        
+
     # Set up benchmark logging with reduced verbosity
     # Check if workspace directory is provided (when called from CLI)
-    workspace_dir = getattr(args, 'workspace_dir', None)
-    
+    workspace_dir = getattr(args, "workspace_dir", None)
+
     if workspace_dir:
         # Use new benchmark logging system with file-only output
         from templ_pipeline.core.benchmark_logging import benchmark_logging_context
-        
+
         # The context will be managed in the CLI layer
         logger = setup_benchmark_logging(args.log_level, workspace_dir)
     else:
@@ -1369,34 +1417,37 @@ def main(argv: List[str] | None = None):
     else:
         # First try new centralized path management for ZENODO-compatible paths
         data_dir = None
-        
+
         # Polaris data stays in GitHub repository (not ZENODO)
         logger.debug("Using direct path resolution for Polaris data")
-        
+
         # Fallback to legacy path resolution if centralized management didn't work
         if data_dir is None:
             potential_paths = [
                 # ZENODO format first
-                Path(__file__).resolve().parent.parent.parent / "zenodo" / "data" / "polaris",
+                Path(__file__).resolve().parent.parent.parent
+                / "zenodo"
+                / "data"
+                / "polaris",
                 # Legacy paths
                 Path(__file__).resolve().parent.parent.parent / "data" / "polaris",
-                Path.cwd() / "data" / "polaris", 
+                Path.cwd() / "data" / "polaris",
                 Path.cwd() / "templ_pipeline" / "data" / "polaris",
                 Path("data") / "polaris",
                 Path("..") / "data" / "polaris",
             ]
-            
+
             for path in potential_paths:
                 if path.exists() and (path / "train_sarsmols.sdf").exists():
                     data_dir = path
                     logger.info(f"Found polaris data at: {data_dir}")
                     break
-        
+
         if data_dir is None:
             raise FileNotFoundError(
-                f"Polaris dataset directory not found. Tried locations:\n" + 
-                "\n".join(f"  - {p}" for p in potential_paths) +
-                "\n\nPolaris data is stored in the GitHub repository, not ZENODO. "
+                f"Polaris dataset directory not found. Tried locations:\n"
+                + "\n".join(f"  - {p}" for p in potential_paths)
+                + "\n\nPolaris data is stored in the GitHub repository, not ZENODO. "
                 "Please ensure polaris data files are in one of these locations or use --dataset-dir"
             )
 
@@ -1407,7 +1458,7 @@ def main(argv: List[str] | None = None):
 
     logger.info("Loading datasets...")
     tqdm_config = ProgressConfig.get_tqdm_config("Dataset Loading")
-    tqdm_config['total'] = 4
+    tqdm_config["total"] = 4
     with tqdm(**tqdm_config) as pbar:
         train_sars = load_sdf_molecules(data_dir / "train_sarsmols.sdf")
         pbar.update(1)
@@ -1425,20 +1476,24 @@ def main(argv: List[str] | None = None):
     )
 
     # Set up automatic pose saving (like time-split benchmark)
-    save_poses = not args.no_save_poses  # Default to True unless --no-save-poses is used
+    save_poses = (
+        not args.no_save_poses
+    )  # Default to True unless --no-save-poses is used
     poses_output_dir = None
-    
+
     if save_poses:
         if args.poses_dir:
             poses_output_dir = args.poses_dir
         elif workspace_dir:
             # Use workspace structure like time-split benchmark
-            poses_output_dir = str(Path(workspace_dir) / "raw_results" / "polaris" / "poses")
+            poses_output_dir = str(
+                Path(workspace_dir) / "raw_results" / "polaris" / "poses"
+            )
         else:
-            # Fallback to timestamp-based directory  
+            # Fallback to timestamp-based directory
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             poses_output_dir = f"benchmark_poses_polaris_{timestamp}"
-        
+
         # Ensure poses output directory exists
         Path(poses_output_dir).mkdir(parents=True, exist_ok=True)
         logger.info(f"✓ Poses will be saved to: {poses_output_dir}")
@@ -1706,42 +1761,44 @@ def _save_pose(
     metadata: Dict,
 ) -> str:
     """Save a pose molecule to SDF file with metadata.
-    
+
     Args:
         pose_mol: RDKit molecule object with 3D coordinates
-        molecule_name: Name of the query molecule  
+        molecule_name: Name of the query molecule
         metric: Scoring metric used (shape, color, combo)
         poses_output_dir: Base directory for pose output
         metadata: Dictionary containing RMSD, score, template info
-        
+
     Returns:
         Path to saved SDF file
     """
     # Create organized directory structure
     mol_dir = Path(poses_output_dir) / molecule_name
     mol_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Generate timestamp for unique filenames
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
+
     # Create filename: {molecule}_{metric}_{timestamp}.sdf
     filename = f"{molecule_name}_{metric}_{timestamp}.sdf"
     pose_path = mol_dir / filename
-    
+
     # Add metadata as properties to molecule
     pose_mol.SetProp("_Name", molecule_name)
     pose_mol.SetProp("metric", metric)
     pose_mol.SetProp("rmsd", str(metadata.get("rmsd", "N/A")))
     pose_mol.SetProp("score", str(metadata.get("score", "N/A")))
     pose_mol.SetProp("template_used", str(metadata.get("template_used", "N/A")))
-    pose_mol.SetProp("n_conformers_generated", str(metadata.get("n_conformers_generated", "N/A")))
+    pose_mol.SetProp(
+        "n_conformers_generated", str(metadata.get("n_conformers_generated", "N/A"))
+    )
     pose_mol.SetProp("timestamp", timestamp)
-    
+
     # Write to SDF file
     writer = Chem.SDWriter(str(pose_path))
     writer.write(pose_mol)
     writer.close()
-    
+
     return str(pose_path)
 
 

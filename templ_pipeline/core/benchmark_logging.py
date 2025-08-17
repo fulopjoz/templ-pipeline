@@ -32,7 +32,7 @@ class BenchmarkLoggingConfig:
         benchmark_name: str,
         log_level: str = "INFO",
         suppress_console: bool = True,
-        preserve_progress_bars: bool = True
+        preserve_progress_bars: bool = True,
     ):
         """
         Initialize benchmark logging configuration.
@@ -78,9 +78,9 @@ class BenchmarkLoggingConfig:
         # Store original configuration
         self.original_handlers = root_logger.handlers[:]
         self.original_levels = {
-            'root': root_logger.level,
-            'templ_pipeline': logging.getLogger('templ_pipeline').level,
-            'templ-cli': logging.getLogger('templ-cli').level
+            "root": root_logger.level,
+            "templ_pipeline": logging.getLogger("templ_pipeline").level,
+            "templ-cli": logging.getLogger("templ-cli").level,
         }
 
         # Clear existing handlers
@@ -90,17 +90,17 @@ class BenchmarkLoggingConfig:
         # Set up file formatter
         file_formatter = logging.Formatter(
             "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"
+            datefmt="%Y-%m-%d %H:%M:%S",
         )
 
         # Main log file handler (INFO+)
-        main_file_handler = logging.FileHandler(self.main_log_file, mode='w')
+        main_file_handler = logging.FileHandler(self.main_log_file, mode="w")
         main_file_handler.setLevel(logging.INFO)
         main_file_handler.setFormatter(file_formatter)
         root_logger.addHandler(main_file_handler)
 
         # Error log file handler (WARNING+)
-        error_file_handler = logging.FileHandler(self.error_log_file, mode='w')
+        error_file_handler = logging.FileHandler(self.error_log_file, mode="w")
         error_file_handler.setLevel(logging.WARNING)
         error_file_handler.setFormatter(file_formatter)
         root_logger.addHandler(error_file_handler)
@@ -109,25 +109,25 @@ class BenchmarkLoggingConfig:
         root_logger.setLevel(self.log_level)
 
         # Configure specific loggers
-        benchmark_logger = logging.getLogger(f'templ_pipeline.benchmark')
+        benchmark_logger = logging.getLogger(f"templ_pipeline.benchmark")
         benchmark_logger.setLevel(self.log_level)
 
-        cli_logger = logging.getLogger('templ-cli')
+        cli_logger = logging.getLogger("templ-cli")
         cli_logger.setLevel(self.log_level)
 
         # Suppress console output if requested
         if self.suppress_console:
             # Add null handler to specific loggers that might print to console
             for logger_name in [
-                'templ_pipeline.core.mcs',
-                'templ_pipeline.core.scoring',
-                'templ_pipeline.core.pipeline',
-                'templ_pipeline.benchmark',
-                'templ_pipeline.core.embedding',
-                'templ_pipeline.core.templates',
-                'templ_pipeline.core.utils',
-                'templ_pipeline.core.hardware',
-                'templ_pipeline.core.workspace_manager'
+                "templ_pipeline.core.mcs",
+                "templ_pipeline.core.scoring",
+                "templ_pipeline.core.pipeline",
+                "templ_pipeline.benchmark",
+                "templ_pipeline.core.embedding",
+                "templ_pipeline.core.templates",
+                "templ_pipeline.core.utils",
+                "templ_pipeline.core.hardware",
+                "templ_pipeline.core.workspace_manager",
             ]:
                 logger = logging.getLogger(logger_name)
                 # Remove all existing handlers
@@ -145,9 +145,9 @@ class BenchmarkLoggingConfig:
         root_logger.info(f"Error log: {self.error_log_file}")
 
         return {
-            'main_log': str(self.main_log_file),
-            'error_log': str(self.error_log_file),
-            'logs_dir': str(self.logs_dir)
+            "main_log": str(self.main_log_file),
+            "error_log": str(self.error_log_file),
+            "logs_dir": str(self.logs_dir),
         }
 
     def restore_original_logging(self):
@@ -165,7 +165,7 @@ class BenchmarkLoggingConfig:
 
         # Restore original levels
         for logger_name, level in self.original_levels.items():
-            if logger_name == 'root':
+            if logger_name == "root":
                 root_logger.setLevel(level)
             else:
                 logging.getLogger(logger_name).setLevel(level)
@@ -176,7 +176,7 @@ def benchmark_logging_context(
     workspace_dir: Path,
     benchmark_name: str,
     log_level: str = "INFO",
-    suppress_console: bool = True
+    suppress_console: bool = True,
 ):
     """
     Context manager for benchmark logging configuration.
@@ -194,7 +194,7 @@ def benchmark_logging_context(
         workspace_dir=workspace_dir,
         benchmark_name=benchmark_name,
         log_level=log_level,
-        suppress_console=suppress_console
+        suppress_console=suppress_console,
     )
 
     try:
@@ -230,16 +230,16 @@ def suppress_worker_logging():
 
     # Also suppress specific loggers that might be noisy
     for logger_name in [
-        'templ_pipeline.core.mcs',
-        'templ_pipeline.core.scoring',
-        'templ_pipeline.core.pipeline',
-        'templ_pipeline.core.embedding',
-        'templ_pipeline.core.templates',
-        'templ_pipeline.benchmark',
-        'templ_pipeline.core.utils',
-        'templ_pipeline.core.hardware',
-        'templ_pipeline.core.workspace_manager',
-        'templ-cli'
+        "templ_pipeline.core.mcs",
+        "templ_pipeline.core.scoring",
+        "templ_pipeline.core.pipeline",
+        "templ_pipeline.core.embedding",
+        "templ_pipeline.core.templates",
+        "templ_pipeline.benchmark",
+        "templ_pipeline.core.utils",
+        "templ_pipeline.core.hardware",
+        "templ_pipeline.core.workspace_manager",
+        "templ-cli",
     ]:
         logger = logging.getLogger(logger_name)
         logger.setLevel(logging.CRITICAL + 1)  # Set to above CRITICAL
@@ -254,7 +254,7 @@ def suppress_worker_logging():
     # Also suppress any remaining print statements by redirecting stdout/stderr
     # Redirect stdout and stderr to devnull for worker processes
     try:
-        devnull = open(os.devnull, 'w')
+        devnull = open(os.devnull, "w")
         # Don't redirect stdout/stderr completely as this might break tqdm
         # sys.stdout = devnull
         # sys.stderr = devnull
@@ -272,7 +272,7 @@ def create_benchmark_logger(benchmark_name: str) -> logging.Logger:
     Returns:
         Configured logger instance
     """
-    logger = logging.getLogger(f'templ_pipeline.benchmark.{benchmark_name}')
+    logger = logging.getLogger(f"templ_pipeline.benchmark.{benchmark_name}")
     return logger
 
 
@@ -285,31 +285,31 @@ def suppress_benchmark_warnings():
     """
     # Suppress biotite warnings about element guessing
     warnings.filterwarnings(
-        'ignore', category=UserWarning, module='biotite.structure.io.pdb.file'
+        "ignore", category=UserWarning, module="biotite.structure.io.pdb.file"
     )
     warnings.filterwarnings(
-        'ignore', category=UserWarning, message='.*elements were guessed.*'
+        "ignore", category=UserWarning, message=".*elements were guessed.*"
     )
-    warnings.filterwarnings('ignore', category=UserWarning, message='.*atom name.*')
+    warnings.filterwarnings("ignore", category=UserWarning, message=".*atom name.*")
 
     # Suppress RDKit warnings
-    warnings.filterwarnings('ignore', category=UserWarning, module='rdkit')
-    warnings.filterwarnings('ignore', category=DeprecationWarning, module='rdkit')
+    warnings.filterwarnings("ignore", category=UserWarning, module="rdkit")
+    warnings.filterwarnings("ignore", category=DeprecationWarning, module="rdkit")
 
     # Suppress common scientific library warnings
-    warnings.filterwarnings('ignore', category=DeprecationWarning)
-    warnings.filterwarnings('ignore', category=FutureWarning)
+    warnings.filterwarnings("ignore", category=DeprecationWarning)
+    warnings.filterwarnings("ignore", category=FutureWarning)
     warnings.filterwarnings(
-        'ignore', category=RuntimeWarning, message='.*divide by zero.*'
+        "ignore", category=RuntimeWarning, message=".*divide by zero.*"
     )
     warnings.filterwarnings(
-        'ignore', category=RuntimeWarning, message='.*invalid value.*'
+        "ignore", category=RuntimeWarning, message=".*invalid value.*"
     )
 
     # Suppress numpy warnings
-    warnings.filterwarnings('ignore', category=UserWarning, module='numpy')
-    warnings.filterwarnings('ignore', category=DeprecationWarning, module='numpy')
+    warnings.filterwarnings("ignore", category=UserWarning, module="numpy")
+    warnings.filterwarnings("ignore", category=DeprecationWarning, module="numpy")
 
     # Suppress sklearn warnings
-    warnings.filterwarnings('ignore', category=UserWarning, module='sklearn')
-    warnings.filterwarnings('ignore', category=FutureWarning, module='sklearn')
+    warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+    warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")

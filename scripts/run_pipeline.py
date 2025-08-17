@@ -114,33 +114,33 @@ def main():
     # Forward to CLI main by modifying sys.argv
     # The CLI main function parses arguments from sys.argv directly
     import sys
-    
+
     # Build CLI arguments from parsed args
     cli_args = ["templ", "run"]
-    
-    if args.target_pdb.endswith('.pdb'):
+
+    if args.target_pdb.endswith(".pdb"):
         cli_args.extend(["--protein-file", args.target_pdb])
     else:
         cli_args.extend(["--protein-pdb-id", args.target_pdb])
-    
+
     cli_args.extend(["--ligand-smiles", args.ligand_smiles])
     cli_args.extend(["--output-dir", args.output_dir])
     cli_args.extend(["--num-templates", str(args.template_knn)])
     cli_args.extend(["--num-conformers", str(args.n_conformers)])
     cli_args.extend(["--align-metric", args.scoring_method])
-    
+
     if args.max_workers > 0:
         cli_args.extend(["--workers", str(args.max_workers)])
-    
+
     if args.embeddings_file:
         cli_args.extend(["--embedding-file", args.embeddings_file])
-    
+
     cli_args.extend(["--log-level", args.log_level])
-    
+
     # Replace sys.argv temporarily
     original_argv = sys.argv[:]
     sys.argv = cli_args
-    
+
     try:
         return cli_main()
     finally:

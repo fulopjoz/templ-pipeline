@@ -13,11 +13,6 @@ This directory contains the GitHub Actions workflows for the TEMPL Pipeline proj
    - Coverage reporting to Codecov
    - Artifact uploads for test results
 
-2. **`docker.yml`** - Docker image build and push
-   - Builds and pushes to Docker Hub on master/develop
-   - Uses Docker Buildx for multi-platform support
-   - Includes caching for faster builds
-
 ### Specialized Workflows
 
 3. **`sonarcloud.yml`** - Code quality analysis
@@ -66,8 +61,6 @@ This directory contains the GitHub Actions workflows for the TEMPL Pipeline proj
 ### Required Secrets
 - `CODECOV_TOKEN`: For coverage reporting
 - `SONAR_TOKEN`: For SonarCloud analysis
-- `DOCKER_USERNAME`: For Docker Hub pushes
-- `DOCKER_PASSWORD`: For Docker Hub authentication
 
 ### Branch Strategy
 - **master**: Production-ready code
@@ -77,14 +70,12 @@ This directory contains the GitHub Actions workflows for the TEMPL Pipeline proj
 ## Usage
 
 ### Automatic Triggers
-- Push to master/dev: Runs CI, Docker, SonarCloud
+- Push to master/dev: Runs CI, SonarCloud
 - Pull requests: Runs CI and SonarCloud
 - Citation changes: Runs cffconvert
-- Tags: Triggers Docker releases
 
 ### Manual Triggers
 - Live tests: Use workflow dispatch for specific test types
-- Docker builds: Manual trigger available
 
 ## Troubleshooting
 
@@ -92,7 +83,6 @@ This directory contains the GitHub Actions workflows for the TEMPL Pipeline proj
 1. **Dependency Installation Failures**: Check Python version compatibility
 2. **Test Failures**: Review test artifacts for detailed logs
 3. **Coverage Issues**: Verify Codecov token configuration
-4. **Docker Build Failures**: Check Docker Hub credentials
 
 ### Debugging
 - All workflows generate artifacts for inspection

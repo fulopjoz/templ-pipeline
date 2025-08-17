@@ -127,8 +127,8 @@ POSE GENERATION:
                 "templ run --protein-file data/example/1iky_protein.pdb --ligand-smiles 'CCO'",
                 "templ generate-poses --protein-file data/example/1iky_protein.pdb --ligand-smiles 'CCO' --template-pdb 5eqy",
                 "templ embed --protein-file data/example/1iky_protein.pdb",
-                "templ find-templates --protein-file data/example/1iky_protein.pdb"
-            ]
+                "templ find-templates --protein-file data/example/1iky_protein.pdb",
+            ],
         )
 
         # Examples help content
@@ -150,7 +150,7 @@ With optimization enabled:
 """,
             intermediate="",
             expert="",
-            examples=[]
+            examples=[],
         )
 
         # Set up topic help dictionary

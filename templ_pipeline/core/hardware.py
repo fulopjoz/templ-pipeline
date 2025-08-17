@@ -20,6 +20,7 @@ from dataclasses import dataclass
 # Optional dependencies
 try:
     import psutil
+
     PSUTIL_AVAILABLE = True
 except ImportError:
     PSUTIL_AVAILABLE = False
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class HardwareInfo:
     """Hardware configuration information."""
+
     cpu_count: int
     cpu_model: str
     total_ram_gb: float
@@ -73,21 +75,29 @@ def get_basic_hardware_info() -> HardwareInfo:
         # Try to detect NVIDIA GPUs
         try:
             result = subprocess.run(
-                ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+                [
+                    "nvidia-smi",
+                    "--query-gpu=name,memory.total",
+                    "--format=csv,noheader,nounits",
+                ],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
             )
             if result.returncode == 0:
                 gpu_available = True
-                for line in result.stdout.strip().split('\n'):
+                for line in result.stdout.strip().split("\n"):
                     if line.strip():
-                        parts = line.split(', ')
+                        parts = line.split(", ")
                         if len(parts) >= 2:
                             gpu_models.append(parts[0])
                             gpu_memory_gb += float(parts[1]) / 1024  # Convert MB to GB
                 gpu_count = len(gpu_models)
-        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
+        except (
+            subprocess.TimeoutExpired,
+            subprocess.CalledProcessError,
+            FileNotFoundError,
+        ):
             pass
 
         # Determine recommended config
@@ -108,7 +118,7 @@ def get_basic_hardware_info() -> HardwareInfo:
             gpu_count=gpu_count,
             gpu_memory_gb=gpu_memory_gb,
             gpu_models=gpu_models,
-            recommended_config=recommended_config
+            recommended_config=recommended_config,
         )
 
     except Exception as e:
@@ -121,7 +131,7 @@ def get_basic_hardware_info() -> HardwareInfo:
             gpu_count=0,
             gpu_memory_gb=0.0,
             gpu_models=[],
-            recommended_config="conservative"
+            recommended_config="conservative",
         )
 
 
@@ -135,7 +145,7 @@ def get_memory_info() -> Dict[str, float]:
                 "available_gb": mem.available / (1024**3),
                 "percent_used": mem.percent,
                 "free_gb": mem.free / (1024**3),
-                "cached_gb": getattr(mem, 'cached', 0) / (1024**3),
+                "cached_gb": getattr(mem, "cached", 0) / (1024**3),
             }
         else:
             # Fallback for systems without psutil
@@ -158,9 +168,9 @@ def get_memory_info() -> Dict[str, float]:
 
 
 def get_optimized_worker_config(
-    workload_type: str = "balanced", 
+    workload_type: str = "balanced",
     dataset_size: int = 0,
-    hardware_info: Optional[HardwareInfo] = None
+    hardware_info: Optional[HardwareInfo] = None,
 ) -> Dict[str, Any]:
     """
     Return optimized worker configuration based on workload type and dataset size.
@@ -175,7 +185,7 @@ def get_optimized_worker_config(
     """
     if hardware_info is None:
         hardware_info = get_basic_hardware_info()
-    
+
     total_cpus = hardware_info.cpu_count  # Use all available CPUs
     memory_info = get_memory_info()
 
@@ -183,8 +193,12 @@ def get_optimized_worker_config(
     if workload_type == "cpu_intensive":
         # CRITICAL FIX: Use conservative worker count to prevent resource exhaustion
         # Cap at 20 workers maximum to prevent "cannot allocate memory for thread-local data" errors
-        n_workers = max(2, min(20, int(total_cpus * 0.75)))  # Use 75% of CPUs, max 20 workers
-        internal_pipeline_workers = min(2, total_cpus // n_workers) if n_workers > 1 else 1
+        n_workers = max(
+            2, min(20, int(total_cpus * 0.75))
+        )  # Use 75% of CPUs, max 20 workers
+        internal_pipeline_workers = (
+            min(2, total_cpus // n_workers) if n_workers > 1 else 1
+        )
 
     elif workload_type == "io_intensive":
         # Conservative parallel targets for I/O-bound tasks with system stability
@@ -194,7 +208,9 @@ def get_optimized_worker_config(
     elif workload_type == "memory_intensive":
         # Conservative allocation for molecular tasks - use 2GB per worker for stability
         # This prevents system memory exhaustion seen with 4GB per worker
-        max_workers_by_memory = max(1, int(memory_info["available_gb"] * 0.7 // 2))  # 70% memory, 2GB per worker
+        max_workers_by_memory = max(
+            1, int(memory_info["available_gb"] * 0.7 // 2)
+        )  # 70% memory, 2GB per worker
         n_workers = min(total_cpus, max_workers_by_memory, 20)  # Cap at 20 workers
         internal_pipeline_workers = 1
 
@@ -213,10 +229,14 @@ def get_optimized_worker_config(
     if hardware_info.gpu_available and hardware_info.gpu_memory_gb > 4.0:
         # GPU available - modest boost but maintain system stability
         n_workers = min(n_workers + 2, 20)  # Small boost, keep 20 worker cap
-        internal_pipeline_workers = min(internal_pipeline_workers + 1, 2)  # Modest internal worker boost
+        internal_pipeline_workers = min(
+            internal_pipeline_workers + 1, 2
+        )  # Modest internal worker boost
     elif hardware_info.total_ram_gb < 8.0:
         # Limited RAM - be more conservative
-        n_workers = min(n_workers, max(4, total_cpus // 2))  # Use at least half CPUs, minimum 4 workers
+        n_workers = min(
+            n_workers, max(4, total_cpus // 2)
+        )  # Use at least half CPUs, minimum 4 workers
 
     config = {
         "n_workers": n_workers,
@@ -240,7 +260,7 @@ def get_optimized_worker_config(
 def get_suggested_worker_config() -> Dict[str, Any]:
     """
     Get suggested worker configuration for backward compatibility.
-    
+
     Returns:
         Dictionary containing balanced worker configuration
     """
@@ -250,7 +270,7 @@ def get_suggested_worker_config() -> Dict[str, Any]:
 def get_hardware_info() -> Dict[str, Any]:
     """
     Get comprehensive hardware information for backward compatibility.
-    
+
     Returns:
         Dictionary containing hardware information
     """
@@ -276,64 +296,67 @@ def get_hardware_info() -> Dict[str, Any]:
 def benchmark_cpu_performance(duration: float = 1.0) -> float:
     """
     Simple CPU benchmark to estimate relative performance.
-    
+
     Args:
         duration: Benchmark duration in seconds
-        
+
     Returns:
         Performance score (higher is better)
     """
     import math
-    
+
     start_time = time.time()
     operations = 0
-    
+
     while time.time() - start_time < duration:
         # Simple mathematical operations
         for _ in range(10000):
             math.sqrt(operations * 2.5)
             operations += 1
-    
+
     elapsed = time.time() - start_time
     score = operations / elapsed
-    
-    logger.debug(f"CPU benchmark: {operations} operations in {elapsed:.2f}s (score: {score:.0f})")
+
+    logger.debug(
+        f"CPU benchmark: {operations} operations in {elapsed:.2f}s (score: {score:.0f})"
+    )
     return score
 
 
 def detect_optimal_configuration(
-    target_workload: str = "pipeline", 
-    dataset_size: int = 0
+    target_workload: str = "pipeline", dataset_size: int = 0
 ) -> Dict[str, Any]:
     """
     Detect optimal configuration for a specific workload.
-    
+
     Args:
         target_workload: Type of workload ("pipeline", "embedding", "benchmark")
         dataset_size: Expected dataset size
-        
+
     Returns:
         Optimal configuration dictionary
     """
     hardware_info = get_basic_hardware_info()
-    
+
     # Map workload types to configuration types
     workload_mapping = {
         "pipeline": "balanced",
-        "embedding": "gpu_intensive" if hardware_info.gpu_available else "cpu_intensive",
+        "embedding": (
+            "gpu_intensive" if hardware_info.gpu_available else "cpu_intensive"
+        ),
         "benchmark": "memory_intensive",
         "conformer_generation": "cpu_intensive",
         "template_search": "io_intensive",
     }
-    
+
     workload_type = workload_mapping.get(target_workload, "balanced")
-    
+
     config = get_optimized_worker_config(
         workload_type=workload_type,
         dataset_size=dataset_size,
-        hardware_info=hardware_info
+        hardware_info=hardware_info,
     )
-    
+
     # Add workload-specific optimizations
     if target_workload == "embedding" and hardware_info.gpu_available:
         config["use_gpu"] = True
@@ -342,7 +365,7 @@ def detect_optimal_configuration(
         config["max_conformers"] = min(100, int(hardware_info.total_ram_gb * 10))
     elif target_workload == "benchmark":
         config["max_concurrent_pdbs"] = min(config["n_workers"], 5)
-    
+
     config["target_workload"] = target_workload
     config["hardware_summary"] = {
         "cpu_count": hardware_info.cpu_count,
@@ -350,14 +373,14 @@ def detect_optimal_configuration(
         "gpu_available": hardware_info.gpu_available,
         "recommended_profile": hardware_info.recommended_config,
     }
-    
+
     return config
 
 
 def get_environment_constraints() -> Dict[str, Any]:
     """
     Get environment constraints that might affect performance.
-    
+
     Returns:
         Dictionary of environment constraints
     """
@@ -370,7 +393,7 @@ def get_environment_constraints() -> Dict[str, Any]:
         "memory_limited": False,
         "cpu_limited": False,
     }
-    
+
     # Check for NVIDIA Docker
     try:
         with open("/proc/1/cgroup", "r") as f:
@@ -381,30 +404,30 @@ def get_environment_constraints() -> Dict[str, Any]:
                     constraints["has_nvidia_docker"] = True
     except (FileNotFoundError, PermissionError):
         pass
-    
+
     # Check for memory constraints
     memory_info = get_memory_info()
     if memory_info["total_gb"] < 4.0:
         constraints["memory_limited"] = True
-    
+
     # Check for CPU constraints
     cpu_count = os.cpu_count()
     if cpu_count is not None and cpu_count < 4:
         constraints["cpu_limited"] = True
-    
+
     return constraints
 
 
 def recommend_installation_type() -> str:
     """
     Recommend installation type based on hardware capabilities.
-    
+
     Returns:
         Recommended installation type
     """
     hardware_info = get_basic_hardware_info()
     constraints = get_environment_constraints()
-    
+
     if constraints["memory_limited"] or constraints["cpu_limited"]:
         return "minimal"
     elif hardware_info.gpu_available and hardware_info.gpu_memory_gb > 4.0:
@@ -420,16 +443,20 @@ def log_hardware_summary() -> None:
     hardware_info = get_basic_hardware_info()
     config = get_suggested_worker_config()
     constraints = get_environment_constraints()
-    
+
     logger.info("Hardware Summary:")
     logger.info(f"  CPU: {hardware_info.cpu_model} ({hardware_info.cpu_count} cores)")
     logger.info(f"  RAM: {hardware_info.total_ram_gb:.1f} GB")
-    logger.info(f"  GPU: {'Available' if hardware_info.gpu_available else 'Not available'}")
+    logger.info(
+        f"  GPU: {'Available' if hardware_info.gpu_available else 'Not available'}"
+    )
     if hardware_info.gpu_available:
         logger.info(f"    Models: {', '.join(hardware_info.gpu_models)}")
         logger.info(f"    Total Memory: {hardware_info.gpu_memory_gb:.1f} GB")
-    
+
     logger.info(f"  Recommended Profile: {hardware_info.recommended_config}")
     logger.info(f"  Suggested Workers: {config['n_workers']}")
-    logger.info(f"  Platform: {constraints['platform']} ({constraints['architecture']})")
+    logger.info(
+        f"  Platform: {constraints['platform']} ({constraints['architecture']})"
+    )
     logger.info(f"  Installation Type: {recommend_installation_type()}")
