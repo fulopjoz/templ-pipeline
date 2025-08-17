@@ -15,7 +15,6 @@ RUN apk add --no-cache \
 WORKDIR /data-setup
 
 # Copy the data setup scripts
-COPY scripts/setup_pdbind_data.py /data-setup/
 COPY deploy/scripts/init-data-setup.sh /data-setup/
 
 # Make script executable

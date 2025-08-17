@@ -123,15 +123,11 @@ download_pdbind_data() {
         return 0
     fi
     
-    info "Downloading PDBBind data using Python script..."
+    info "PDBBind dataset setup has been removed for security"
+    warning "Please configure PDBBind data manually using authorized access"
+    warning "Refer to config/datasets.yaml.template for setup instructions"
     
-    # Run the existing Python script
-    python3 /data-setup/setup_pdbind_data.py || {
-        error "Failed to download PDBBind data"
-        return 1
-    }
-    
-    success "PDBBind data downloaded successfully"
+    return 0
 }
 
 # Verify all data is present

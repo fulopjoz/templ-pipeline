@@ -198,6 +198,15 @@ SETUP_PRIVATE.md
 .env.template
 
 # Git history cleanup artifacts
+refs/original/
+
+# Dataset setup scripts with embedded URLs
+**/setup_*_data.py
+scripts/setup_*bind_data.py
+
+# Any files containing dataset URLs
+**/*cesnet*
+**/*owncloud*
 bfg.jar
 git-cleanup-log.txt
 url-replacements.txt
