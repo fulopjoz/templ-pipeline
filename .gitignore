@@ -264,3 +264,7 @@ kubectl
 benchmarks/**
 benchmarks/pdbbind/
 
+SETUP_PRIVATE.md
+sonar-project.properties
+
+scripts/setup_pdbind_data.py

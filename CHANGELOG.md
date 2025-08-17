@@ -5,64 +5,40 @@ All notable changes to TEMPL Pipeline will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2025-08-17
 
 ### Added
-- FAIR compliance improvements
-- SPDX headers to all Python files
-- Citation.cff file for academic citation
-- CodeMeta.json for machine-readable metadata
-- AUTHORS file for contributor attribution
-- CONTRIBUTING.md guidelines
-- CODE_OF_CONDUCT.md
-- LICENSES directory with SPDX-named files
-
-## [1.0.0] - 2025-01-XX
-
-### Added
-- Initial release of TEMPL Pipeline
-- Template-based protein-ligand pose prediction
-- MCS alignment and ETKDG conformer generation
-- Command-line interface with smart progressive UX
-- Streamlit web application
-- Built-in benchmarks (Polaris, time-split PDBbind)
-- Protein embedding generation and template selection
-- Shape and pharmacophore scoring
-- Comprehensive workspace and file management
-- Hardware detection and optimization
-- Multi-processing support for pose generation
-- Error handling and validation
-- Documentation and examples
+- Initial public release of TEMPL Pipeline
+- Template-based protein-ligand pose prediction system
+- Maximum Common Substructure (MCS) alignment with ETKDG conformer generation
+- Command-line interface with progressive user experience
+- Streamlit web application for interactive use
+- Built-in benchmarking capabilities (Polaris, time-split PDBbind)
+- Protein embedding generation and template selection using ESM2
+- Shape and pharmacophore-based scoring algorithms
+- Comprehensive workspace and file management system
+- Hardware detection and optimization features
+- Multi-processing support for parallel pose generation
+- Robust error handling and input validation
+- Docker and Kubernetes deployment configurations
+- FAIR compliance features including:
+  - SPDX headers in all Python files
+  - Citation.cff file for academic citation
+  - CodeMeta.json for machine-readable metadata
+  - CONTRIBUTING.md guidelines
+  - CODE_OF_CONDUCT.md
+  - MIT license with proper SPDX formatting
 
 ### Technical Features
-- ESM2 protein embeddings
-- RDKit-based molecular processing
-- Parallel conformer generation
-- Caching and optimization
-- Cross-platform compatibility
-- Docker and Kubernetes deployment support
+- ESM2 protein embeddings for template selection
+- RDKit-based molecular processing and manipulation
+- Parallel conformer generation algorithms
+- Intelligent caching and performance optimization
+- Cross-platform compatibility (Linux, macOS, Windows)
+- Memory-efficient processing of large datasets
 
 ### Data
-- Pre-computed protein embeddings (~90MB)
-- Processed ligand structures (~10MB)
-- Benchmark datasets and splits
-- Example protein-ligand complexes
-
-## [0.9.0] - 2025-06-17
-
-### Added
-- Beta release with core functionality
-- Basic pipeline implementation
-- Initial CLI interface
-- Web application prototype
-- One-command installation script
-- Git LFS tracking for large files
-
-## [0.8.0] - 2025-06-17
-
-### Added
-- Alpha release
-- Core MCS functionality
-- Basic scoring algorithms
-- Initial documentation
-- First commit with project structure
+- Pre-computed protein embeddings database (~90MB)
+- Processed ligand structure library (~10MB)
+- Benchmark datasets and validation splits
+- Example protein-ligand complexes for testing

@@ -31,34 +31,58 @@
     {
       "@type": "Person",
       "givenName": "J.",
-      "familyName": "Fülöp"
+      "familyName": "Fülöp",
+      "affiliation": {
+        "@type": "Organization",
+        "name": "University of Chemistry and Technology, Prague"
+      }
     },
     {
       "@type": "Person", 
       "givenName": "M.",
-      "familyName": "Šícho"
+      "familyName": "Šícho",
+      "affiliation": {
+        "@type": "Organization",
+        "name": "University of Chemistry and Technology, Prague"
+      }
     },
     {
       "@type": "Person",
       "givenName": "W.", 
-      "familyName": "Dehaen"
+      "familyName": "Dehaen",
+      "affiliation": {
+        "@type": "Organization",
+        "name": "University of Chemistry and Technology, Prague"
+      }
     }
   ],
   "contributor": [
     {
       "@type": "Person",
       "givenName": "J.",
-      "familyName": "Fülöp"
+      "familyName": "Fülöp",
+      "affiliation": {
+        "@type": "Organization",
+        "name": "University of Chemistry and Technology, Prague"
+      }
     },
     {
       "@type": "Person",
       "givenName": "M.", 
-      "familyName": "Šícho"
+      "familyName": "Šícho",
+      "affiliation": {
+        "@type": "Organization",
+        "name": "University of Chemistry and Technology, Prague"
+      }
     },
     {
       "@type": "Person",
       "givenName": "W.",
-      "familyName": "Dehaen"
+      "familyName": "Dehaen",
+      "affiliation": {
+        "@type": "Organization",
+        "name": "University of Chemistry and Technology, Prague"
+      }
     }
   ],
   "keywords": [
@@ -74,12 +98,12 @@
   "identifier": {
     "@type": "PropertyValue",
     "name": "DOI",
-    "value": "10.5281/zenodo.XXXXXXX"
+    "value": ""
   },
   "citation": [
     {
       "@type": "SoftwareSourceCode",
-      "citation": "@software{templ2025, title={TEMPL: Template-based protein-ligand pose prediction}, author={J. Fülöp and M. Šícho and W. Dehaen}, url={https://github.com/fulopjoz/templ-pipeline}, doi={10.5281/zenodo.XXXXXXX}, year={2025}}"
+      "citation": "@software{templ2025, title={TEMPL: Template-based protein-ligand pose prediction}, author={J. Fülöp and M. Šícho and W. Dehaen}, institution={University of Chemistry and Technology, Prague}, url={https://github.com/fulopjoz/templ-pipeline}, doi={10.5281/zenodo.XXXXXXX}, year={2025}}"
     }
   ],
   "developmentStatus": "active",
@@ -96,6 +120,24 @@
         "@type": "PropertyValue",
         "name": "CZ-OPENSCREEN",
         "value": "LM2023052"
+      }
+    },
+    {
+      "@type": "Organization",
+      "name": "Ministry of Education, Youth and Sports of the Czech Republic",
+      "identifier": {
+        "@type": "PropertyValue",
+        "name": "NETPHARM",
+        "value": "CZ.02.01.01/00/22_008/0004607"
+      }
+    },
+    {
+      "@type": "Organization",
+      "name": "e-INFRA CZ project",
+      "identifier": {
+        "@type": "PropertyValue",
+        "name": "e-INFRA CZ",
+        "value": "ID:90254"
       }
     }
   ]

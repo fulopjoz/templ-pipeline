@@ -4,10 +4,13 @@ message: "If you use this software, please cite it as below."
 authors:
   - family-names: "Fülöp"
     given-names: "J."
+    affiliation: "University of Chemistry and Technology, Prague"
   - family-names: "Šícho"
     given-names: "M."
+    affiliation: "University of Chemistry and Technology, Prague"
   - family-names: "Dehaen"
     given-names: "W."
+    affiliation: "University of Chemistry and Technology, Prague"
 abstract: "TEMPL is a template-based method for rapid protein-ligand pose prediction that leverages ligand similarity and template superposition. The method uses maximal common substructure (MCS) alignment and constrained conformer generation (ETKDG v3) for pose generation within known chemical space."
 keywords:
   - "protein-ligand docking"
@@ -27,3 +30,12 @@ identifiers:
     value: "https://github.com/fulopjoz/templ-pipeline"
 version: "1.0.0"
 date-released: 2025-01-XX
+funding:
+  - agency: "Ministry of Education, Youth and Sports of the Czech Republic"
+    program: "National Infrastructure for Chemical Biology"
+    grant-id: "CZ-OPENSCREEN, LM2023052"
+  - agency: "Ministry of Education, Youth and Sports of the Czech Republic"
+    program: "New Technologies for Translational Research in Pharmaceutical Sciences/NETPHARM"
+    grant-id: "CZ.02.01.01/00/22_008/0004607"
+  - agency: "e-INFRA CZ project"
+    grant-id: "ID:90254"

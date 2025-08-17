@@ -1,0 +1,45 @@
+name: Live Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of live test to run'
+        required: true
+        default: 'integration'
+        type: choice
+        options:
+        - integration
+        - performance
+        - ui
+
+jobs:
+  livetest:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+    
+    - name: Run integration tests
+      if: inputs.test_type == 'integration'
+      run: |
+        pytest tests/integration/ -v
+    
+    - name: Run performance tests
+      if: inputs.test_type == 'performance'
+      run: |
+        pytest tests/performance/ -v
+    
+    - name: Run UI tests
+      if: inputs.test_type == 'ui'
+      run: |
+        pytest tests/unit/ui/ -v

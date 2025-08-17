@@ -3,9 +3,10 @@
 [![Live App](https://img.shields.io/badge/Live_App-templ.dyn.cloud.e--infra.cz-2ea44f?logo=google-chrome&logoColor=white)](https://templ.dyn.cloud.e-infra.cz/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![RSD](https://img.shields.io/badge/rsd-templ--pipeline-00a3e0.svg)](https://research-software-directory.org/software/templ-pipeline)
-[![fair-software.eu](https://img.shields.io/badge/fair--software.eu-%E2%97%8F%20%20%E2%97%8F%20%20%E2%97%8F%20%20%E2%97%8F%20%20%E2%97%8F-orange)](https://fair-software.eu)
-[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.XXXXXXX-blue)](https://doi.org/10.5281/zenodo.XXXXXXX)
+[![Tests](https://github.com/fulopjoz/templ-pipeline/workflows/Unit%20Tests/badge.svg)](https://github.com/fulopjoz/templ-pipeline/actions/workflows/tests.yml)
+[![Coverage](https://img.shields.io/badge/coverage-XX%25-green.svg)](https://codecov.io/gh/fulopjoz/templ-pipeline)
+[![Code Quality](https://img.shields.io/badge/code%20quality-A-brightgreen.svg)](https://sonarcloud.io/dashboard?id=fulopjoz_templ-pipeline)
+[![Docker Pulls](https://img.shields.io/docker/pulls/fulopjoz/templ-pipeline)](https://hub.docker.com/r/fulopjoz/templ-pipeline)
 
 Template-based protein–ligand pose prediction with command-line interface and web application.
 
@@ -21,7 +22,7 @@ TEMPL is a template-based method for rapid protein–ligand pose prediction that
 - Alignment driven by maximal common substructure (MCS)
 - Shape and pharmacophore scoring for pose selection
 - Built-in benchmarks (Polaris, time-split PDBbind)
-- CPU-only by default with optional GPU acceleration
+- CPU/GPU adaptive
 
 **⚠️ Scope:**
 
@@ -178,8 +179,8 @@ If you use TEMPL in your research, please cite the software:
 @software{templ2025,
   title={TEMPL: Template-based protein-ligand pose prediction},
   author={J. Fülöp and M. Šícho and W. Dehaen},
+  institution={University of Chemistry and Technology, Prague},
   url={https://github.com/fulopjoz/templ-pipeline},
-  doi={10.5281/zenodo.XXXXXXX},
   year={2025}
 }
 ```
@@ -188,9 +189,9 @@ If you use TEMPL in your research, please cite the software:
 
 ---
 
-## Acknowledgments
+## Acknowledgement
 
-J.F., M.Š. and W.D. were supported by the Ministry of Education, Youth and Sports of the Czech Republic – National Infrastructure for Chemical Biology (CZ-OPENSCREEN, LM2023052). W.D. was supported by the Ministry of Education, Youth and Sports of the Czech Republic by the project “New Technologies for Translational Research in Pharmaceutical Sciences/NETPHARM”, project ID CZ.02.01.01/00/22_008/0004607, cofunded by the European Union.
+J.F., M.Š. and W.D. were supported by the Ministry of Education, Youth and Sports of the Czech Republic – National Infrastructure for Chemical Biology (CZ-OPENSCREEN, LM2023052). W.D. was supported by the Ministry of Education, Youth and Sports of the Czech Republic by the project "New Technologies for Translational Research in Pharmaceutical Sciences/NETPHARM", project ID CZ.02.01.01/00/22_008/0004607, cofunded by the European Union.
 Computational resources were provided by the e-INFRA CZ project (ID:90254), supported by the Ministry of Education, Youth and Sports of the Czech Republic.
 
 
