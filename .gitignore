@@ -250,9 +250,26 @@ temp/
 
 # Additional ignores
 .mypy_cache/
+.ruff_cache/
+.bandit
 data/embeddings/
 data/ligands/
 ~/
+
+# Package manager files
+poetry.lock
+Pipfile.lock
+pdm.lock
+pip-wheel-metadata/
+
+# Profiling and performance
+*.prof
+.prof/
+profile_*.txt
+
+# Documentation builds
+site/
+_build/
 
 benchmarks/
 benchmark_*/
