@@ -479,7 +479,8 @@ def evaluate_with_leave_one_out(
 
     # Create experiment-specific output directory only if needed
     experiment_name = f"{virus_type}_train_{template_source}"
-    Path(OUTPUT_DIR) / experiment_name
+    experiment_dir = Path(OUTPUT_DIR) / experiment_name
+    experiment_dir.mkdir(parents=True, exist_ok=True)
 
     # Prepare results structure
     results = {
@@ -731,7 +732,8 @@ def evaluate_with_templates(
 
     # Create experiment-specific output directory only if needed
     experiment_name = f"{virus_type}_test_{template_source}"
-    Path(OUTPUT_DIR) / experiment_name
+    experiment_dir = Path(OUTPUT_DIR) / experiment_name
+    experiment_dir.mkdir(parents=True, exist_ok=True)
 
     # Prepare results structure
     results = {

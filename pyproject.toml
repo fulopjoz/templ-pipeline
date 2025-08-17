@@ -156,7 +156,7 @@ opts = [
 
 # Configure timeouts and other runtime parameters
 timeout_func_name = "test_timeout"
-timeout_method = 120  # 2 minutes default timeout
+timeout_method = "thread"  # Use thread-based timeout method
 
 # Performance and coverage configuration
 addopts = [
