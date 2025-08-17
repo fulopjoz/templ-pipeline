@@ -70,7 +70,7 @@ check_existing_data() {
         info "Some datasets missing, will download:"
         $has_embeddings || info "  - Protein embeddings (Zenodo)"
         $has_ligands || info "  - Processed ligands (Zenodo)"
-        $has_pdbind || info "  - PDBBind data (CESNET)"
+        $has_pdbind || info "  - PDBBind data (manual setup required)"
         return 1
     fi
 }
