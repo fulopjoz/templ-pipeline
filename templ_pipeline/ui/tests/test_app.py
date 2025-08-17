@@ -7,17 +7,18 @@ This module provides automated testing for the TEMPL Pipeline Streamlit web appl
 using Streamlit's AppTest framework and Playwright for end-to-end testing.
 """
 
-import pytest
 import os
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-import streamlit as st
-from streamlit.testing.v1 import AppTest
-import pandas as pd
-from rdkit import Chem
+from unittest.mock import MagicMock, Mock, patch
+
 import numpy as np
+import pandas as pd
+import pytest
+import streamlit as st
+from rdkit import Chem
+from streamlit.testing.v1 import AppTest
 
 
 class StreamlitTestFramework:

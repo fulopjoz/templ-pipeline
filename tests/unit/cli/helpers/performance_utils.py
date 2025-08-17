@@ -2,11 +2,12 @@
 # SPDX-License-Identifier: MIT
 """Performance measurement utilities for CLI tests."""
 
-import time
-import psutil
 import sys
-from typing import Dict, Any
+import time
 from contextlib import contextmanager
+from typing import Any, Dict
+
+import psutil
 
 
 class PerformanceMonitor:

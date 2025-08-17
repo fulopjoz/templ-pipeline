@@ -7,10 +7,11 @@ Security hardened for CERIT deployment
 """
 
 import hashlib
-import streamlit as st
 import os
-from typing import Optional, Tuple
 import time
+from typing import Optional, Tuple
+
+import streamlit as st
 
 
 class TemplAuth:

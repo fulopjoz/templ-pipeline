@@ -4,12 +4,13 @@
 Working test cases for benchmark summary generator - using actual API.
 """
 
-import pytest
-import tempfile
-import shutil
 import json
+import shutil
+import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
+
+import pytest
 
 from templ_pipeline.benchmark.summary_generator import (
     BenchmarkSummaryGenerator,

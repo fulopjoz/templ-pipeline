@@ -7,9 +7,10 @@ Handles protein similarity search functionality.
 For custom templates (pure MCS), this service is not used.
 """
 
-import streamlit as st
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
+
+import streamlit as st
 
 from ..config.settings import AppConfig
 from ..core.session_manager import SessionManager

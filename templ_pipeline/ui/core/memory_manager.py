@@ -8,13 +8,13 @@ with SMILES-based regeneration and automatic cleanup.
 """
 
 import gc
-import time
-import pickle
 import gzip
 import logging
-from typing import Any, Optional, Dict, Tuple, List
+import pickle
+import time
 from collections import OrderedDict
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 # Try to import streamlit and RDKit for molecular operations
 try:

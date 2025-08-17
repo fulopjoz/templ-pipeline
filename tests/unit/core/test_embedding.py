@@ -8,21 +8,22 @@ embedding calculation, caching behavior, and template selection.
 """
 
 import os
+import shutil
+import sys
 import tempfile
 import unittest
-from unittest.mock import patch, MagicMock
-import shutil
-import numpy as np
 from pathlib import Path
-import sys
+from unittest.mock import MagicMock, patch
+
+import numpy as np
 
 # Handle imports for both development and installed package
 try:
     from templ_pipeline.core.embedding import (
         EmbeddingManager,
-        get_protein_sequence,
         calculate_embedding,
         get_embedding,
+        get_protein_sequence,
         select_templates,
     )
 except ImportError:
@@ -32,9 +33,9 @@ except ImportError:
     )
     from core.embedding import (
         EmbeddingManager,
-        get_protein_sequence,
         calculate_embedding,
         get_embedding,
+        get_protein_sequence,
         select_templates,
     )
 
@@ -321,26 +322,31 @@ class TestEmbeddingManager(unittest.TestCase):
             self.temp_dir, "mock_templ_protein_embeddings_v1.0.0.npz"
         )
 
-        # Actually write a mock npz file for tests
-        mock_pdb_ids = np.array(["1abc", "2xyz", "3pqr"], dtype=object)
-        mock_embeddings = np.array(
-            [
-                np.ones(1280),  # Simple embedding for 1abc
-                np.ones(1280) * 2,  # Simple embedding for 2xyz
-                np.ones(1280) * 3,  # Simple embedding for 3pqr
-            ],
-            dtype=object,
-        )
-        mock_chain_ids = np.array(["A", "B,C", "A,B,C"], dtype=object)
+        # Create a real .npz file with test data
+        self.create_mock_embedding_file()
+
+    def create_mock_embedding_file(self):
+        """Create a proper mock embedding file with actual data."""
+        import numpy as np
 
         # Create directory and write file
         Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
+
+        # Create test data with proper structure
+        mock_pdb_ids = np.array(["1ABC", "2DEF", "3GHI"], dtype=object)
+        mock_embeddings = np.random.rand(3, 1280).astype(np.float32)  # Real embeddings
+        mock_chain_data = {
+            "1ABC": {"A": {"residues": 100}},
+            "2DEF": {"B": {"residues": 150}},
+            "3GHI": {"C": {"residues": 200}},
+        }
+
         try:
             np.savez(
                 self.mock_embedding_path,
                 pdb_ids=mock_pdb_ids,
                 embeddings=mock_embeddings,
-                chain_ids=mock_chain_ids,
+                chain_data=mock_chain_data,
             )
         except Exception as e:
             self.fail(f"Error creating mock embedding file: {e}")

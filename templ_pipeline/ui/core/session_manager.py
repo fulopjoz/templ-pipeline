@@ -7,15 +7,16 @@ Centralized session state management with type safety, validation,
 and automatic cleanup capabilities.
 """
 
-import streamlit as st
 import logging
-from typing import Any, Dict, List, Optional, Set, Callable
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Set
+
+import streamlit as st
 
 from ..config.constants import SESSION_KEYS
+from .cache_optimizer import auto_optimize_if_needed, get_cache_optimizer
 from .memory_manager import get_memory_manager
-from .cache_optimizer import get_cache_optimizer, auto_optimize_if_needed
 
 logger = logging.getLogger(__name__)
 
@@ -554,9 +555,9 @@ class SessionManager:
     def _cleanup_temp_files(self):
         """Clean up temporary files from uploads and processing"""
         try:
-            import tempfile
-            import os
             import glob
+            import os
+            import tempfile
 
             # Get workspace directory from session
             workspace_dir_key = SESSION_KEYS.get("WORKSPACE_DIR", "workspace_dir")

@@ -5,13 +5,16 @@
 
 import logging
 import os
-from typing import Dict, List, Optional, Tuple, Set, Any
+from typing import Any, Dict, List, Optional, Set, Tuple
 
+import biotite.structure as struc
 import numpy as np
 from rdkit import Chem
-import biotite.structure as struc
 
 try:
+    import biotite.sequence as seq
+    import biotite.sequence.align as align
+    import biotite.structure.io as bsio
     from biotite.structure import (
         AtomArray,
         filter_amino_acids,
@@ -20,9 +23,6 @@ try:
         superimpose_homologs,
         to_sequence,
     )
-    import biotite.structure.io as bsio
-    import biotite.sequence as seq
-    import biotite.sequence.align as align
 
     try:
         import biotite.structure.alphabet as strucalph

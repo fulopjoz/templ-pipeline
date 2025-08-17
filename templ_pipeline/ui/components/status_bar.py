@@ -6,9 +6,10 @@ Status Bar Component for TEMPL Pipeline
 Displays application status and session information.
 """
 
-import streamlit as st
 import logging
 from datetime import datetime, timedelta
+
+import streamlit as st
 
 from ..core.session_manager import SessionManager
 

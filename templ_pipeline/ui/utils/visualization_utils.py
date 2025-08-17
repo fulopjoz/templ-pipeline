@@ -6,9 +6,10 @@ Visualization utility functions for TEMPL Pipeline UI
 Contains molecule display and image generation functions.
 """
 
-import streamlit as st
 import logging
-from typing import Optional, List, Any
+from typing import Any, List, Optional
+
+import streamlit as st
 
 logger = logging.getLogger(__name__)
 
@@ -358,8 +359,8 @@ def get_molecule_from_session(
 
     # Try memory manager fallback for specific keys
     try:
-        from ..core.memory_manager import get_memory_manager
         from ..config.constants import SESSION_KEYS
+        from ..core.memory_manager import get_memory_manager
 
         memory_manager = get_memory_manager()
 

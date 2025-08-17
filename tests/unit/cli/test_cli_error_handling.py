@@ -2,13 +2,14 @@
 # SPDX-License-Identifier: MIT
 """Error handling tests for TEMPL CLI."""
 
-import pytest
-import tempfile
 import os
-from unittest.mock import patch, MagicMock
+import tempfile
+from unittest.mock import MagicMock, patch
 
+import pytest
+
+from .fixtures.mock_data import MOCK_INVALID_SMILES, MOCK_PROTEIN_PDB
 from .helpers.cli_runner import CLITestRunner
-from .fixtures.mock_data import MOCK_PROTEIN_PDB, MOCK_INVALID_SMILES
 
 
 class TestInputErrors:

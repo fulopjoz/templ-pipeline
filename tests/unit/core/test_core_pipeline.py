@@ -4,16 +4,17 @@
 Working tests for the TEMPLPipeline class - focused on actual functionality.
 """
 
-import pytest
-import tempfile
+import os
 import shutil
+import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
-import numpy as np
-from rdkit import Chem
-import os
 
-from templ_pipeline.core.pipeline import TEMPLPipeline, PipelineConfig
+import numpy as np
+import pytest
+from rdkit import Chem
+
+from templ_pipeline.core.pipeline import PipelineConfig, TEMPLPipeline
 
 
 @pytest.fixture

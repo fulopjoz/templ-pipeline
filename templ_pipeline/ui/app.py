@@ -7,12 +7,13 @@ Clean, modular entry point for the refactored TEMPL Pipeline UI.
 This replaces the monolithic app.py with a clean architecture.
 """
 
-import streamlit as st
 import logging
 import sys
-from pathlib import Path
 import traceback
-from typing import Dict, Any, Optional, Callable
+from pathlib import Path
+from typing import Any, Callable, Dict, Optional
+
+import streamlit as st
 
 # Add project root to path for imports
 project_root = Path(__file__).parent.parent.parent
@@ -20,8 +21,8 @@ sys.path.insert(0, str(project_root))
 
 # Import refactored modules
 from templ_pipeline.ui.config.settings import get_config
-from templ_pipeline.ui.core.session_manager import get_session_manager
 from templ_pipeline.ui.core.hardware_manager import get_hardware_manager
+from templ_pipeline.ui.core.session_manager import get_session_manager
 from templ_pipeline.ui.layouts.main_layout import MainLayout
 
 # Configure logging
@@ -296,9 +297,9 @@ def run_pipeline(
     Returns:
         Results dictionary or None on failure
     """
-    from .services.pipeline_service import PipelineService
     from .config.settings import get_config
     from .core.session_manager import SessionManager
+    from .services.pipeline_service import PipelineService
 
     # Create temporary configuration and session
     config = get_config()

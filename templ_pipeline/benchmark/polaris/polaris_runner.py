@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2025 TEMPL Team
 # SPDX-License-Identifier: MIT
-import sys
 import os
+import sys
 
 from .benchmark import main as _benchmark_main
 

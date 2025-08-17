@@ -20,12 +20,13 @@ def test_molecule_storage_and_retrieval():
     """Test molecule storage and retrieval with the new system"""
     try:
         from rdkit import Chem
-        from templ_pipeline.ui.core.session_manager import SessionManager
-        from templ_pipeline.ui.config.settings import get_config
+
         from templ_pipeline.ui.config.constants import SESSION_KEYS
+        from templ_pipeline.ui.config.settings import get_config
+        from templ_pipeline.ui.core.session_manager import SessionManager
         from templ_pipeline.ui.utils.visualization_utils import (
-            get_molecule_from_session,
             create_mcs_molecule_from_info,
+            get_molecule_from_session,
         )
 
         print("Testing molecule visualization fixes...")
@@ -140,6 +141,7 @@ def test_memory_manager_integration():
     """Test memory manager integration"""
     try:
         from rdkit import Chem
+
         from templ_pipeline.ui.core.memory_manager import get_memory_manager
 
         print("\n5. Testing memory manager integration...")

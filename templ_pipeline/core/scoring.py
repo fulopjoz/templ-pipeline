@@ -19,9 +19,9 @@ The main classes and functions:
 import logging
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from typing import Dict, List, Optional, Tuple, Any, Union, Set
-import numpy as np
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
+import numpy as np
 from rdkit import Chem
 from rdkit.Chem import (
     AllChem,

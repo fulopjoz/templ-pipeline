@@ -17,9 +17,9 @@ Features:
 
 import argparse
 import sys
-from typing import Dict, List, Optional, Tuple
-from enum import Enum
 from dataclasses import dataclass
+from enum import Enum
+from typing import Dict, List, Optional, Tuple
 
 from .ux_config import ExperienceLevel, get_ux_config
 

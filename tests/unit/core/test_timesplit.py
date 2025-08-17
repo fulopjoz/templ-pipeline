@@ -8,26 +8,27 @@ This script uses synthetic test data instead of skipping when real data is unava
 ensuring consistent test execution across all environments.
 """
 
-import os
 import logging
-import pytest
-import tempfile
+import os
 import shutil
+import sys
+import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
-import sys
+
+import pytest
 
 # Handle imports for both development and installed package
 try:
-    from templ_pipeline.core.embedding import EmbeddingManager
     from templ_pipeline.core.datasets import DatasetSplits
+    from templ_pipeline.core.embedding import EmbeddingManager
 except ImportError:
     # Fall back to local imports for development
     sys.path.insert(
         0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
     )
-    from core.embedding import EmbeddingManager
     from core.datasets import DatasetSplits
+    from core.embedding import EmbeddingManager
 
 # Import test data factory
 from tests.fixtures.data_factory import TestDataFactory

@@ -7,24 +7,24 @@ These tests verify the functionality of the Scoring module, including
 shape-based scoring, color scoring, combo scoring, and pose selection.
 """
 
-import unittest
-from unittest.mock import patch, MagicMock, Mock
-import os
 import logging
-import tempfile
-import numpy as np
+import os
 import sys
+import tempfile
+import unittest
+from unittest.mock import MagicMock, Mock, patch
 
+import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
 # Handle imports for both development and installed package
 try:
     from templ_pipeline.core.scoring import (
+        generate_properties_for_sdf,
+        rmsd_raw,
         score_and_align,
         select_best,
-        rmsd_raw,
-        generate_properties_for_sdf,
     )
 except ImportError:
     # Fall back to local imports for development
@@ -32,10 +32,10 @@ except ImportError:
         0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
     )
     from core.scoring import (
+        generate_properties_for_sdf,
+        rmsd_raw,
         score_and_align,
         select_best,
-        rmsd_raw,
-        generate_properties_for_sdf,
     )
 
 # Configure logging for tests

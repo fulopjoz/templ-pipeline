@@ -6,21 +6,22 @@ Main Layout for TEMPL Pipeline
 Orchestrates the overall application layout and component rendering.
 """
 
-import streamlit as st
 import logging
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
-from ..config.settings import AppConfig
-from ..config.constants import MESSAGES, VERSION, SESSION_KEYS
-from ..core.session_manager import SessionManager
-from ..core.hardware_manager import get_hardware_manager
-from ..core.cache_manager import get_cache_manager
+import streamlit as st
+
 from ..components.header import render_header
 from ..components.input_section import InputSection
 from ..components.results_section import ResultsSection
 from ..components.status_bar import render_status_bar
-from ..utils.performance_monitor import PerformanceMonitor
+from ..config.constants import MESSAGES, SESSION_KEYS, VERSION
+from ..config.settings import AppConfig
+from ..core.cache_manager import get_cache_manager
+from ..core.hardware_manager import get_hardware_manager
+from ..core.session_manager import SessionManager
 from ..services.pipeline_service import PipelineService
+from ..utils.performance_monitor import PerformanceMonitor
 from ..utils.workspace_integration import get_workspace_integration
 
 logger = logging.getLogger(__name__)

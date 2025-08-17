@@ -7,10 +7,10 @@ Internal benchmark functionality for TEMPL pipeline.
 """
 
 from .runner import (
-    run_templ_pipeline_for_benchmark,
-    BenchmarkRunner,
     BenchmarkParams,
     BenchmarkResult,
+    BenchmarkRunner,
+    run_templ_pipeline_for_benchmark,
 )
 
 

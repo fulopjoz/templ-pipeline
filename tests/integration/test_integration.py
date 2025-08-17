@@ -1,9 +1,10 @@
 # SPDX-FileCopyrightText: 2025 TEMPL Team
 # SPDX-License-Identifier: MIT
-import pytest
-from pathlib import Path
 import tempfile
-from unittest.mock import patch, Mock
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+import pytest
 
 
 @pytest.mark.integration

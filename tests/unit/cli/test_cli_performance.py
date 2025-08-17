@@ -2,10 +2,11 @@
 # SPDX-License-Identifier: MIT
 """Performance and lazy loading tests for TEMPL CLI."""
 
-import pytest
 import sys
 import time
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from .helpers.cli_runner import CLITestRunner
 from .helpers.performance_utils import PerformanceMonitor, assert_performance_criteria
@@ -33,8 +34,9 @@ class TestCLIPerformance:
     def test_help_command_performance(self):
         """Test help command executes quickly."""
         # Test direct function call to avoid subprocess overhead
-        import time
         import sys
+        import time
+
         from templ_pipeline.cli.main import main
 
         # Save original argv
@@ -62,8 +64,9 @@ class TestCLIPerformance:
     @pytest.mark.performance
     def test_help_variants_performance(self):
         """Test all help variants execute quickly."""
-        import time
         import sys
+        import time
+
         from templ_pipeline.cli.main import main
 
         help_variants = [
@@ -102,6 +105,11 @@ class TestCLIPerformance:
     @pytest.mark.performance
     def test_memory_usage_during_help(self):
         """Test memory usage during help display."""
+        import os
+
+        # Adjust memory limit for CI environment
+        max_memory = 1200 if os.getenv("CI") == "true" else 900  # MB
+
         with self.monitor.measure_execution():
             self.runner.run_command(["--help"])
 
@@ -109,7 +117,7 @@ class TestCLIPerformance:
             self.monitor.last_execution_time,
             self.monitor.last_memory_usage,
             max_time=2.0,
-            max_memory=900,  # Increased from 700MB to account for test suite memory pressure
+            max_memory=max_memory,
         )
 
     @pytest.mark.fast

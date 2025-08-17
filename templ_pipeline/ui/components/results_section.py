@@ -6,28 +6,29 @@ Results Section Component for TEMPL Pipeline
 Displays pose prediction results.
 """
 
-import streamlit as st
 import logging
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
-from ..config.settings import AppConfig
+import streamlit as st
+
 from ..config.constants import (
-    SESSION_KEYS,
     MESSAGES,
     SCORE_EXCELLENT,
-    SCORE_GOOD,
     SCORE_FAIR,
+    SCORE_GOOD,
+    SESSION_KEYS,
 )
+from ..config.settings import AppConfig
 from ..core.session_manager import SessionManager
 from ..utils.export_utils import (
-    create_best_poses_sdf,
     create_all_conformers_sdf,
+    create_best_poses_sdf,
 )
 from ..utils.visualization_utils import (
-    display_molecule,
-    safe_get_mcs_mol,
-    get_molecule_from_session,
     create_mcs_molecule_from_info,
+    display_molecule,
+    get_molecule_from_session,
+    safe_get_mcs_mol,
 )
 
 logger = logging.getLogger(__name__)

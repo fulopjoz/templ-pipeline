@@ -7,42 +7,40 @@ These tests verify the functionality of the MCS (Maximum Common Substructure)
 module, including MCS identification and constrained embedding.
 """
 
-import unittest
-from unittest.mock import patch
-import os
 import logging
-import tempfile
+import os
 import shutil
 import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem
-from pathlib import Path
 
 # Handle imports for both development and installed package
 try:
-    from templ_pipeline.core.mcs import (
-        find_mcs,
-        constrained_embed,
-        simple_minimize_molecule,
-        safe_name,
-        # transform_ligand,
-    )
     from templ_pipeline.core.embedding import EmbeddingManager
+    from templ_pipeline.core.mcs import (  # transform_ligand,
+        constrained_embed,
+        find_mcs,
+        safe_name,
+        simple_minimize_molecule,
+    )
 except ImportError:
     # Fall back to local imports for development
     sys.path.insert(
         0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
     )
-    from core.mcs import (
-        find_mcs,
-        constrained_embed,
-        simple_minimize_molecule,
-        safe_name,
-        # transform_ligand,
-    )
     from core.embedding import EmbeddingManager
+    from core.mcs import (  # transform_ligand,
+        constrained_embed,
+        find_mcs,
+        safe_name,
+        simple_minimize_molecule,
+    )
 
 # Import test helper functions from local tests package
 sys.path.insert(0, os.path.dirname(__file__))

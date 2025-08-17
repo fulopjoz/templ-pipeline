@@ -11,10 +11,10 @@ and metrics across different benchmark types.
 
 import json
 import logging
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Union, Tuple
-from datetime import datetime
 from collections import defaultdict
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -819,8 +819,8 @@ class BenchmarkSummaryGenerator:
 
         # Extract CLI JSON result from stdout
         try:
-            import re
             import json
+            import re
 
             # Find TEMPL_JSON_RESULT: marker and extract JSON
             json_start = stdout.find("TEMPL_JSON_RESULT:")

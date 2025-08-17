@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 """Configuration module for TEMPL Pipeline UI"""
 
-from .settings import AppConfig
 from .constants import *
+from .settings import AppConfig
 
 __all__ = ["AppConfig"]

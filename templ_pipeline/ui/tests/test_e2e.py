@@ -7,19 +7,20 @@ This module provides comprehensive end-to-end testing using Playwright
 for automated browser testing of the complete user workflow.
 """
 
-import pytest
 import asyncio
 import os
-import tempfile
-import time
-from pathlib import Path
-from playwright.async_api import async_playwright, Page, Browser
-from playwright.sync_api import sync_playwright
-import subprocess
-import requests
-import threading
 import signal
+import subprocess
+import tempfile
+import threading
+import time
 from contextlib import contextmanager
+from pathlib import Path
+
+import pytest
+import requests
+from playwright.async_api import Browser, Page, async_playwright
+from playwright.sync_api import sync_playwright
 
 
 class StreamlitAppServer:

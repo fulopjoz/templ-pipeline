@@ -4,28 +4,28 @@
 Test cases for UI components.
 """
 
-import unittest
-from unittest.mock import Mock, patch, MagicMock
-import sys
 import os
+import sys
+import unittest
+from unittest.mock import MagicMock, Mock, patch
 
 # Configure for Streamlit testing
 os.environ["STREAMLIT_SERVER_HEADLESS"] = "true"
 
 try:
     from templ_pipeline.ui.components import header, status_bar
+    from templ_pipeline.ui.config.constants import COLORS, VERSION
     from templ_pipeline.ui.config.settings import AppConfig
     from templ_pipeline.ui.core.session_manager import SessionManager
-    from templ_pipeline.ui.config.constants import VERSION, COLORS
 except ImportError:
     # Fall back to local imports for development
     sys.path.insert(
         0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
     )
     from templ_pipeline.ui.components import header, status_bar
+    from templ_pipeline.ui.config.constants import COLORS, VERSION
     from templ_pipeline.ui.config.settings import AppConfig
     from templ_pipeline.ui.core.session_manager import SessionManager
-    from templ_pipeline.ui.config.constants import VERSION, COLORS
 
 
 class TestHeaderComponent(unittest.TestCase):

@@ -10,17 +10,17 @@ This module provides utility functions for the TEMPL pipeline:
 4. General helper functions
 """
 
-import os
 import gzip
 import logging
+import os
 import random
+import warnings
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple, Any
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
-from Bio.PDB import PDBParser, Structure, Selection
+from Bio.PDB import PDBParser, Selection, Structure
 from Bio.PDB.PDBExceptions import PDBConstructionWarning
-import warnings
 
 # Benchmark-related imports
 try:
@@ -72,9 +72,9 @@ def set_global_random_seed(seed: int = 42) -> None:
 
     # Set RDKit random seed if available
     try:
+        import rdkit.rdBase
         from rdkit import Chem
         from rdkit.Chem import AllChem
-        import rdkit.rdBase
 
         # RDKit uses this for conformer generation randomization
         # Updated for newer RDKit versions (2025.03.3+)
@@ -345,9 +345,9 @@ def create_shared_molecule_cache(
     Returns:
         Path to the cache file
     """
-    import tempfile
-    import pickle
     import os
+    import pickle
+    import tempfile
 
     if cache_dir is None:
         cache_dir = Path(tempfile.gettempdir())
@@ -423,8 +423,8 @@ def create_shared_embedding_cache(embedding_path: str, cache_name: str = None) -
     Returns:
         Name of the shared cache that can be passed to subprocesses
     """
-    import tempfile
     import json
+    import tempfile
     import time
     from pathlib import Path
 
@@ -439,10 +439,9 @@ def create_shared_embedding_cache(embedding_path: str, cache_name: str = None) -
         chain_ids = data.get("chain_ids", None)
 
         # Create shared memory buffer
-        from multiprocessing import shared_memory
-
         # Serialize embedding data in a memory-efficient way
         import pickle
+        from multiprocessing import shared_memory
 
         # Process embeddings in chunks to avoid keeping everything in memory
         embedding_db = {}
@@ -515,8 +514,8 @@ def load_shared_embedding_cache(cache_name: str) -> Optional[Dict]:
         Dictionary with embedding data or None if failed
     """
     try:
-        from multiprocessing import shared_memory
         import pickle
+        from multiprocessing import shared_memory
 
         # Attach to shared memory
         shm = shared_memory.SharedMemory(name=cache_name)

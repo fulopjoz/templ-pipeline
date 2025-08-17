@@ -4,38 +4,42 @@
 Test cases for CLI workspace management module.
 """
 
-import unittest
-import tempfile
-import shutil
 import json
-from pathlib import Path
-from unittest.mock import Mock, patch, call
+import shutil
+import tempfile
+import unittest
 from datetime import datetime
+from pathlib import Path
+from unittest.mock import Mock, call, patch
 
 try:
     from templ_pipeline.cli import workspace_cli
     from templ_pipeline.cli.workspace_cli import (
-        setup_logging,
-        list_workspaces,
         cleanup_workspaces,
-        display_workspace_summary,
         create_test_workspace,
-        main as workspace_main,
+        display_workspace_summary,
+        list_workspaces,
+    )
+    from templ_pipeline.cli.workspace_cli import main as workspace_main
+    from templ_pipeline.cli.workspace_cli import (
+        setup_logging,
     )
 except ImportError:
-    import sys
     import os
+    import sys
 
     sys.path.insert(
         0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
     )
     from templ_pipeline.cli.workspace_cli import (
-        setup_logging,
-        list_workspaces,
         cleanup_workspaces,
-        display_workspace_summary,
         create_test_workspace,
-        main as workspace_main,
+        display_workspace_summary,
+        list_workspaces,
+    )
+    from templ_pipeline.cli.workspace_cli import main as workspace_main
+    from templ_pipeline.cli.workspace_cli import (
+        setup_logging,
     )
 
 

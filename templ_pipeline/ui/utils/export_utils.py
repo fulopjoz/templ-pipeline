@@ -7,9 +7,9 @@ Contains SDF export and molecular data extraction functions.
 """
 
 import io
-import re
 import logging
-from typing import Dict, Tuple, Any, Optional
+import re
+from typing import Any, Dict, Optional, Tuple
 
 # Import streamlit for session state access
 import streamlit as st
@@ -25,10 +25,11 @@ def create_best_poses_sdf(poses):
     remapped back to the original conformer before writing).
     """
     try:
-        from templ_pipeline.core.pipeline import TEMPLPipeline
-        import tempfile
         import os
+        import tempfile
         from pathlib import Path
+
+        from templ_pipeline.core.pipeline import TEMPLPipeline
 
         # Resolve template identifier for metadata
         template_pid = "unknown"
@@ -60,8 +61,9 @@ def create_best_poses_sdf(poses):
 
 def create_all_conformers_sdf():
     """Create SDF with all ranked conformers including scores"""
-    import streamlit as st
     import logging
+
+    import streamlit as st
 
     logger = logging.getLogger(__name__)
 

@@ -14,13 +14,13 @@ Features:
 - Beginner-friendly explanations for long-running operations
 """
 
-import time
-import threading
+import logging
 import sys
-from typing import Optional, Dict, Any, Callable, List
+import threading
+import time
 from contextlib import contextmanager
 from enum import Enum
-import logging
+from typing import Any, Callable, Dict, List, Optional
 
 try:
     from tqdm import tqdm
@@ -29,7 +29,7 @@ try:
 except ImportError:
     TQDM_AVAILABLE = False
 
-from .ux_config import VerbosityLevel, ExperienceLevel, get_ux_config
+from .ux_config import ExperienceLevel, VerbosityLevel, get_ux_config
 
 logger = logging.getLogger(__name__)
 

@@ -2,23 +2,24 @@
 # SPDX-License-Identifier: MIT
 """Help system functionality tests for TEMPL CLI."""
 
-import pytest
 import re
 
+import pytest
+
+from .fixtures.expected_outputs import (
+    ASCII_BANNER_PATTERN,
+    EXAMPLE_COMMANDS,
+    HELP_EXAMPLES_KEYWORDS,
+    HELP_MAIN_KEYWORDS,
+    HELP_PERFORMANCE_KEYWORDS,
+    HELP_SIMPLE_KEYWORDS,
+)
 from .helpers.cli_runner import CLITestRunner
 from .helpers.validation_utils import (
-    validate_help_output,
     validate_ascii_banner,
     validate_command_syntax,
+    validate_help_output,
     validate_no_error_patterns,
-)
-from .fixtures.expected_outputs import (
-    HELP_MAIN_KEYWORDS,
-    HELP_SIMPLE_KEYWORDS,
-    HELP_EXAMPLES_KEYWORDS,
-    HELP_PERFORMANCE_KEYWORDS,
-    EXAMPLE_COMMANDS,
-    ASCII_BANNER_PATTERN,
 )
 
 

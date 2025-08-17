@@ -4,15 +4,16 @@
 Working performance tests for TEMPL pipeline - using actual available functions.
 """
 
-import pytest
-import time
-import psutil
 import os
-from unittest.mock import patch, Mock
-import tempfile
 import shutil
+import tempfile
+import time
 from pathlib import Path
+from unittest.mock import Mock, patch
+
 import numpy as np
+import psutil
+import pytest
 from rdkit import Chem
 
 

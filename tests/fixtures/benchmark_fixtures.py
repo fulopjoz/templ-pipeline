@@ -7,11 +7,12 @@ This module provides fixtures and test data specifically for
 TEMPL benchmark testing scenarios.
 """
 
-import pytest
 import json
-from typing import Dict, Any, List
-from unittest.mock import Mock, MagicMock
 from pathlib import Path
+from typing import Any, Dict, List
+from unittest.mock import MagicMock, Mock
+
+import pytest
 
 from .data_factory import TestDataFactory
 

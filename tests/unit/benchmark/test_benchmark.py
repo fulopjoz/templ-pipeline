@@ -7,18 +7,19 @@ These tests focus on testing the specific functionality without complex mocking
 and follow the principle of testing behavior rather than implementation details.
 """
 
-import pytest
-import tempfile
 import shutil
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+import tempfile
 from dataclasses import dataclass
-from typing import Dict, Any, Set, Optional
+from pathlib import Path
+from typing import Any, Dict, Optional, Set
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 from templ_pipeline.benchmark.runner import (
-    BenchmarkRunner,
     BenchmarkParams,
     BenchmarkResult,
+    BenchmarkRunner,
 )
 
 

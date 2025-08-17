@@ -6,13 +6,13 @@ Internal benchmark runner for TEMPL pipeline.
 Provides benchmark-specific interface to core TEMPL functionality.
 """
 
+import gc
+import logging
 import os
 import time
-import logging
-import gc
-from typing import Dict, Set, Optional, Tuple, Any
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, Dict, Optional, Set, Tuple
 
 import numpy as np
 
@@ -1102,11 +1102,11 @@ def run_templ_pipeline_for_benchmark(
     # Lazy imports to speed up module loading
     from templ_pipeline.core.pipeline import TEMPLPipeline
     from templ_pipeline.core.utils import (
-        load_sdf_molecules_cached,
-        find_ligand_by_pdb_id,
         calculate_rmsd,
-        get_protein_file_paths,
+        find_ligand_by_pdb_id,
         find_ligand_file_paths,
+        get_protein_file_paths,
+        load_sdf_molecules_cached,
     )
 
     if data_dir is None:

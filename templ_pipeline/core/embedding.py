@@ -25,8 +25,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
-from Bio.PDB.PDBExceptions import PDBConstructionWarning
 from Bio.PDB.parse_pdb_header import parse_pdb_header
+from Bio.PDB.PDBExceptions import PDBConstructionWarning
 from Bio.PDB.PDBParser import PDBParser
 from Bio.PDB.Polypeptide import PPBuilder
 from sklearn.metrics.pairwise import cosine_similarity
@@ -337,7 +337,7 @@ def initialize_esm_model() -> Optional[Dict[str, Any]]:
     if _esm_components is None:
         try:
             import torch
-            from transformers import EsmModel, EsmTokenizer, AutoConfig
+            from transformers import AutoConfig, EsmModel, EsmTokenizer
 
             # Use the larger model to match create_embeddings_base.py
             model_id = "facebook/esm2_t33_650M_UR50D"
@@ -1539,8 +1539,10 @@ def get_templates_with_progressive_fallback(
 ) -> Tuple[List[Any], float, bool]:
     """Deprecated duplicate; use templ_pipeline.core.templates.get_templates_with_progressive_fallback instead."""
     from templ_pipeline.core.templates import (
-        get_templates_with_progressive_fallback as _impl,
         CA_RMSD_FALLBACK_THRESHOLDS,
+    )
+    from templ_pipeline.core.templates import (
+        get_templates_with_progressive_fallback as _impl,
     )
 
     thresholds: List[float] = (

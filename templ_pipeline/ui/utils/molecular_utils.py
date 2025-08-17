@@ -6,10 +6,11 @@ Molecular utility functions for TEMPL Pipeline UI
 Contains molecular validation, processing, and RDKit integration functions.
 """
 
-import streamlit as st
 import logging
-from typing import Tuple, Optional, Any
 from functools import lru_cache
+from typing import Any, Optional, Tuple
+
+import streamlit as st
 
 logger = logging.getLogger(__name__)
 

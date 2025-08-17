@@ -2,13 +2,13 @@
 # SPDX-License-Identifier: MIT
 """CLI execution helpers for testing."""
 
+import os
 import subprocess
 import sys
-import time
 import tempfile
-import os
-from typing import List, Tuple, Optional
+import time
 from pathlib import Path
+from typing import List, Optional, Tuple
 
 
 class CLITestRunner:

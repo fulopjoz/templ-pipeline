@@ -4,18 +4,19 @@
 Working test cases for benchmark error tracking module - using actual API.
 """
 
-import pytest
-import tempfile
-import shutil
 import json
-from pathlib import Path
+import shutil
+import tempfile
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import Mock, patch
 
+import pytest
+
 from templ_pipeline.benchmark.error_tracking import (
-    MissingPDBRecord,
     BenchmarkErrorSummary,
     BenchmarkErrorTracker,
+    MissingPDBRecord,
 )
 
 

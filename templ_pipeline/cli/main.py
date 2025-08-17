@@ -44,18 +44,19 @@ import time
 import traceback
 from pathlib import Path
 
-# Import UX enhancements
-from .ux_config import (
-    get_ux_config,
-    configure_logging_for_verbosity,
-    VerbosityLevel,
-    ExperienceLevel,
-)
 from .help_system import create_enhanced_parser, handle_help_request
 from .progress_indicators import (
-    progress_context,
     OperationType,
+    progress_context,
     simple_progress_wrapper,
+)
+
+# Import UX enhancements
+from .ux_config import (
+    ExperienceLevel,
+    VerbosityLevel,
+    configure_logging_for_verbosity,
+    get_ux_config,
 )
 
 # Import version information
@@ -103,13 +104,13 @@ def _lazy_import_core():
     try:
         from templ_pipeline.core import (
             EmbeddingManager,
+            constrained_embed,
+            find_mcs,
+            generate_properties_for_sdf,
             get_protein_embedding,
             get_protein_sequence,
-            find_mcs,
-            constrained_embed,
-            select_best,
             rmsd_raw,
-            generate_properties_for_sdf,
+            select_best,
         )
 
         return (
@@ -1070,9 +1071,10 @@ def run_command(args):
                     )
 
                 if crystal_mol is not None:
-                    from templ_pipeline.core.scoring import rmsd_raw
-                    from rdkit import Chem
                     import numpy as np
+                    from rdkit import Chem
+
+                    from templ_pipeline.core.scoring import rmsd_raw
 
                     crystal_noH = Chem.RemoveHs(crystal_mol)
                     logger.info(
@@ -1178,6 +1180,7 @@ def run_command(args):
 
         # Import json and numpy for output
         import json
+
         import numpy as np
 
         # Output JSON on a single line for easy parsing (only if requested)
@@ -1241,9 +1244,10 @@ def _resolve_workspace_dir(workspace_dir):
 def _generate_unified_summary(workspace_dir, benchmark_type):
     """Generate unified summary files for benchmark results."""
     try:
-        from templ_pipeline.benchmark.summary_generator import BenchmarkSummaryGenerator
         import json
         from pathlib import Path
+
+        from templ_pipeline.benchmark.summary_generator import BenchmarkSummaryGenerator
 
         # Resolve workspace directory with backward compatibility
         workspace_dir = _resolve_workspace_dir(workspace_dir)

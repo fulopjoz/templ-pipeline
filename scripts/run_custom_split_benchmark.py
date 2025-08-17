@@ -1,37 +1,36 @@
 #!/usr/bin/env python3
 # run_custom_split_benchmark.py - Run benchmarking using custom, pre-defined splits
 
+import argparse
+import json
+import logging
+import multiprocessing as mp
+
 # SPDX-FileCopyrightText: 2025 TEMPL Team
 # SPDX-License-Identifier: MIT
 import os
-import json
-import logging
-import argparse
-import multiprocessing as mp
-import multiprocessing as mp
 import subprocess
-import time
-from typing import Dict, List, Set, Tuple, Optional, Any
-from datetime import datetime
-from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor, as_completed
-
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from tqdm import tqdm
 
 # Add the parent directory to the path to import from mcs_bench
 import sys
+import time
+from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+from rdkit import Chem, RDLogger
+from rdkit.Chem import rdRascalMCES
+
 # Import the hardware utility
 from templ_pipeline.core.hardware import get_suggested_worker_config
-
-from rdkit import Chem
-from rdkit.Chem import rdRascalMCES
-from rdkit import RDLogger
 
 RDLogger.DisableLog("rdApp.*")
 

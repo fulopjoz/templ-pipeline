@@ -4,9 +4,10 @@
 Tests for templ_pipeline.core.chemistry module.
 """
 
-import pytest
-import sys
 import os
+import sys
+
+import pytest
 from rdkit import Chem
 
 # Handle imports for both development and installed package

@@ -4,12 +4,12 @@
 Test cases for CLI progress indicators module.
 """
 
-import unittest
-import time
 import threading
-from unittest.mock import Mock, patch, MagicMock
+import time
+import unittest
 from contextlib import contextmanager
 from io import StringIO
+from unittest.mock import MagicMock, Mock, patch
 
 try:
     from templ_pipeline.cli.progress_indicators import (
@@ -17,14 +17,14 @@ try:
         ProgressStyle,
         ProgressTracker,
         SimpleProgressBar,
+        estimate_operation_time,
         progress_context,
         show_hardware_status,
-        estimate_operation_time,
     )
-    from templ_pipeline.cli.ux_config import VerbosityLevel, ExperienceLevel
+    from templ_pipeline.cli.ux_config import ExperienceLevel, VerbosityLevel
 except ImportError:
-    import sys
     import os
+    import sys
 
     sys.path.insert(
         0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
@@ -34,11 +34,11 @@ except ImportError:
         ProgressStyle,
         ProgressTracker,
         SimpleProgressBar,
+        estimate_operation_time,
         progress_context,
         show_hardware_status,
-        estimate_operation_time,
     )
-    from templ_pipeline.cli.ux_config import VerbosityLevel, ExperienceLevel
+    from templ_pipeline.cli.ux_config import ExperienceLevel, VerbosityLevel
 
 
 class TestProgressIndicators(unittest.TestCase):

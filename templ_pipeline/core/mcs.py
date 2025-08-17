@@ -13,8 +13,8 @@ from rdkit.Chem import (
     AllChem,
     rdDistGeom,
     rdForceFieldHelpers,
-    rdRascalMCES,
     rdMolAlign,
+    rdRascalMCES,
 )
 from rdkit.Geometry import Point3D
 

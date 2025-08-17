@@ -2,17 +2,18 @@
 # SPDX-License-Identifier: MIT
 """Command validation tests for TEMPL CLI."""
 
-import pytest
 import tempfile
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-from .helpers.cli_runner import CLITestRunner
+import pytest
+
 from .fixtures.mock_data import (
-    MOCK_PROTEIN_PDB,
-    MOCK_LIGAND_SDF,
-    MOCK_SMILES,
     MOCK_INVALID_SMILES,
+    MOCK_LIGAND_SDF,
+    MOCK_PROTEIN_PDB,
+    MOCK_SMILES,
 )
+from .helpers.cli_runner import CLITestRunner
 
 
 class TestArgumentParsing:

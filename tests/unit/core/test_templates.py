@@ -4,17 +4,18 @@
 Tests for template selection and filtering utilities.
 """
 
-import pytest
-import tempfile
 import json
 import os
-from unittest.mock import patch, MagicMock
+import tempfile
+from unittest.mock import MagicMock, patch
+
+import pytest
 from rdkit import Chem
 
 from templ_pipeline.core.templates import (
+    CA_RMSD_FALLBACK_THRESHOLDS,
     filter_templates_by_ca_rmsd,
     get_templates_with_progressive_fallback,
-    CA_RMSD_FALLBACK_THRESHOLDS,
 )
 
 

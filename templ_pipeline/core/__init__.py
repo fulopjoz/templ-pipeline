@@ -17,107 +17,107 @@ Uses lazy loading to avoid slow imports during help display.
 """
 
 import importlib
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 # Type checking imports for better IDE support
 if TYPE_CHECKING:
-    from .embedding import (
-        get_protein_sequence,
-        get_protein_embedding,
-        initialize_esm_model,
-        calculate_embedding,
-        calculate_embedding_single,
-        EmbeddingManager,
-        select_templates,
-    )
-    from .mcs import (
-        find_mcs,
-        find_best_ca_rmsd_template,
-        constrained_embed,
-        central_atom_embed,
-        safe_name,
-        get_central_atom,
-        needs_uff_fallback,
-        embed_with_uff_fallback,
-        validate_molecular_connectivity,
-        validate_molecular_geometry,
-        simple_minimize_molecule,
-        validate_mmff_parameters,
-        log_coordinate_map,
-        relax_close_constraints,
-    )
-    from .scoring import (
-        score_and_align,
-        select_best,
-        rmsd_raw,
-        generate_properties_for_sdf,
-        FixedMolecularProcessor,
-        ScoringFixer,
-        CoordinateMapper,
-    )
     from .chemistry import (
         detect_and_substitute_organometallic,
         has_rhenium_complex,
         validate_target_molecule,
     )
-    from .templates import (
-        load_reference_protein,
-        load_target_data,
-        transform_ligand,
-        filter_templates_by_ca_rmsd,
-        get_templates_with_progressive_fallback,
-        pdb_path,
-        ligand_path,
+    from .datasets import (
+        DatasetSplits,
     )
-    from .pipeline import (
-        TEMPLPipeline,
-        PipelineConfig,
-        run_pipeline,
-        run_pipeline_from_args,
-        run_from_pdb_and_smiles,
-    )
-    from .workspace_manager import (
-        WorkspaceManager,
-        WorkspaceConfig,
-        DirectoryManager,
-        TempDirectoryManager,
-        create_workspace_manager,
-        emergency_cleanup,
-    )
-    from .file_manager import (
-        FileManager,
-        AdaptiveFileNamingEngine,
-        PredictionContext,
-        FileMetadata,
-        create_file_manager,
-        generate_adaptive_filename,
+    from .embedding import (
+        EmbeddingManager,
+        calculate_embedding,
+        calculate_embedding_single,
+        get_protein_embedding,
+        get_protein_sequence,
+        initialize_esm_model,
+        select_templates,
     )
     from .execution_manager import (
         ExecutionManager,
-        SkipReason,
         MoleculeSkipException,
-        get_safe_worker_count,
-        skip_molecule,
-        record_successful_processing,
+        SkipReason,
         get_execution_summary,
+        get_safe_worker_count,
+        record_successful_processing,
+        skip_molecule,
+    )
+    from .file_manager import (
+        AdaptiveFileNamingEngine,
+        FileManager,
+        FileMetadata,
+        PredictionContext,
+        create_file_manager,
+        generate_adaptive_filename,
     )
     from .hardware import (
         HardwareInfo,
+        detect_optimal_configuration,
         get_basic_hardware_info,
         get_hardware_info,
         get_optimized_worker_config,
         get_suggested_worker_config,
-        detect_optimal_configuration,
     )
-    from .datasets import (
-        DatasetSplits,
+    from .mcs import (
+        central_atom_embed,
+        constrained_embed,
+        embed_with_uff_fallback,
+        find_best_ca_rmsd_template,
+        find_mcs,
+        get_central_atom,
+        log_coordinate_map,
+        needs_uff_fallback,
+        relax_close_constraints,
+        safe_name,
+        simple_minimize_molecule,
+        validate_mmff_parameters,
+        validate_molecular_connectivity,
+        validate_molecular_geometry,
+    )
+    from .pipeline import (
+        PipelineConfig,
+        TEMPLPipeline,
+        run_from_pdb_and_smiles,
+        run_pipeline,
+        run_pipeline_from_args,
+    )
+    from .scoring import (
+        CoordinateMapper,
+        FixedMolecularProcessor,
+        ScoringFixer,
+        generate_properties_for_sdf,
+        rmsd_raw,
+        score_and_align,
+        select_best,
+    )
+    from .templates import (
+        filter_templates_by_ca_rmsd,
+        get_templates_with_progressive_fallback,
+        ligand_path,
+        load_reference_protein,
+        load_target_data,
+        pdb_path,
+        transform_ligand,
     )
     from .validation import (
-        SplitDataValidator,
         DatabaseValidator,
         MolecularValidationFramework,
-        validate_pipeline_components,
+        SplitDataValidator,
         quick_validation_check,
+        validate_pipeline_components,
+    )
+    from .workspace_manager import (
+        DirectoryManager,
+        TempDirectoryManager,
+        WorkspaceConfig,
+        WorkspaceManager,
+        create_workspace_manager,
+        emergency_cleanup,
     )
 
 

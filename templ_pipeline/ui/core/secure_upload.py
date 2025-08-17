@@ -7,13 +7,13 @@ Advanced file upload security with MIME type validation, filename sanitization,
 and secure temporary file storage for molecular data files.
 """
 
-import os
-import time
 import hashlib
-import tempfile
 import logging
+import os
+import tempfile
+import time
 from pathlib import Path
-from typing import Tuple, Optional, Dict, List
+from typing import Dict, List, Optional, Tuple
 
 # Try to import python-magic for MIME type detection
 try:

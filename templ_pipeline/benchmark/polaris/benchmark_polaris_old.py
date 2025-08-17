@@ -7,16 +7,17 @@ import multiprocessing as mp
 import os
 import sys
 import time
+from collections import defaultdict
 from concurrent.futures import (
     ProcessPoolExecutor,
+)
+from concurrent.futures import TimeoutError as FutureTimeoutError
+from concurrent.futures import (
     as_completed,
-    TimeoutError as FutureTimeoutError,
 )
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
-
-from collections import defaultdict
 
 import numpy as np
 import pandas as pd
@@ -38,17 +39,19 @@ except ImportError:
 RDLogger.DisableLog("rdApp.*")
 Chem.SetDefaultPickleProperties(Chem.PropertyPickleOptions.AllProps)
 
+import os
+import resource
+import tempfile
+
+import psutil
+
 # Legacy core TEMPL components (for backwards compatibility only)
 # TODO: Remove these imports once legacy run_templ_pipeline_single() is deprecated
-from templ_pipeline.core.mcs import find_mcs, constrained_embed, safe_name
-from templ_pipeline.core.scoring import select_best
+from templ_pipeline.core.mcs import constrained_embed, find_mcs, safe_name
 
 # Unified pipeline infrastructure (preferred approach)
 from templ_pipeline.core.pipeline import TEMPLPipeline
-import tempfile
-import os
-import psutil
-import resource
+from templ_pipeline.core.scoring import select_best
 
 try:
     from spyrmsd.molecule import Molecule
@@ -111,8 +114,8 @@ def setup_benchmark_logging(
     # Import the new benchmark logging system
     from templ_pipeline.core.benchmark_logging import (
         benchmark_logging_context,
-        suppress_worker_logging,
         create_benchmark_logger,
+        suppress_worker_logging,
     )
 
     # If workspace directory is provided, set up file-only logging

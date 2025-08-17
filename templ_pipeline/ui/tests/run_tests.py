@@ -8,10 +8,10 @@ This script provides a convenient way to run different types of tests
 with appropriate configuration and reporting.
 """
 
-import os
-import sys
-import subprocess
 import argparse
+import os
+import subprocess
+import sys
 import time
 from pathlib import Path
 

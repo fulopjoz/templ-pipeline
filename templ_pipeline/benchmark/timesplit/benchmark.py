@@ -22,9 +22,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from templ_pipeline.core.hardware import get_suggested_worker_config
+
 # Import the runner and infrastructure
 from .simple_runner import SimpleTimeSplitRunner
-from templ_pipeline.core.hardware import get_suggested_worker_config
 
 logger = logging.getLogger(__name__)
 

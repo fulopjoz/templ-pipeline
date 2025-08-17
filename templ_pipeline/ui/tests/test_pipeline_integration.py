@@ -7,11 +7,12 @@ This module tests the integration between the UI and the enhanced pipeline
 with RDShapeAlign and spyrmsd capabilities.
 """
 
-import pytest
-import tempfile
 import os
-from unittest.mock import Mock, patch, MagicMock
+import tempfile
+from unittest.mock import MagicMock, Mock, patch
+
 import numpy as np
+import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
@@ -74,8 +75,8 @@ class TestPipelineIntegration:
         """Test spyrmsd integration."""
         try:
             from templ_pipeline.core.mcs import (
-                calculate_symmetry_corrected_rmsd,
                 HAS_SPYRMSD,
+                calculate_symmetry_corrected_rmsd,
             )
 
             if not HAS_SPYRMSD:
@@ -107,8 +108,9 @@ class TestPipelineIntegration:
     def test_rdshape_align_integration(self):
         """Test RDShapeAlign integration."""
         try:
-            from templ_pipeline.core.mcs import calculate_shape_alignment
             from rdkit.Chem import rdShapeHelpers
+
+            from templ_pipeline.core.mcs import calculate_shape_alignment
 
             # Create test molecules
             query_mol = Chem.MolFromSmiles("CCO")

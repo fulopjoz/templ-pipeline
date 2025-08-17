@@ -6,9 +6,9 @@ File utility functions for TEMPL Pipeline UI
 Contains file upload, processing, and template loading functions.
 """
 
-import tempfile
 import logging
 import re
+import tempfile
 from pathlib import Path
 from typing import List, Optional
 

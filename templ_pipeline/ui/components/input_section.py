@@ -6,26 +6,27 @@ Input Section Component for TEMPL Pipeline
 Handles molecule and protein input functionality.
 """
 
-import streamlit as st
 import logging
-from typing import Optional, Dict, Any
-from pathlib import Path
 import tempfile
+from pathlib import Path
+from typing import Any, Dict, Optional
 
+import streamlit as st
+
+from ..config.constants import MESSAGES, SESSION_KEYS
 from ..config.settings import AppConfig
-from ..config.constants import SESSION_KEYS, MESSAGES
 from ..core.session_manager import SessionManager
-from ..utils.molecular_utils import (
-    validate_smiles_input,
-    validate_sdf_input,
-    get_rdkit_modules,
-)
 from ..utils.file_utils import (
-    save_uploaded_file,
     extract_pdb_id_from_file_robust,
-    validate_pdb_file_content,
     integrate_uploaded_pdb_with_pipeline,
     load_templates_from_uploaded_sdf,
+    save_uploaded_file,
+    validate_pdb_file_content,
+)
+from ..utils.molecular_utils import (
+    get_rdkit_modules,
+    validate_sdf_input,
+    validate_smiles_input,
 )
 
 logger = logging.getLogger(__name__)

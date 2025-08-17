@@ -7,18 +7,19 @@ This module provides session-scoped fixtures for expensive operations
 and optimizations to improve test performance.
 """
 
-import tempfile
-import pytest
-import logging
 import asyncio
+import logging
 import sys
-from unittest.mock import MagicMock, patch
+import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
 from rdkit import Chem
 
 # Import smart caching system
 try:
-    from .test_fixture_caching import fixture_manager, cached_fixture
+    from .test_fixture_caching import cached_fixture, fixture_manager
 
     CACHING_AVAILABLE = True
 except ImportError:
@@ -26,14 +27,14 @@ except ImportError:
 
 # Import test fixtures from centralized factory
 try:
+    from .fixtures.benchmark_fixtures import benchmark_target_data
     from .fixtures.data_factory import TestDataFactory
     from .fixtures.pipeline_fixtures import (
+        mcs_test_pairs,
+        mock_embeddings,
         standard_test_molecules,
         standard_test_proteins,
-        mock_embeddings,
-        mcs_test_pairs,
     )
-    from .fixtures.benchmark_fixtures import benchmark_target_data
 
     FIXTURES_AVAILABLE = True
 except ImportError:
@@ -48,6 +49,19 @@ try:
 except ImportError:
     st = None
     STREAMLIT_AVAILABLE = False
+
+import os
+
+
+# Add CI environment detection utilities
+def is_ci_environment():
+    """Check if running in CI environment."""
+    return os.getenv("CI") == "true"
+
+
+def adjust_limits_for_ci(base_limit):
+    """Adjust limits for CI environment."""
+    return base_limit * 1.5 if is_ci_environment() else base_limit
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -81,8 +95,7 @@ def rdkit_modules():
         tuple: (Chem, AllChem, Draw) RDKit modules
     """
     try:
-        from rdkit import Chem, AllChem, Draw
-        from rdkit import RDLogger
+        from rdkit import AllChem, Chem, Draw, RDLogger
 
         # Disable RDKit warnings during tests
         RDLogger.DisableLog("rdApp.*")
@@ -561,8 +574,7 @@ if CACHING_AVAILABLE:
         start_time = time.time()
 
         try:
-            from rdkit import Chem, AllChem, Draw
-            from rdkit import RDLogger
+            from rdkit import AllChem, Chem, Draw, RDLogger
 
             RDLogger.DisableLog("rdApp.*")
 

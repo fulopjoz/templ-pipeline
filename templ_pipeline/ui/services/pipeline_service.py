@@ -6,18 +6,18 @@ Enhanced Pipeline Service for TEMPL Pipeline
 Handles pipeline execution with proper error reporting and embedding generation.
 """
 
-import logging
-import time
 import asyncio
 import concurrent.futures
-from typing import Dict, Any, Optional, Callable, Tuple
-from pathlib import Path
-import sys
+import logging
 import os
+import sys
+import time
+from pathlib import Path
+from typing import Any, Callable, Dict, Optional, Tuple
 
+from ..config.constants import SESSION_KEYS
 from ..config.settings import AppConfig
 from ..core.session_manager import SessionManager
-from ..config.constants import SESSION_KEYS
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +45,8 @@ class PipelineService:
         try:
             # Import workspace manager
             from templ_pipeline.core.workspace_manager import (
-                WorkspaceManager,
                 WorkspaceConfig,
+                WorkspaceManager,
             )
 
             # Create workspace configuration
@@ -204,7 +204,7 @@ class PipelineService:
             if str(parent_dir) not in sys.path:
                 sys.path.insert(0, str(parent_dir))
 
-            from templ_pipeline.core.pipeline import TEMPLPipeline, PipelineConfig
+            from templ_pipeline.core.pipeline import PipelineConfig, TEMPLPipeline
 
             if progress_callback:
                 progress_callback("Loading TEMPL pipeline...", 20)

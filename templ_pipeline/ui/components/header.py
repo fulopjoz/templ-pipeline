@@ -7,9 +7,10 @@ Renders the application header with branding and status.
 """
 
 import streamlit as st
-from ..config.constants import VERSION, COLORS
-from ..core.session_manager import SessionManager
+
+from ..config.constants import COLORS, VERSION
 from ..config.settings import AppConfig
+from ..core.session_manager import SessionManager
 
 
 def render_header(config: AppConfig, session: SessionManager):

@@ -19,13 +19,13 @@ Design Philosophy:
 - System learns from usage patterns to adapt interface complexity
 """
 
-import os
 import json
 import logging
-from typing import Dict, List, Optional, Set, Any, Tuple
-from pathlib import Path
-from dataclasses import dataclass, asdict
+import os
+from dataclasses import asdict, dataclass
 from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 

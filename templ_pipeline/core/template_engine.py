@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: MIT
 """Template Engine Module for TEMPL Pipeline."""
 
-from typing import Dict, List, Any
 import logging
+from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 

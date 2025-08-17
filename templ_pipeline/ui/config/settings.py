@@ -9,7 +9,7 @@ All application settings, defaults, and configuration options are defined here.
 
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 # Import centralized version
 try:
@@ -169,12 +169,12 @@ class AppConfig:
     def _check_optimization_modules(self) -> bool:
         """Check if optimization modules are available"""
         try:
-            from templ_pipeline.ui.core.secure_upload import SecureFileUploadHandler
             from templ_pipeline.ui.core.error_handling import ContextualErrorManager
             from templ_pipeline.ui.core.memory_manager import MolecularSessionManager
             from templ_pipeline.ui.core.molecular_processor import (
                 CachedMolecularProcessor,
             )
+            from templ_pipeline.ui.core.secure_upload import SecureFileUploadHandler
 
             return True
         except ImportError:

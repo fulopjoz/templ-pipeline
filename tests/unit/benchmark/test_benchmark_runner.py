@@ -4,21 +4,22 @@
 Working test cases for benchmark runner module - using actual API.
 """
 
-import pytest
-import tempfile
-import shutil
 import os
+import shutil
+import tempfile
 import time
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
 from dataclasses import asdict
+from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 from templ_pipeline.benchmark.runner import (
     BenchmarkParams,
     BenchmarkResult,
     BenchmarkRunner,
-    monitor_memory_usage,
     cleanup_memory,
+    monitor_memory_usage,
     run_templ_pipeline_for_benchmark,
 )
 

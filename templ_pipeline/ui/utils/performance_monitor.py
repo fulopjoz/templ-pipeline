@@ -6,10 +6,10 @@ Performance Monitor for TEMPL Pipeline
 Tracks and reports performance metrics for UI operations.
 """
 
-import time
 import logging
-from typing import Dict, Optional, List, Any
+import time
 from collections import defaultdict
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

@@ -6,12 +6,13 @@ Cache Optimization Utilities for TEMPL Pipeline
 Provides smart cache management and optimization strategies.
 """
 
-import streamlit as st
 import logging
-import time
-from typing import Dict, Any, Optional, List
-import psutil
 import os
+import time
+from typing import Any, Dict, List, Optional
+
+import psutil
+import streamlit as st
 
 logger = logging.getLogger(__name__)
 

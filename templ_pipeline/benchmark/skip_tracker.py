@@ -12,9 +12,9 @@ import json
 import logging
 import time
 from collections import defaultdict
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Any, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 # Optional RDKit import for molecular information
 try:

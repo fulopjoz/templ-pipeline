@@ -6,11 +6,12 @@ Hardware Manager for TEMPL Pipeline
 Optimized hardware detection with caching to prevent redundant calls.
 """
 
-import streamlit as st
 import logging
 import multiprocessing
-from typing import Dict, Any, Optional
 from dataclasses import dataclass
+from typing import Any, Dict, Optional
+
+import streamlit as st
 
 logger = logging.getLogger(__name__)
 
