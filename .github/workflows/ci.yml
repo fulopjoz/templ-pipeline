@@ -66,13 +66,7 @@ jobs:
         EOF
         fi
 
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v5
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        files: ./coverage.xml
-        slug: fulopjoz/templ-pipeline
-        fail_ci_if_error: false
+
 
     - name: Upload coverage artifacts
       uses: actions/upload-artifact@v4
