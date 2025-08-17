@@ -14,10 +14,12 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
+platforms = ["Linux", "macOS", "Windows"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -25,6 +27,10 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
     "Topic :: Scientific/Engineering :: Chemistry",
 ]
+
+# Cross-platform compatibility configuration
+[tool.setuptools.platforms]
+wheel = ["any"]
 
 # Core dependencies - essential for all installations
 dependencies = [
@@ -89,6 +95,7 @@ dev = [
     "pytest-benchmark>=4.0.0",
     "pytest-html>=3.0.0",
     "pytest-json-report>=1.5.0",
+    "pytest-memray>=1.0.0",
     "black>=22.0.0",
     "isort>=5.0.0",
     "flake8>=4.0.0",
@@ -123,6 +130,7 @@ python_functions = ["test_*"]
 filterwarnings = [
     "ignore::DeprecationWarning:biotite.*",
     "ignore::pytest.PytestConfigWarning",
+    "ignore::pytest.PytestUnhandledThreadExceptionWarning",
 ]
 markers = [
     "fast: marks tests as fast running (< 10s)",
@@ -137,6 +145,26 @@ markers = [
     "coverage_critical: marks tests as critical for coverage analysis",
     "performance_critical: marks tests as critical performance tests",
     "asyncio: marks tests requiring asyncio support",
+]
+
+# Enhanced test discovery and configuration
+opts = [
+    "--strict-markers",
+    "--doctest-modules",
+    "--ignore=setup.py",
+    "--ignore-glob=**/test_resources/*",
+    "--import-mode=importlib",
+]
+
+# Configure timeouts and other runtime parameters
+timeout_func_name = "test_timeout"
+timeout_method = 120  # 2 minutes default timeout
+
+# Performance and coverage configuration
+addopts = [
+    f"--timeout={timeout_method}",
+    "-p", "no:faulthandler",
+    "--show-capture=no",
 ]
 
 [tool.deptry]
