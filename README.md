@@ -6,7 +6,8 @@
 [![CI](https://github.com/fulopjoz/templ-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/fulopjoz/templ-pipeline/actions/workflows/ci.yml)
 [![Citation](https://github.com/fulopjoz/templ-pipeline/actions/workflows/cffconvert.yml/badge.svg)](https://github.com/fulopjoz/templ-pipeline/actions/workflows/cffconvert.yml)
 [![Coverage](https://codecov.io/gh/fulopjoz/templ-pipeline/branch/master/graph/badge.svg)](https://codecov.io/gh/fulopjoz/templ-pipeline)
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=fulopjoz_templ-pipeline&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=fulopjoz_templ-pipeline)
+[![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=fulopjoz_templ-pipeline&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=fulopjoz_templ-pipeline)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=fulopjoz_templ-pipeline&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=fulopjoz_templ-pipeline)
 
 Template-based protein–ligand pose prediction with command-line interface and web application.
 
