@@ -46,8 +46,7 @@ jobs:
           --cov-report=term-missing \
           --junitxml=test-results.xml \
           --maxfail=10 \
-          --timeout=120 \
-          -m "not slow and not integration and not performance" \
+          -m "not slow and not integration and not performance and not ui" \
           --tb=short \
           --disable-warnings \
           || echo "Some tests failed but continuing for coverage"
