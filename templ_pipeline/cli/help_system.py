@@ -395,7 +395,9 @@ Advanced Configuration:
         """
         return [topic.value for topic in HelpTopic]
 
-    def format_help(self, topic: Optional[HelpTopic] = None, level: str = "basic") -> str:
+    def format_help(
+        self, topic: Optional[HelpTopic] = None, level: str = "basic"
+    ) -> str:
         """Format complete help content with examples.
 
         Args:

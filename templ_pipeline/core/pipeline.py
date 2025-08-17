@@ -107,13 +107,11 @@ class PipelineConfig:
         """Set default paths if not provided."""
         if not self.ligands_sdf_gz:
             self.ligands_sdf_gz = (
-                f"{self.data_dir}/ligands/"
-                f"templ_processed_ligands_v1.0.0.sdf.gz"
+                f"{self.data_dir}/ligands/" f"templ_processed_ligands_v1.0.0.sdf.gz"
             )
         if not self.embedding_npz:
             self.embedding_npz = (
-                f"{self.data_dir}/embeddings/"
-                f"templ_protein_embeddings_v1.0.0.npz"
+                f"{self.data_dir}/embeddings/" f"templ_protein_embeddings_v1.0.0.npz"
             )
         if not self.uniprot_map:
             self.uniprot_map = f"{self.data_dir}/pdbbind_dates.json"
@@ -153,8 +151,7 @@ class TEMPLPipeline:
         # Use default embedding path if none provided
         if embedding_path is None:
             embedding_path = (
-                f"{DEFAULT_DATA_DIR}/embeddings/"
-                f"templ_protein_embeddings_v1.0.0.npz"
+                f"{DEFAULT_DATA_DIR}/embeddings/" f"templ_protein_embeddings_v1.0.0.npz"
             )
 
         self.embedding_path = embedding_path
@@ -192,9 +189,7 @@ class TEMPLPipeline:
             self._init_embedding_manager()
         return self.embedding_manager
 
-    def _extract_pdb_id_from_path(
-        self, file_path: str
-    ) -> Optional[str]:
+    def _extract_pdb_id_from_path(self, file_path: str) -> Optional[str]:
         """Extract PDB ID from file header using multiple strategies."""
         if not file_path:
             return None

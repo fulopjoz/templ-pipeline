@@ -119,7 +119,11 @@ def display_molecule(mol, width=400, height=300, title="", highlight_atoms=None)
 
         try:
             Chem.SanitizeMol(mol_work)
-        except (Chem.rdchem.KekulizeException, Chem.rdchem.AtomValenceException, ValueError):
+        except (
+            Chem.rdchem.KekulizeException,
+            Chem.rdchem.AtomValenceException,
+            ValueError,
+        ):
             # If sanitization fails, try without it
             mol_work = mol
 

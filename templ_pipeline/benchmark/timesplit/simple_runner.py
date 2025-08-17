@@ -9,7 +9,8 @@ This module implements a streamlined time-split benchmarking approach that:
 - Leverages existing DatasetSplits class for split management
 - Follows the proven pattern from run_custom_split_benchmark.py
 - Maintains proper time-split data hygiene
-- Uses enhanced shared data manager with SharedMemory to prevent memory explosion
+- Uses enhanced shared data manager with SharedMemory to prevent memory
+  explosion
 """
 
 import json
@@ -23,7 +24,9 @@ from typing import Dict, List, Optional, Set, Tuple
 from tqdm import tqdm
 
 from templ_pipeline.benchmark.runner import LazyMoleculeLoader
-from templ_pipeline.benchmark.summary_generator import BenchmarkSummaryGenerator
+from templ_pipeline.benchmark.summary_generator import (
+    BenchmarkSummaryGenerator,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,9 +58,7 @@ class SimpleTimeSplitRunner:
             use_shared_data: Use enhanced shared data manager for embeddings
                 and ligands
         """
-        self.data_dir = (
-            Path(data_dir) if data_dir else self._find_data_directory()
-        )
+        self.data_dir = Path(data_dir) if data_dir else self._find_data_directory()
         self.results_dir = (
             Path(results_dir) if results_dir else Path("simple_timesplit_results")
         )
@@ -75,9 +76,7 @@ class SimpleTimeSplitRunner:
         # Set up shared data for memory efficiency
         if use_shared_data:
             self._setup_shared_data()
-            logger.info(
-                "Initialized shared data for memory-efficient benchmarking"
-            )
+            logger.info("Initialized shared data for memory-efficient benchmarking")
 
         # Use memory-efficient molecule loader to prevent explosion
         if memory_efficient:
@@ -111,12 +110,8 @@ class SimpleTimeSplitRunner:
         logger.info(f"  Results directory: {self.results_dir}")
         logger.info(f"  Memory efficient: {memory_efficient}")
         logger.info(f"  Enhanced shared data: {use_shared_data}")
-        logger.info(
-            f"  Error tracking: {'✓' if self.error_tracker else '✗'}"
-        )
-        logger.info(
-            f"  Skip tracking: {'✓' if self.skip_tracker else '✗'}"
-        )
+        logger.info(f"  Error tracking: {'✓' if self.error_tracker else '✗'}")
+        logger.info(f"  Skip tracking: {'✓' if self.skip_tracker else '✗'}")
 
     def _setup_shared_data(self):
         """Set up shared data for memory-efficient benchmarking."""
@@ -128,17 +123,13 @@ class SimpleTimeSplitRunner:
 
             # Find embedding file
             embedding_path = (
-                self.data_dir
-                / "embeddings"
-                / "templ_protein_embeddings_v1.0.0.npz"
+                self.data_dir / "embeddings" / "templ_protein_embeddings_v1.0.0.npz"
             )
             if not embedding_path.exists():
                 logger.warning(f"Embedding file not found: {embedding_path}")
                 return
 
-            logger.info(
-                f"Creating shared embedding cache from: {embedding_path}"
-            )
+            logger.info(f"Creating shared embedding cache from: {embedding_path}")
 
             # Create shared embedding cache
             cache_name = create_shared_embedding_cache(str(embedding_path))
@@ -162,8 +153,7 @@ class SimpleTimeSplitRunner:
             logger.info("✓ Error tracking system initialized")
         except ImportError:
             logger.warning(
-                "Error tracking module not available - using basic error "
-                "handling"
+                "Error tracking module not available - using basic error " "handling"
             )
             self.error_tracker = None
         except Exception as e:
@@ -182,8 +172,7 @@ class SimpleTimeSplitRunner:
             logger.info("✓ Skip tracking system initialized")
         except ImportError:
             logger.warning(
-                "Skip tracking module not available - using basic skip "
-                "handling"
+                "Skip tracking module not available - using basic skip " "handling"
             )
             self.skip_tracker = None
         except Exception as e:
@@ -310,8 +299,8 @@ class SimpleTimeSplitRunner:
             )
         else:
             logger.debug(
-                f"No LOO needed for {target_split} target {target_pdb}: target "
-                f"not in template set"
+                f"No LOO needed for {target_split} target {target_pdb}: "
+                f"target not in template set"
             )
 
         return allowed_templates
@@ -334,9 +323,7 @@ class SimpleTimeSplitRunner:
                 return False
 
             if cmd[0] != "templ":
-                logger.error(
-                    f"Command should start with 'templ', got: {cmd[0]}"
-                )
+                logger.error(f"Command should start with 'templ', got: {cmd[0]}")
                 return False
 
             # Find the subcommand position
@@ -356,13 +343,20 @@ class SimpleTimeSplitRunner:
                 logger.error(f"No valid subcommand found in: {cmd}")
                 return False
 
-            # Validate that global parameters (like --output-dir) come before subcommand
-            global_params = ["--output-dir", "--log-level", "--verbosity", "--seed"]
+            # Validate that global parameters (like --output-dir) come before
+            # subcommand
+            global_params = [
+                "--output-dir",
+                "--log-level",
+                "--verbosity",
+                "--seed",
+            ]
             for i in range(1, subcommand_pos):
                 arg = cmd[i]
                 if arg.startswith("--") and arg not in global_params:
                     logger.warning(
-                        f"Parameter {arg} might be a subcommand parameter placed before subcommand"
+                        f"Parameter {arg} might be a subcommand parameter "
+                        f"placed before subcommand"
                     )
 
             logger.debug(f"CLI command validation passed: {' '.join(cmd[:6])}...")
@@ -376,12 +370,16 @@ class SimpleTimeSplitRunner:
         self, error_msg: str, success: bool = False
     ) -> Tuple[str, bool]:
         """
-        Classify error into processing stage and determine if it affects success rate.
+        Classify error into processing stage and determine if it affects
+        success rate.
 
         Processing Stages:
-        1. pre_pipeline_excluded: Data availability issues (missing files, invalid data)
-        2. pipeline_filtered: Molecule validation/quality filters (large peptides, etc.)
-        3. pipeline_attempted: Actual algorithm processing (timeouts, pose failures, etc.)
+        1. pre_pipeline_excluded: Data availability issues (missing files,
+           invalid data)
+        2. pipeline_filtered: Molecule validation/quality filters (large
+           peptides, etc.)
+        3. pipeline_attempted: Actual algorithm processing (timeouts, pose
+           failures, etc.)
 
         Args:
             error_msg: Error message to classify
@@ -471,15 +469,17 @@ class SimpleTimeSplitRunner:
         # Default: treat unknown errors as pipeline execution failures
         # This ensures we don't accidentally exclude real algorithm failures
         logger.warning(
-            f"Unknown error type for stage classification: {error_msg[:100]}..."
+            f"Unknown error type for stage classification: " f"{error_msg[:100]}..."
         )
         return "pipeline_attempted", True
 
     def _analyze_cli_success(self, stdout: str, target_pdb: str) -> Tuple[str, bool]:
         """
-        Analyze CLI success cases to determine the actual processing stage.
+        Analyze CLI success cases to determine the actual processing
+        stage.
 
-        Uses the enhanced CLI JSON output with pipeline_stage field to accurately
+        Uses the enhanced CLI JSON output with pipeline_stage field to
+        accurately
         classify processing stages, ensuring correct success rate calculations.
 
         Args:
@@ -501,7 +501,8 @@ class SimpleTimeSplitRunner:
                 json_str = stdout[json_start:json_end].strip()
                 cli_result = json.loads(json_str)
 
-                # PRIORITY 1: Use new pipeline_stage field if available (preferred)
+                # PRIORITY 1: Use new pipeline_stage field if available
+                # (preferred)
                 pipeline_stage = cli_result.get("pipeline_stage")
                 made_it_to_mcs = cli_result.get("made_it_to_mcs", False)
 
@@ -509,7 +510,9 @@ class SimpleTimeSplitRunner:
                     # Use the accurate pipeline stage from enhanced CLI
                     affects_success_rate = pipeline_stage == "pipeline_attempted"
                     logger.debug(
-                        f"{target_pdb}: CLI reports pipeline_stage='{pipeline_stage}', made_it_to_mcs={made_it_to_mcs}"
+                        f"{target_pdb}: CLI reports "
+                        f"pipeline_stage='{pipeline_stage}', "
+                        f"made_it_to_mcs={made_it_to_mcs}"
                     )
                     return pipeline_stage, affects_success_rate
 
@@ -519,38 +522,49 @@ class SimpleTimeSplitRunner:
                 filtering_info = cli_result.get("template_filtering_info", {})
                 found_templates = filtering_info.get("found_templates", None)
 
-                # Treat empty database as pre-pipeline exclusion regardless of CLI success
+                # Treat empty database as pre-pipeline exclusion regardless
+                # of CLI success
                 if total_templates_in_db == 0:
                     logger.debug(
-                        f"{target_pdb}: database_empty (0 templates) -> pre_pipeline_excluded [LEGACY LOGIC]"
+                        f"{target_pdb}: database_empty (0 templates) -> "
+                        f"pre_pipeline_excluded [LEGACY LOGIC]"
                     )
                     return "pre_pipeline_excluded", False
 
-                # If DB has templates but none passed filtering, classify as pipeline filtered
+                # If DB has templates but none passed filtering, classify as
+                # pipeline filtered
                 if (
                     total_templates_in_db > 0
                     and isinstance(found_templates, int)
                     and found_templates == 0
                 ):
                     logger.debug(
-                        f"{target_pdb}: templates present but filtered out -> pipeline_filtered [LEGACY LOGIC]"
+                        f"{target_pdb}: templates present but filtered out -> "
+                        f"pipeline_filtered [LEGACY LOGIC]"
                     )
                     return "pipeline_filtered", False
 
                 if not cli_success:
                     # CLI failed for other reasons - algorithm issue
                     logger.debug(
-                        f"{target_pdb}: CLI reports failure with {total_templates_in_db} templates [LEGACY LOGIC]"
+                        f"{target_pdb}: CLI reports failure with "
+                        f"{total_templates_in_db} templates [LEGACY LOGIC]"
                     )
                     return "pipeline_attempted", True
                 else:
                     # CLI succeeded - normal pipeline processing
                     logger.debug(
-                        f"{target_pdb}: CLI succeeded with {total_templates_in_db} templates [LEGACY LOGIC]"
+                        f"{target_pdb}: CLI succeeded with "
+                        f"{total_templates_in_db} templates [LEGACY LOGIC]"
                     )
                     return "pipeline_attempted", True
 
-        except (ValueError, KeyError, AttributeError, json.JSONDecodeError) as e:
+        except (
+            ValueError,
+            KeyError,
+            AttributeError,
+            json.JSONDecodeError,
+        ) as e:
             logger.debug(f"Failed to parse CLI JSON output for {target_pdb}: {e}")
 
         # Fallback: assume successful pipeline processing
@@ -584,9 +598,10 @@ class SimpleTimeSplitRunner:
             )
             if not ligand_smiles:
                 error_msg = f"Could not load ligand SMILES for {target_pdb}"
-                processing_stage, affects_success_rate = self.classify_processing_stage(
-                    error_msg, False
-                )
+                (
+                    processing_stage,
+                    affects_success_rate,
+                ) = self.classify_processing_stage(error_msg, False)
 
                 # Use sophisticated tracking systems if available
                 if self.error_tracker:
@@ -618,7 +633,8 @@ class SimpleTimeSplitRunner:
                     "rmsd_values": {},
                 }
 
-            # Pre-filter: Detect large peptides/polysaccharides and skip before pipeline
+            # Pre-filter: Detect large peptides/polysaccharides and skip
+            # before pipeline
             try:
                 from templ_pipeline.core.chemistry import (
                     is_large_peptide_or_polysaccharide,
@@ -665,7 +681,8 @@ class SimpleTimeSplitRunner:
                             "rmsd_values": {},
                         }
             except Exception:
-                # If chemistry utilities are unavailable, continue without pre-filtering
+                # If chemistry utilities are unavailable, continue without
+                # pre-filtering
                 pass
 
             # Build CLI command with enhanced shared data parameters
@@ -691,9 +708,10 @@ class SimpleTimeSplitRunner:
             # Validate CLI command structure
             if not self.validate_cli_command(cmd):
                 error_msg = f"CLI command validation failed for {target_pdb}"
-                processing_stage, affects_success_rate = self.classify_processing_stage(
-                    error_msg, False
-                )
+                (
+                    processing_stage,
+                    affects_success_rate,
+                ) = self.classify_processing_stage(error_msg, False)
 
                 # Use sophisticated tracking systems if available
                 if self.error_tracker:
@@ -714,11 +732,13 @@ class SimpleTimeSplitRunner:
                     "processing_stage": processing_stage,
                     "affects_pipeline_success_rate": affects_success_rate,
                     "runtime_total": time.time() - start_time,
-                    "rmsd_values": {},  # Empty RMSD values for validation error
+                    "rmsd_values": {},  # Empty RMSD values for validation
+                    # error
                 }
 
             logger.info(
-                f"Running: {' '.join(cmd[:6])} ... (with {len(allowed_templates)} allowed templates)"
+                f"Running: {' '.join(cmd[:6])} ... "
+                f"(with {len(allowed_templates)} allowed templates)"
             )
 
             # Run subprocess with timeout
@@ -739,7 +759,7 @@ class SimpleTimeSplitRunner:
                     # Look for the JSON result line in stdout
                     for line in result.stdout.split("\n"):
                         if line.startswith("TEMPL_JSON_RESULT:"):
-                            json_str = line[len("TEMPL_JSON_RESULT:"):]
+                            json_str = line[len("TEMPL_JSON_RESULT:") :]
                             json_data = json.loads(json_str)
                             rmsd_values = json_data.get("rmsd_values", {})
                             break
@@ -748,9 +768,10 @@ class SimpleTimeSplitRunner:
 
                 # Analyze CLI JSON output to determine processing stage
                 # CLI exits with code 0 even for database_empty cases
-                processing_stage, affects_success_rate = self._analyze_cli_success(
-                    result.stdout, target_pdb
-                )
+                (
+                    processing_stage,
+                    affects_success_rate,
+                ) = self._analyze_cli_success(result.stdout, target_pdb)
 
                 # Record successful processing in tracking systems
                 if self.error_tracker:
@@ -764,17 +785,20 @@ class SimpleTimeSplitRunner:
                     "allowed_templates_count": len(allowed_templates),
                     "runtime_total": runtime_total,
                     "stdout": result.stdout,
-                    "rmsd_values": rmsd_values,  # Add RMSD data for summary generation
+                    "rmsd_values": rmsd_values,  # Add RMSD data for summary
+                    # generation
                 }
             else:
-                # CLI execution failed - analyze stderr to determine processing stage
+                # CLI execution failed - analyze stderr to determine
+                # processing stage
                 error_msg = f"CLI returned {result.returncode}"
                 if result.stderr:
                     error_msg += f": {result.stderr.strip()}"
 
-                processing_stage, affects_success_rate = self.classify_processing_stage(
-                    error_msg, False
-                )
+                (
+                    processing_stage,
+                    affects_success_rate,
+                ) = self.classify_processing_stage(error_msg, False)
 
                 # Use sophisticated tracking systems if available
                 if self.error_tracker:
@@ -812,11 +836,13 @@ class SimpleTimeSplitRunner:
                 }
 
         except subprocess.TimeoutExpired:
-            # Timeout is a pipeline execution failure - should affect success rate
+            # Timeout is a pipeline execution failure - should affect
+            # success rate
             error_msg = f"Timeout after {timeout}s"
-            processing_stage, affects_success_rate = self.classify_processing_stage(
-                error_msg, False
-            )
+            (
+                processing_stage,
+                affects_success_rate,
+            ) = self.classify_processing_stage(error_msg, False)
 
             # Use sophisticated tracking systems for timeout tracking
             if self.error_tracker:
@@ -843,9 +869,10 @@ class SimpleTimeSplitRunner:
         except Exception as e:
             # Generic exception - classify based on error message
             error_msg = str(e)
-            processing_stage, affects_success_rate = self.classify_processing_stage(
-                error_msg, False
-            )
+            (
+                processing_stage,
+                affects_success_rate,
+            ) = self.classify_processing_stage(error_msg, False)
 
             # Use sophisticated tracking systems for generic exceptions
             if self.error_tracker:
@@ -928,7 +955,8 @@ class SimpleTimeSplitRunner:
         total_batches = (len(target_pdbs) + batch_size - 1) // batch_size
 
         logger.info(
-            f"Processing {len(target_pdbs)} PDBs in {total_batches} batches of {batch_size}"
+            f"Processing {len(target_pdbs)} PDBs in {total_batches} batches "
+            f"of {batch_size}"
         )
 
         for batch_idx in range(total_batches):
@@ -937,7 +965,8 @@ class SimpleTimeSplitRunner:
             batch_pdbs = target_pdbs[start_idx:end_idx]
 
             logger.info(
-                f"Processing batch {batch_idx + 1}/{total_batches} ({len(batch_pdbs)} PDBs)"
+                f"Processing batch {batch_idx + 1}/{total_batches} "
+                f"({len(batch_pdbs)} PDBs)"
             )
 
             # Process batch with parallel execution
@@ -953,7 +982,8 @@ class SimpleTimeSplitRunner:
                     )
 
                     logger.debug(
-                        f"Submitting {target_pdb} ({target_split}) with {len(allowed_templates)} templates"
+                        f"Submitting {target_pdb} ({target_split}) with "
+                        f"{len(allowed_templates)} templates"
                     )
 
                     future = executor.submit(
@@ -966,7 +996,10 @@ class SimpleTimeSplitRunner:
                     future_to_pdb[future] = target_pdb
 
                 # Collect results for this batch
-                desc = f"{split_name.title()} Split (Batch {batch_idx + 1}/{total_batches})"
+                desc = (
+                    f"{split_name.title()} Split "
+                    f"(Batch {batch_idx + 1}/{total_batches})"
+                )
                 progress_bar = tqdm(total=len(future_to_pdb), desc=desc, ncols=100)
 
                 for future in as_completed(future_to_pdb):
@@ -975,7 +1008,8 @@ class SimpleTimeSplitRunner:
                     try:
                         result = future.result(timeout=timeout + 30)
 
-                        # Stream result to file, include split label for downstream summaries
+                        # Stream result to file, include split label for
+                        # downstream summaries
                         to_write = dict(result)
                         to_write["target_split"] = split_name
                         with open(output_jsonl, "a") as f:
@@ -985,7 +1019,8 @@ class SimpleTimeSplitRunner:
                         # Update counters with processing stage awareness
                         processed_count += 1
 
-                        # Track processing stage for correct success rate calculation
+                        # Track processing stage for correct success rate
+                        # calculation
                         processing_stage = result.get(
                             "processing_stage", "pipeline_attempted"
                         )
@@ -1010,11 +1045,13 @@ class SimpleTimeSplitRunner:
 
                     except Exception as e:
                         logger.error(f"Future failed for {target_pdb}: {e}")
-                        # Future execution failure - classify as pipeline execution failure
+                        # Future execution failure - classify as pipeline
+                        # execution failure
                         error_msg = f"Future execution failed: {str(e)}"
-                        processing_stage, affects_success_rate = (
-                            self.classify_processing_stage(error_msg, False)
-                        )
+                        (
+                            processing_stage,
+                            affects_success_rate,
+                        ) = self.classify_processing_stage(error_msg, False)
                         error_result = {
                             "success": False,
                             "target_pdb": target_pdb,
@@ -1029,7 +1066,8 @@ class SimpleTimeSplitRunner:
                             json.dump(to_write_err, f)
                             f.write("\n")
 
-                        # Update counters for error result with processing stage awareness
+                        # Update counters for error result with processing
+                        # stage awareness
                         processed_count += 1
                         failed_count += 1
 
@@ -1075,7 +1113,8 @@ class SimpleTimeSplitRunner:
                 gc.collect()
 
                 logger.info(
-                    f"Batch {batch_idx + 1} completed. Total progress: {processed_count}/{len(target_pdbs)}"
+                    f"Batch {batch_idx + 1} completed. Total progress: "
+                    f"{processed_count}/{len(target_pdbs)}"
                 )
 
         # Calculate stage-aware success rates
@@ -1119,12 +1158,16 @@ class SimpleTimeSplitRunner:
             # Processing stage breakdown
             "processing_breakdown": {
                 "total_targets": len(target_pdbs),
-                "pre_pipeline_excluded": pre_pipeline_excluded_count,  # Missing files, data issues
-                "pipeline_filtered": pipeline_filtered_count,  # Validation rules, quality filters
-                "pipeline_attempted": pipeline_attempted_count,  # Actually processed by algorithm
-                "pipeline_successful": pipeline_success_count,  # Completed with RMSD values
-                "pipeline_failed": pipeline_attempted_count
-                - pipeline_success_count,  # Timeouts, pose failures
+                # Missing files, data issues
+                "pre_pipeline_excluded": pre_pipeline_excluded_count,
+                # Validation rules, quality filters
+                "pipeline_filtered": pipeline_filtered_count,
+                # Actually processed by algorithm
+                "pipeline_attempted": pipeline_attempted_count,
+                # Completed with RMSD values
+                "pipeline_successful": pipeline_success_count,
+                # Timeouts, pose failures
+                "pipeline_failed": pipeline_attempted_count - pipeline_success_count,
             },
             # Legacy fields for backward compatibility
             "success_rate": pipeline_success_rate,  # Now shows pipeline success rate (main metric)

@@ -34,8 +34,8 @@ except ImportError:
 
 try:
     from Bio.PDB import PDBParser, PPBuilder
-    from Bio.PDB.PDBExceptions import PDBConstructionWarning
     from Bio.PDB.parse_pdb_header import parse_pdb_header
+    from Bio.PDB.PDBExceptions import PDBConstructionWarning
 
     BIOPYTHON_AVAILABLE = True
 except ImportError:
@@ -131,7 +131,7 @@ def get_protein_sequence(
             conversion.update(aa_map)
 
         return "".join(
-            conversion.get(seqres[i: i + 3].upper(), "X")
+            conversion.get(seqres[i : i + 3].upper(), "X")
             for i in range(0, len(seqres), 3)
             if i + 3 <= len(seqres)
         )
@@ -222,9 +222,9 @@ def _get_gpu_info() -> Dict[str, Any]:
         if torch.cuda.is_available():
             gpu_info["available"] = True
             gpu_info["device_name"] = torch.cuda.get_device_name(0)
-            gpu_info["memory_total"] = (
-                torch.cuda.get_device_properties(0).total_memory / (1024**3)
-            )
+            gpu_info["memory_total"] = torch.cuda.get_device_properties(
+                0
+            ).total_memory / (1024**3)
     except Exception:
         pass
 
@@ -506,9 +506,7 @@ def is_pdb_id_in_database(pdb_id: str, embedding_path: Optional[str] = None) -> 
         "instead"
     )
     try:
-        manager = EmbeddingManager(
-            embedding_path=_resolve_embedding_path()
-        )
+        manager = EmbeddingManager(embedding_path=_resolve_embedding_path())
         return manager.has_embedding(pdb_id)
     except Exception:
         return False
@@ -567,8 +565,12 @@ class EmbeddingManager:
             logger.debug("EmbeddingManager already initialized, skipping")
             return
 
-        resolved_path = _resolve_embedding_path()
-        self.embedding_path = resolved_path if resolved_path else ""
+        # Use provided embedding_path if it exists, otherwise resolve from default locations
+        if embedding_path and os.path.exists(embedding_path):
+            self.embedding_path = embedding_path
+        else:
+            resolved_path = _resolve_embedding_path()
+            self.embedding_path = resolved_path if resolved_path else ""
 
         self.embeddings = {}  # Pre-calculated embeddings from NPZ
         self.embedding_db = {}  # Pre-calculated embeddings from NPZ

@@ -329,7 +329,7 @@ Timestamp: {error_record.timestamp}
 
         # Maintain history size limit
         if len(self.error_history) > self.max_history:
-            self.error_history = self.error_history[-self.max_history:]
+            self.error_history = self.error_history[-self.max_history :]
 
     def get_error_report(self, error_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve detailed error report for support

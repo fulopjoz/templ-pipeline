@@ -85,9 +85,7 @@ def _get_hardware_config():
 
         return get_suggested_worker_config()
     except ImportError:
-        logger.warning(
-            "Hardware detection not available, using conservative defaults"
-        )
+        logger.warning("Hardware detection not available, using conservative defaults")
         return {"n_workers": 4, "internal_pipeline_workers": 1}
 
 
@@ -180,10 +178,8 @@ def setup_parser():
         experience_level == ExperienceLevel.BEGINNER
         and ux_config.usage_patterns.total_commands < 3
     ):
-        logger.info(
-            "Welcome to TEMPL! For getting started help: "
-            "templ --help getting-started"
-        )
+        # Removed verbose welcome message - keep it simple
+        pass
 
     # Add common arguments - log-level should always be available for debugging
     # Map verbosity levels to proper logging levels
@@ -278,8 +274,7 @@ def setup_parser():
         type=float,
         default=None,
         help=(
-            "Minimum similarity threshold "
-            "(overrides --num-templates if provided)"
+            "Minimum similarity threshold " "(overrides --num-templates if provided)"
         ),
     )
     find_templates_parser.add_argument(
@@ -313,10 +308,7 @@ def setup_parser():
         "--ligand-file",
         type=str,
         default=None,
-        help=(
-            "SDF file containing query ligand "
-            "(alternative to --ligand-smiles)"
-        ),
+        help=("SDF file containing query ligand " "(alternative to --ligand-smiles)"),
     )
     generate_poses_parser.add_argument(
         "--template-pdb", type=str, required=True, help="PDB ID of template to use"
@@ -1021,7 +1013,7 @@ def run_command(args):
         logger.error(f"Failed to import pipeline: {e}")
         return 1
 
-    print("Starting TEMPL pipeline")
+    print("TEMPL: Predicting protein-ligand poses...")
 
     try:
         # Set workers if not provided
@@ -1075,162 +1067,15 @@ def run_command(args):
 
         results = simple_progress_wrapper("Running TEMPL pipeline", run_pipeline)
 
-        # Calculate RMSD values for each best pose if pipeline succeeded
-        rmsd_values = {}
-        if results.get("success") and results.get("poses"):
-            logger.info("CLI_RMSD: Starting RMSD calculation for successful pipeline")
-            logger.info(f"CLI_RMSD:   Pipeline success: {results.get('success')}")
-            logger.info(
-                f"CLI_RMSD:   Poses available: {list(results.get('poses', {}).keys())}"
-            )
-
-            try:
-                # Try to get crystal structure for RMSD calculation
-                crystal_mol = getattr(pipeline, "crystal_mol", None)
-                has_crystal = crystal_mol is not None
-
-                logger.info("CLI_RMSD: Crystal structure availability check:")
-                logger.info(
-                    f"CLI_RMSD:   Pipeline has crystal_mol attribute: {hasattr(pipeline, 'crystal_mol')}"
-                )
-                logger.info(f"CLI_RMSD:   Crystal molecule is not None: {has_crystal}")
-
-                if has_crystal:
-                    logger.info(
-                        f"CLI_RMSD:   Crystal molecule atoms: {crystal_mol.GetNumAtoms()}"
-                    )
-                    logger.info(
-                        f"CLI_RMSD:   Crystal molecule conformers: {crystal_mol.GetNumConformers()}"
-                    )
-
-                if crystal_mol is not None:
-                    import numpy as np
-                    from rdkit import Chem
-
-                    from templ_pipeline.core.scoring import rmsd_raw
-
-                    crystal_noH = Chem.RemoveHs(crystal_mol)
-                    logger.info(
-                        "CLI_RMSD: Processing crystal structure for comparison"
-                    )
-                    logger.info(
-                        f"CLI_RMSD:   Crystal atoms after H removal: {crystal_noH.GetNumAtoms()}"
-                    )
-
-                    # Calculate RMSD for each metric's best pose
-                    for metric, (pose, scores) in results["poses"].items():
-                        if pose is not None:
-                            try:
-                                pose_noH = Chem.RemoveHs(pose)
-                                rmsd = rmsd_raw(pose_noH, crystal_noH)
-                                rmsd_values[metric] = {
-                                    "rmsd": float(rmsd) if not np.isnan(rmsd) else None,
-                                    "score": float(scores.get(metric, 0.0)),
-                                }
-                                if not np.isnan(rmsd):
-                                    logger.info(
-                                        f"CLI_RMSD: Calculated RMSD for {metric}: {rmsd:.3f}Å"
-                                    )
-                                else:
-                                    logger.debug(
-                                        f"CLI_RMSD: RMSD calculation returned NaN for {metric} - likely molecular structure incompatibility"
-                                    )
-                            except Exception as e:
-                                logger.warning(
-                                    f"CLI_RMSD: RMSD calculation failed for {metric}: {e}"
-                                )
-                                rmsd_values[metric] = {
-                                    "rmsd": None,
-                                    "score": float(scores.get(metric, 0.0)),
-                                }
-                else:
-                    # No crystal structure available - just include scores
-                    logger.warning(
-                        "CLI_RMSD: No crystal structure available - using score-only fallback"
-                    )
-                    for metric, (pose, scores) in results["poses"].items():
-                        if pose is not None:
-                            rmsd_values[metric] = {
-                                "rmsd": None,
-                                "score": float(scores.get(metric, 0.0)),
-                            }
-                            logger.info(
-                                f"CLI_RMSD: Score-only entry for {metric}: {scores.get(metric, 0.0):.3f}"
-                            )
-            except Exception as e:
-                logger.error(f"CLI_RMSD: RMSD calculation setup failed: {e}")
-                logger.error(f"CLI_RMSD: Traceback: {traceback.format_exc()}")
-
-        # Determine pipeline stage for benchmark tracking
-        made_it_to_mcs = getattr(pipeline, "made_it_to_mcs", False)
-        success = results.get("success", False)
-        error_message = results.get("error", "")
-
-        # Comprehensive pipeline stage classification
-        if made_it_to_mcs:
-            # Reached MCS stage (success or failure in MCS/conformer generation/pose scoring)
-            # These should be counted in success rate denominators
-            pipeline_stage = "pipeline_attempted"
-        elif not success:
-            # Failed before reaching MCS - need to classify the type of failure
-            if _is_pre_pipeline_failure(error_message):
-                # Data availability issues (missing files, invalid data, loading failures)
-                # These are excluded from success rate denominators
-                pipeline_stage = "pre_pipeline_excluded"
-            elif _is_pipeline_filtering(error_message):
-                # Molecular filtering (peptides, polysaccharides, chemical validation)
-                # These are excluded from success rate denominators
-                pipeline_stage = "pipeline_filtered"
-            else:
-                # Real pipeline failures (timeouts, computation errors, etc.)
-                # These should be counted in success rate denominators as failures
-                pipeline_stage = "pipeline_attempted"
+        # Simple success output
+        if results.get("success"):
+            poses_count = len(results.get("poses", {}))
+            output_file = results.get("output_file", "unknown")
+            print(f"Prediction complete! Generated {poses_count} poses")
+            print(f"Results saved to: {output_file}")
         else:
-            # Success but no MCS flag - should be rare, default to pipeline_attempted
-            pipeline_stage = "pipeline_attempted"
-
-        # Output structured JSON for subprocess parsing
-        json_output = {
-            "success": results.get("success", False),
-            "pipeline_stage": pipeline_stage,
-            "made_it_to_mcs": made_it_to_mcs,
-            "total_templates_in_database": len(results.get("templates", [])),
-            "templates_used_for_poses": results.get(
-                "template_processing_pipeline", {}
-            ).get("final_usable_templates", 0),
-            "template_filtering_info": results.get("filtering_info", {}),
-            "template_processing_pipeline": results.get(
-                "template_processing_pipeline", {}
-            ),
-            "template_database_stats": getattr(
-                pipeline, "template_filtering_stats", {}
-            ),
-            "template_embedding_similarities": results.get("template_similarities", {}),
-            "poses_count": len(results.get("poses", {})),
-            "output_file": results.get("output_file", "unknown"),
-            "rmsd_values": rmsd_values,
-        }
-
-        # Import json and numpy for output
-        import json
-
-        import numpy as np
-
-        # Output JSON on a single line for easy parsing (only if requested)
-        if getattr(args, "json_output", False):
-            print(
-                "TEMPL_JSON_RESULT:"
-                + json.dumps(
-                    json_output,
-                    default=lambda x: float(x) if isinstance(x, np.floating) else x,
-                )
-            )
-
-        # Also output human-readable summary for backwards compatibility
-        print("Pipeline completed successfully!")
-        print(f"Found {len(results.get('templates', []))} templates")
-        print(f"Generated {len(results.get('poses', {}))} poses")
-        print(f"Results saved to: {results.get('output_file', 'unknown')}")
+            print(f"Prediction failed: {results.get('error', 'Unknown error')}")
+            return 1
 
         return 0
 
@@ -1859,9 +1704,6 @@ def main():
         for key, value in smart_defaults.items():
             if not hasattr(args, key) or getattr(args, key) is None:
                 setattr(args, key, value)
-
-        # Show contextual help hints
-        help_system.show_contextual_help(args.command or "run", vars(args))
 
         # Track command usage and execute
         time.time()

@@ -11,8 +11,10 @@ This module handles pose scoring and selection:
 5. RMSD calculation for evaluation
 
 The main classes and functions:
-- score_and_align: Compute shape/color scores for a conformer against a template
-- select_best: Rank conformers by different scoring methods and select top poses
+- score_and_align: Compute shape/color scores for a conformer against a
+  template
+- select_best: Rank conformers by different scoring methods and select top
+  poses
 - rmsd_raw: Calculate RMSD between molecules for evaluation
 """
 
@@ -55,7 +57,8 @@ class CoordinateMapper:
         before_idx = 0
         after_idx = 0
 
-        # Heavy atoms should be in the same order, but hydrogens might be inserted
+        # Heavy atoms should be in the same order, but hydrogens might be
+        # inserted
         while (
             before_idx < mol_before.GetNumAtoms()
             and after_idx < mol_after.GetNumAtoms()
@@ -102,7 +105,8 @@ class CoordinateMapper:
 
 
 class FixedMolecularProcessor:
-    """Processor with enhanced coordinate preservation during molecular operations."""
+    """Processor with enhanced coordinate preservation during molecular
+    operations."""
 
     @staticmethod
     def create_independent_copy(mol: Chem.Mol) -> Chem.Mol:
@@ -113,7 +117,8 @@ class FixedMolecularProcessor:
         # Validate input type to prevent Boost.Python.ArgumentError
         if not isinstance(mol, Chem.Mol):
             logger.error(
-                f"Invalid input type for molecular copy: {type(mol)}, expected Chem.Mol"
+                f"Invalid input type for molecular copy: {type(mol)}, "
+                f"expected Chem.Mol"
             )
             return None
 

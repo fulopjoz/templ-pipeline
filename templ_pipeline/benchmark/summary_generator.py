@@ -113,9 +113,7 @@ class BenchmarkSummaryGenerator:
                 results_data = {"data": str(type(results_data))}
             return self._generate_generic_summary(results_data, output_format)
 
-    def _generate_polaris_summary(
-        self, results_data: Dict, output_format: str
-    ) -> Any:
+    def _generate_polaris_summary(self, results_data: Dict, output_format: str) -> Any:
         """Generate summary for Polaris benchmark results."""
         table_data = []
 
@@ -160,19 +158,11 @@ class BenchmarkSummaryGenerator:
                             "Template_Source": template_source,
                             "Queries": query_count,
                             "Templates": template_desc,
-                            "Success_Rate_2A": (
-                                f"{combo_stats['rate_2A']:.1f}%"
-                            ),
-                            "Success_Rate_5A": (
-                                f"{combo_stats['rate_5A']:.1f}%"
-                            ),
-                            "Mean_RMSD": (
-                                f"{combo_stats.get('mean_rmsd', 0):.2f}"
-                            ),
+                            "Success_Rate_2A": (f"{combo_stats['rate_2A']:.1f}%"),
+                            "Success_Rate_5A": (f"{combo_stats['rate_5A']:.1f}%"),
+                            "Mean_RMSD": (f"{combo_stats.get('mean_rmsd', 0):.2f}"),
                             "Successful_Poses": combo_stats.get("count", 0),
-                            "Processing_Time": result_entry.get(
-                                "processing_time", 0
-                            ),
+                            "Processing_Time": result_entry.get("processing_time", 0),
                         }
                     )
                 else:
@@ -195,18 +185,14 @@ class BenchmarkSummaryGenerator:
 
         return self._format_output(table_data, output_format)
 
-    def _generate_timesplit_summary(
-        self, results_data: Any, output_format: str
-    ) -> Any:
+    def _generate_timesplit_summary(self, results_data: Any, output_format: str) -> Any:
         """Generate summary for Timesplit benchmark results using
         stage-aware metrics."""
         logger.info("Generating timesplit summary with stage-aware metrics...")
 
         # Use the fixed version that properly handles
         # stage-aware classification
-        return self._generate_timesplit_summary_fixed(
-            results_data, output_format
-        )
+        return self._generate_timesplit_summary_fixed(results_data, output_format)
 
     def _calculate_polaris_metrics(self, result_data: Dict) -> Dict:
         """Calculate metrics for Polaris benchmark results."""
@@ -278,16 +264,8 @@ class BenchmarkSummaryGenerator:
         for metric_key in metrics["all_rmsds"]:
             n_results = len(metrics["all_rmsds"][metric_key])
             if n_results > 0 and total_molecules > 0:
-                rate_2A = (
-                    metrics["rmsd_counts_2A"][metric_key]
-                    / total_molecules
-                    * 100
-                )
-                rate_5A = (
-                    metrics["rmsd_counts_5A"][metric_key]
-                    / total_molecules
-                    * 100
-                )
+                rate_2A = metrics["rmsd_counts_2A"][metric_key] / total_molecules * 100
+                rate_5A = metrics["rmsd_counts_5A"][metric_key] / total_molecules * 100
                 mean_rmsd = np.mean(metrics["all_rmsds"][metric_key])
                 median_rmsd = np.median(metrics["all_rmsds"][metric_key])
 
@@ -300,9 +278,7 @@ class BenchmarkSummaryGenerator:
                 }
 
                 # Log calculated success rates
-                logger.info(
-                    f"SUCCESS_RATE_CALC: Final Polaris rates for {metric_key}:"
-                )
+                logger.info(f"SUCCESS_RATE_CALC: Final Polaris rates for {metric_key}:")
                 logger.info(
                     f"SUCCESS_RATE_CALC:   2A success: {rate_2A:.1f}% "
                     f"({metrics['rmsd_counts_2A'][metric_key]}/{total_molecules})"
@@ -311,9 +287,7 @@ class BenchmarkSummaryGenerator:
                     f"SUCCESS_RATE_CALC:   5A success: {rate_5A:.1f}% "
                     f"({metrics['rmsd_counts_5A'][metric_key]}/{total_molecules})"
                 )
-                logger.info(
-                    f"SUCCESS_RATE_CALC:   Mean RMSD: {mean_rmsd:.3f}A"
-                )
+                logger.info(f"SUCCESS_RATE_CALC:   Mean RMSD: {mean_rmsd:.3f}A")
 
         return metrics
 
@@ -487,10 +461,7 @@ class BenchmarkSummaryGenerator:
 
         # Parse molecule validation exclusions
         # (from chemistry.py and pipeline.py)
-        if (
-            "large peptide" in error_msg_lower
-            or "large peptides" in error_msg_lower
-        ):
+        if "large peptide" in error_msg_lower or "large peptides" in error_msg_lower:
             return "large_peptide"
         elif "rhenium complex" in error_msg_lower:
             return "rhenium_complex"
@@ -500,10 +471,7 @@ class BenchmarkSummaryGenerator:
             return "large_peptide"
         elif "polysaccharide" in error_msg_lower:
             return "complex_polysaccharide"
-        elif (
-            "validation failed" in error_msg_lower
-            and "geometry" in error_msg_lower
-        ):
+        elif "validation failed" in error_msg_lower and "geometry" in error_msg_lower:
             return "geometry_validation_failed"
         elif "validation failed" in error_msg_lower:
             return "molecule_validation_failed"
@@ -519,19 +487,13 @@ class BenchmarkSummaryGenerator:
             "ligand smiles" in error_msg_lower and "not found" in error_msg_lower
         ):
             return "ligand_data_missing"
-        elif (
-            "protein file" in error_msg_lower
-            and "not found" in error_msg_lower
-        ):
+        elif "protein file" in error_msg_lower and "not found" in error_msg_lower:
             return "protein_file_missing"
         elif "template sdf file not found" in error_msg_lower:
             return "template_file_missing"
         elif "template file not found" in error_msg_lower:
             return "template_file_missing"
-        elif (
-            "template file" in error_msg_lower
-            and "not found" in error_msg_lower
-        ):
+        elif "template file" in error_msg_lower and "not found" in error_msg_lower:
             return "template_file_missing"
         elif (
             "template" in error_msg_lower

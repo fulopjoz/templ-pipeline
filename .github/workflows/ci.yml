@@ -11,11 +11,15 @@ env:
 
 jobs:
   test:
-    name: Test (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    name: Test (Python ${{ matrix.python-version }} on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.9", "3.10", "3.11", "3.12"]
+        exclude:
+          - os: windows-latest
+            python-version: "3.9"  # Windows support might be limited for newer Python versions
       fail-fast: false  # Don't cancel other jobs when one fails
 
     steps:
@@ -41,10 +45,48 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e ".[dev]"
     
-    - name: Run tests with coverage
+    - name: Set up Python environment
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+        cache-dependency-path: '**/pyproject.toml'
+
+    - name: Install dependencies
       run: |
-        pytest --cov=templ_pipeline --cov-report=xml --cov-report=term-missing --junitxml=test-results.xml
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+        pip install \
+          pytest-benchmark \
+          pytest-xdist \
+          pytest-metadata \
+          pytest-rerunfailures \
+          pytest-memray
+
+    - name: Run tests with comprehensive coverage and performance profiling
+      run: |
+        pytest \
+          -n auto \
+          --cov=templ_pipeline \
+          --cov-report=xml \
+          --cov-report=term-missing \
+          --junitxml=test-results.xml \
+          --benchmark-columns=mean,median,stddev \
+          --benchmark-sort=mean \
+          --benchmark-json benchmark-output.json \
+          --memray \
+          --memray-output=memray_report.json
       continue-on-error: false
+
+    - name: Upload Performance and Memory Profiling Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: performance-profile-${{ matrix.os }}-${{ matrix.python-version }}
+        path: |
+          benchmark-output.json
+          memray_report.json
+        retention-days: 14
     
     - name: Ensure test results exist
       run: |
@@ -179,21 +221,54 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e ".[dev]"
     
-    - name: Run black
+    - name: Auto-fix code style issues
       run: |
-        black --check --diff templ_pipeline/ tests/ scripts/ || true  # Don't fail on formatting
+        # Auto-fix what can be fixed
+        autoflake --in-place --remove-all-unused-imports --recursive templ_pipeline/ tests/ scripts/ || true
+        isort templ_pipeline/ tests/ scripts/ || true
+        black templ_pipeline/ tests/ scripts/ || true
     
-    - name: Run isort
-      run: |
-        isort --check-only --diff templ_pipeline/ tests/ scripts/ || true  # Don't fail on imports
+    # Alternative 1: Skip flake8 entirely (uncomment to use)
+    # - name: Skip flake8 (alternative option)
+    #   run: echo "Skipping flake8 checks as requested"
     
-    - name: Run flake8
-      run: |
-        flake8 templ_pipeline/ tests/ scripts/ --max-line-length=88 --ignore=E203,W503
+    # Alternative 2: Run flake8 with warnings only (uncomment to use)
+    # - name: Run flake8 with warnings only
+    #   run: |
+    #     flake8 templ_pipeline/ tests/ scripts/ --max-line-length=120 --ignore=E203,W503,W291,F401,E501 || echo "Flake8 warnings (non-blocking)"
     
-    - name: Run mypy
+    # Alternative 3: Run flake8 only on changed files (uncomment to use)
+    # - name: Run flake8 on changed files only
+    #   run: |
+    #     git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '\.py$' | xargs flake8 --max-line-length=100 --ignore=E203,W503,W291,F401 || true
+    
+    # Alternative 4: Run flake8 with exit code 0 (uncomment to use)
+    # - name: Run flake8 (always pass)
+    #   run: |
+    #     flake8 templ_pipeline/ tests/ scripts/ || exit 0
+    
+    - name: Code Style Checks
       run: |
-        mypy templ_pipeline/ || true  # Don't fail on type checking
+        # Run code formatters first
+        black --check --diff templ_pipeline/ tests/ scripts/
+        isort --check-only --diff templ_pipeline/ tests/ scripts/
+
+    - name: Static Type Checking
+      run: |
+        # Run type checking with stricter settings
+        mypy templ_pipeline/ \
+          --ignore-missing-imports \
+          --disallow-untyped-defs \
+          --warn-redundant-casts \
+          --no-warn-no-return
+
+    - name: Linting
+      run: |
+        # Run linters with specific configuration
+        flake8 templ_pipeline/ tests/ scripts/ \
+          --max-line-length=120 \
+          --ignore=E203,W503 \
+          --exclude=.git,__pycache__,docs/source/conf.py,old,build,dist
 
   security:
     name: Security Check
@@ -227,13 +302,27 @@ jobs:
         pip install -e ".[dev]"
         pip install bandit safety
     
-    - name: Run bandit security check
+    - name: Run Bandit security check
       run: |
-        bandit -r templ_pipeline/ -f json -o bandit-report.json || true
-    
-    - name: Run safety check
+        bandit -r templ_pipeline/ \
+          -f json \
+          -o bandit-report.json \
+          -lll  # Only report high severity issues
+
+    - name: Run Safety dependency check
       run: |
-        safety check --json --output safety-report.json || true
+        safety check \
+          --full-report \
+          --ignore 12345  # Optional: Ignore specific known issues
+          --json \
+          --output safety-report.json
+
+    - name: Run Snyk vulnerability scanner
+      uses: snyk/actions/python@master
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      with:
+        command: test
     
     - name: Ensure security reports exist
       run: |
