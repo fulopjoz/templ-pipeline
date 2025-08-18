@@ -2,6 +2,7 @@
 
 [![Live App](https://img.shields.io/badge/Live_App-templ.dyn.cloud.e--infra.cz-2ea44f?logo=google-chrome&logoColor=white)](https://templ.dyn.cloud.e-infra.cz/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: CC BY 4.0](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/fulopjoz/templ-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/fulopjoz/templ-pipeline/actions/workflows/ci.yml)
 [![Citation](https://github.com/fulopjoz/templ-pipeline/actions/workflows/cffconvert.yml/badge.svg)](https://github.com/fulopjoz/templ-pipeline/actions/workflows/cffconvert.yml)
@@ -206,4 +207,10 @@ Computational resources were provided by the e-INFRA CZ project (ID:90254), supp
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project uses dual licensing:
+
+- **Software Code**: Licensed under the [MIT License](LICENSE)
+- **Data, Documentation, and Research Outputs**: Licensed under [CC BY 4.0](LICENSES/CC-BY-4.0.txt)
+- **Third-party Data**: [Polaris benchmark datasets](https://polarishub.io/datasets/asap-discovery/antiviral-admet-2025-unblinded) are CC0-1.0 (public domain)
+
+The software components use the permissive MIT License for maximum reusability. Research data and documentation are shared under Creative Commons Attribution 4.0 International License for proper academic attribution.
