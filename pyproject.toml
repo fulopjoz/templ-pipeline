@@ -111,6 +111,7 @@ templ-pipeline = "templ_pipeline.cli.main:main"
 "Homepage" = "https://github.com/fulopjoz/templ-pipeline"
 "Bug Reports" = "https://github.com/fulopjoz/templ-pipeline/issues"
 "Source" = "https://github.com/fulopjoz/templ-pipeline"
+"DOI" = "https://doi.org/10.5281/zenodo.16890956"
 
 [tool.setuptools.packages.find]
 where = ["."]

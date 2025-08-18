@@ -8,6 +8,8 @@
 
 [![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=fulopjoz_templ-pipeline&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=fulopjoz_templ-pipeline)
 [![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=fulopjoz_templ-pipeline&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=fulopjoz_templ-pipeline)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.16890956.svg)](https://doi.org/10.5281/zenodo.16890956)
+
 
 Template-based protein–ligand pose prediction with command-line interface and web application.
 
@@ -59,10 +61,14 @@ source .templ/bin/activate
 
 ## Data Requirements
 
-TEMPL requires pre-computed embeddings and ligand structures that are automatically downloaded during setup from [Zenodo](https://doi.org/10.5281/zenodo.XXXXXXX):
+TEMPL requires pre-computed embeddings and ligand structures that are automatically downloaded during setup from [Zenodo](https://doi.org/10.5281/zenodo.16890956):
 
-- `templ_protein_embeddings_v1.0.0.npz` (~90MB) - Protein embeddings
-- `templ_processed_ligands_v1.0.0.sdf.gz` (~10MB) - Processed ligand structures
+- `templ_protein_embeddings_v1.0.0.npz` (~90MB) - Pre-computed ESM-2 protein embeddings for 18,902 PDBBind structures
+- `templ_processed_ligands_v1.0.0.sdf.gz` (~10MB) - Processed ligand molecules
+
+**Related Zenodo Datasets:**
+- [TEMPL Pipeline Core Dataset](https://doi.org/10.5281/zenodo.15813500) - Essential data files for pipeline operation
+- [TEMPL Pipeline Benchmark Results Dataset](https://doi.org/10.5281/zenodo.16875932) - PDBBind timesplit and Polaris benchmark results
 
 See `data/README.md` for directory layout and the provided benchmark splits under `data/splits/`.
 
