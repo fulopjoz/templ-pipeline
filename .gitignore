@@ -251,7 +251,7 @@ temp/
 # Additional ignores
 .mypy_cache/
 .ruff_cache/
-.bandit
+.bandit/
 data/embeddings/
 data/ligands/
 ~/
