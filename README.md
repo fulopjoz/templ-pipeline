@@ -96,7 +96,6 @@ After downloading, extract both folders into `data/PDBBind/` using the standard 
 ├── data/                     # Embeddings, ligands, splits (see data/README.md)
 ├── templ_pipeline/           # Main Python package and CLI
 ├── scripts/                  # Helper entry points (UI launcher, tests, benchmarks)
-├── examples/                 # Minimal usage examples
 ├── output/                   # Pipeline run outputs (templ_run_...)
 ├── benchmarks/               # Benchmark workspaces and archives
 ├── tests/                    # Unit, integration, performance tests
