@@ -1091,7 +1091,6 @@ class BenchmarkSummaryGenerator:
                 if has_rmsd_values:
                     results_with_rmsd += 1
             elif reached_pipeline_attempted:
-                # CRITICAL FIX: Include pipeline failures in RMSD collection
                 # Pipeline failures (empty RMSD, timeouts, etc.) should count as infinite RMSD
                 # This ensures they contribute 0 to success counts while being included in denominator
                 failure_rmsd = 999.0  # Guaranteed to fail both 2Å and 5Å thresholds

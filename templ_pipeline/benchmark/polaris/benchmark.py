@@ -762,12 +762,6 @@ def evaluate_with_templates(
             for i, crystal_mol in enumerate(query_mols):
                 mol_name = safe_name(crystal_mol, f"mol_{i}")
 
-                # CRITICAL FIX: Proper 2D/3D separation for pose prediction benchmark
-                #
-                # PROBLEM: Using crystal structure directly would leak 3D coordinates to pose prediction
-                # SOLUTION: Convert crystal → SMILES → 2D molecule (removes 3D coordinates)
-                #
-                # This simulates real-world scenario where we only know 2D structure and need to predict 3D pose
                 query_mol = Chem.MolFromSmiles(Chem.MolToSmiles(crystal_mol))
                 if query_mol is None:
                     logging.warning(
@@ -871,12 +865,6 @@ def evaluate_with_templates(
             for i, crystal_mol in enumerate(query_mols):
                 mol_name = safe_name(crystal_mol, f"mol_{i}")
 
-                # CRITICAL FIX: Proper 2D/3D separation for pose prediction benchmark
-                #
-                # PROBLEM: Using crystal structure directly would leak 3D coordinates to pose prediction
-                # SOLUTION: Convert crystal → SMILES → 2D molecule (removes 3D coordinates)
-                #
-                # This simulates real-world scenario where we only know 2D structure and need to predict 3D pose
                 query_mol = Chem.MolFromSmiles(Chem.MolToSmiles(crystal_mol))
                 if query_mol is None:
                     logging.warning(

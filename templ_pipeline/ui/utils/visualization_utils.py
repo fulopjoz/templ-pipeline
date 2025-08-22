@@ -22,7 +22,6 @@ def generate_molecule_image(mol_binary, width=400, height=300, highlight_atoms=N
         Chem, AllChem, Draw = get_rdkit_modules()
         mol = Chem.Mol(mol_binary)
 
-        # SMART FIX: Use original molecular structure for visualization if available
         if mol.HasProp("original_smiles"):
             try:
                 original_smiles = mol.GetProp("original_smiles")
@@ -100,7 +99,6 @@ def display_molecule(mol, width=400, height=300, title="", highlight_atoms=None)
         # sanitize the molecule carefully
         Chem, AllChem, Draw = get_rdkit_modules()
 
-        # SMART FIX: Use original molecular structure for visualization if available
         mol_work = mol
         if mol.HasProp("original_smiles"):
             try:
