@@ -189,7 +189,6 @@ def get_optimized_worker_config(
 
     # Base configuration based on workload type - CONSERVATIVE FOR SYSTEM STABILITY
     if workload_type == "cpu_intensive":
-        # CRITICAL FIX: Use conservative worker count to prevent resource exhaustion
         # Cap at 20 workers maximum to prevent "cannot allocate memory for thread-local data" errors
         n_workers = max(
             2, min(20, int(total_cpus * 0.75))

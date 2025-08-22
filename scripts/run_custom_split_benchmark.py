@@ -999,7 +999,6 @@ def evaluate_split(
     log.info(f"Starting evaluation on {len(pdbs_to_run)} PDBs for {split_name_key}.")
 
     split_run_results = {}
-    # --- CRITICAL: Always set internal pipeline workers to 1 if running in parallel ---
     internal_pipeline_workers = 1 if n_workers > 1 else (os.cpu_count() or 1)
     if n_workers > 1 and internal_pipeline_workers > 1:
         log.warning(
