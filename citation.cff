@@ -26,8 +26,31 @@ url: "https://templ.dyn.cloud.e-infra.cz/"
 identifiers:
   - type: doi
     value: "10.5281/zenodo.16890956"
+  - type: doi
+    value: "10.26434/chemrxiv-2025-0v7b1"
   - type: url
     value: "https://github.com/fulopjoz/templ-pipeline"
+preferred-citation:
+  type: article
+  title: "TEMPL: A template-based protein-ligand pose prediction baseline"
+  authors:
+    - family-names: "Fülöp"
+      given-names: "J."
+      affiliation: "University of Chemistry and Technology, Prague"
+    - family-names: "Šícho"
+      given-names: "M."
+      affiliation: "University of Chemistry and Technology, Prague"
+    - family-names: "Dehaen"
+      given-names: "W."
+      affiliation: "University of Chemistry and Technology, Prague"
+  doi: "10.26434/chemrxiv-2025-0v7b1"
+  url: "https://chemrxiv.org/engage/chemrxiv/article-details/68a48565a94eede1547e98fd"
+  year: 2025
+  journal: "ChemRxiv"
+  publisher:
+    name: "ChemRxiv"
+  status: preprint
+  notes: "This content is a preprint and has not been peer-reviewed."
 version: "1.0.0"
 date-released: 2025-08-17
 
