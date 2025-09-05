@@ -455,7 +455,7 @@ class WorkspaceManager:
 
         logger.info(
             f"Cleanup completed: {cleanup_stats['files_removed']} files, "
-            f"{cleanup_stats['bytes_freed'] / (1024*1024):.1f}MB freed"
+            f"{cleanup_stats['bytes_freed'] / (1024 * 1024):.1f}MB freed"
         )
 
         return cleanup_stats

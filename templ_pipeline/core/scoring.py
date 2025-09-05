@@ -887,7 +887,7 @@ def select_best(
             batch_conf_ids = list(range(batch_start, batch_end))
 
             logger.debug(
-                f"Processing batch {batch_start//batch_size + 1}: conformers {batch_start}-{batch_end-1}"
+                f"Processing batch {batch_start//batch_size + 1}: conformers {batch_start}-{batch_end - 1}"
             )
 
             # Prepare arguments for this batch

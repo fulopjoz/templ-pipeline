@@ -1239,7 +1239,7 @@ class BenchmarkSummaryGenerator:
                     f"SUCCESS_RATE_CALC:   Mean RMSD (including failures): {mean_rmsd:.3f}A"
                 )
                 logger.info(
-                    f"SUCCESS_RATE_CALC:   Bias correction factor: {rate_2A/legacy_rate_2A:.2f}x (corrected/legacy)"
+                    f"SUCCESS_RATE_CALC:   Bias correction factor: {rate_2A / legacy_rate_2A:.2f}x (corrected/legacy)"
                 )
 
             elif scores:
@@ -1823,7 +1823,7 @@ class BenchmarkSummaryGenerator:
             return f"{total_count} ({mers_count}+{sars_count})"
         elif dataset == "Train" and template_counts:
             # Leave-one-out: template count is query_count - 1
-            return f"{query_count-1} (LOO)"
+            return f"{query_count - 1} (LOO)"
         else:
             # Single template pool
             total_templates = sum(template_counts.values()) if template_counts else 0

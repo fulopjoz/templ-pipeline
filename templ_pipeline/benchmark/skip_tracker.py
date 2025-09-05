@@ -267,9 +267,9 @@ class BenchmarkSkipTracker:
         summary = self.generate_skip_summary()
         total = summary["total_skipped"]
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("BENCHMARK SKIP SUMMARY")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print(f"Total molecules skipped: {total}")
 
         if total == 0:
@@ -289,7 +289,7 @@ class BenchmarkSkipTracker:
                 print(f"  {skip['pdb_id']}: {skip['reason']} - {skip['details']}")
 
         print(f"\nDetailed tracking file: {summary['tracking_file']}")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
 
     def get_formatted_skip_statistics(self) -> Dict[str, Any]:
         """

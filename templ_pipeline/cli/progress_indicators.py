@@ -400,7 +400,7 @@ class SimpleProgressBar:
         )
 
         print(
-            f"\r{self.description} |{bar}| {self.current}/{self.total} ({progress*100:.1f}%) "
+            f"\r{self.description} |{bar}| {self.current}/{self.total} ({progress * 100:.1f}%) "
             f"[{elapsed:.1f}s<{eta:.1f}s]",
             end="",
             flush=True,

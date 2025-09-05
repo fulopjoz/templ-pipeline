@@ -160,9 +160,9 @@ def run_timesplit_benchmark(
     try:
         # Run benchmarks for each split
         for split_name in splits_to_run:
-            logger.info(f"\n{'='*60}")
+            logger.info(f"\n{'=' * 60}")
             logger.info(f"EVALUATING {split_name.upper()} SPLIT")
-            logger.info(f"{'='*60}")
+            logger.info(f"{'=' * 60}")
 
             try:
                 split_results = runner.run_split_benchmark(
@@ -219,9 +219,9 @@ def run_timesplit_benchmark(
         all_results["results_file"] = str(results_file)
         all_results["success"] = True
 
-        logger.info(f"\n{'='*60}")
+        logger.info(f"\n{'=' * 60}")
         logger.info("BENCHMARK COMPLETED")
-        logger.info(f"{'='*60}")
+        logger.info(f"{'=' * 60}")
         logger.info(f"Total processed: {total_processed}")
         logger.info(f"Total successful: {total_successful}")
         logger.info(

@@ -119,7 +119,7 @@ class SecureFileUploadHandler:
         if uploaded_file.size > max_size_bytes:
             return (
                 False,
-                f"File exceeds {max_size_mb}MB limit (current: {uploaded_file.size / (1024*1024):.1f}MB)",
+                f"File exceeds {max_size_mb}MB limit (current: {uploaded_file.size / (1024 * 1024):.1f}MB)",
                 None,
             )
 

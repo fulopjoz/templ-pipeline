@@ -325,7 +325,7 @@ class TestStreamlitPerformance:
 """
             + "\n".join(
                 [
-                    f"ATOM  {i:5}  CA  ALA A{i:4}      {20.0 + i*0.1:7.3f}  {16.0 + i*0.1:7.3f}  {10.0 + i*0.1:7.3f}  1.00 20.00           C"
+                    f"ATOM  {i:5}  CA  ALA A{i:4}      {20.0 + i * 0.1:7.3f}  {16.0 + i * 0.1:7.3f}  {10.0 + i * 0.1:7.3f}  1.00 20.00           C"
                     for i in range(1, 1001)
                 ]
             )

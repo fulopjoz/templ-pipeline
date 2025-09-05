@@ -842,7 +842,7 @@ def find_templates_command(args):
     # Output templates
     logger.info(f"Found {len(templates)} templates")
     for i, (pdb_id, similarity) in enumerate(templates):
-        logger.info(f"{i+1}. {pdb_id} (similarity: {similarity:.4f})")
+        logger.info(f"{i + 1}. {pdb_id} (similarity: {similarity:.4f})")
 
     # Save results to file
     output_file = os.path.join(args.output_dir, "templates.txt")

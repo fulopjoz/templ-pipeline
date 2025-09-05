@@ -1127,7 +1127,7 @@ def generate_comprehensive_summary_table(all_results: Dict) -> pd.DataFrame:
                 "evaluation_type", ""
             ):
                 # Leave-one-out: template count is query_count - 1
-                template_desc = f"{query_count-1} (LOO)"
+                template_desc = f"{query_count - 1} (LOO)"
             else:
                 # Single template pool
                 total_templates = (

@@ -764,7 +764,7 @@ class TEMPLPipeline:
                             if alignment_method in alignment_methods_used:
                                 alignment_methods_used[alignment_method] += 1
                         log.debug(
-                            f"Processed template {i+1}/{len(template_pdb_ids)}: {pdb_id}"
+                            f"Processed template {i + 1}/{len(template_pdb_ids)}: {pdb_id}"
                         )
                     else:
                         log.debug(f"Failed to transform template {pdb_id}")
