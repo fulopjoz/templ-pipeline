@@ -3,13 +3,14 @@
 [![Live App](https://img.shields.io/badge/Live_App-templ.dyn.cloud.e--infra.cz-2ea44f?logo=google-chrome&logoColor=white)](https://templ.dyn.cloud.e-infra.cz/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![License: CC BY 4.0](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/fulopjoz/templ-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/fulopjoz/templ-pipeline/actions/workflows/ci.yml)
 [![Citation](https://github.com/fulopjoz/templ-pipeline/actions/workflows/cffconvert.yml/badge.svg)](https://github.com/fulopjoz/templ-pipeline/actions/workflows/cffconvert.yml)
 
 [![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=fulopjoz_templ-pipeline&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=fulopjoz_templ-pipeline)
 [![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=fulopjoz_templ-pipeline&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=fulopjoz_templ-pipeline)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.16890956.svg)](https://doi.org/10.5281/zenodo.16890956)
+[![ChemRxiv](https://img.shields.io/badge/ChemRxiv-10.26434%2Fchemrxiv--2025--0v7b1-orange)](https://doi.org/10.26434/chemrxiv-2025-0v7b1)
 
 
 Template-based protein–ligand pose prediction with command-line interface and web application.
@@ -192,7 +193,19 @@ If you use TEMPL in your research, please cite the software:
 }
 ```
 
-*A research paper describing the method is in preparation.*
+For the research paper describing the method, please cite:
+
+```bibtex
+@article{templ2025preprint,
+  title={TEMPL: A template-based protein-ligand pose prediction baseline},
+  author={J. Fülöp and M. Šícho and W. Dehaen},
+  journal={ChemRxiv},
+  year={2025},
+  doi={10.26434/chemrxiv-2025-0v7b1},
+  url={https://chemrxiv.org/engage/chemrxiv/article-details/68a48565a94eede1547e98fd},
+  note={This content is a preprint and has not been peer-reviewed}
+}
+```
 
 ---
 

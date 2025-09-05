@@ -10,7 +10,7 @@ The main CI workflow that runs on pushes to `master` and `dev` branches, and on 
 
 #### Jobs
 
-1. **Test** - Runs tests across Python 3.9, 3.10, 3.11, and 3.12
+1. **Test** - Runs tests on Python 3.12
 2. **SonarCloud Analysis** - Performs code quality analysis (only on pushes to master/dev)
 3. **Lint** - Runs code formatting and linting checks
 4. **Security** - Runs security vulnerability scans

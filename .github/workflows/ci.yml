@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.12"]
       fail-fast: false
 
     steps:
@@ -49,8 +49,6 @@ jobs:
           -m "not slow and not integration and not performance and not ui" \
           --tb=short \
           --disable-warnings \
-          || echo "Some tests failed but continuing for coverage"
-      continue-on-error: true  # Don't fail CI if tests have issues
 
     - name: Ensure coverage file exists
       run: |
@@ -105,10 +103,10 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
     
-    - name: Set up Python 3.11
+    - name: Set up Python 3.12
       uses: actions/setup-python@v4
       with:
-        python-version: "3.11"
+        python-version: "3.12"
         cache: 'pip'
     
     - name: Install linting dependencies
@@ -118,9 +116,8 @@ jobs:
     
     - name: Check code formatting
       run: |
-        black --check --diff templ_pipeline/ || echo "Black formatting issues found"
-        isort --check-only --diff templ_pipeline/ || echo "Import sorting issues found"
-      continue-on-error: true
+        black --check --diff templ_pipeline/
+        isort --check-only --diff templ_pipeline/
 
     - name: Basic linting
       run: |
@@ -128,9 +125,7 @@ jobs:
         flake8 templ_pipeline/ \
           --max-line-length=120 \
           --ignore=E203,W503,E501,F401 \
-          --exclude=__pycache__ \
-          || echo "Linting issues found"
-      continue-on-error: true
+          --exclude=__pycache__
 
   security:
     name: Basic Security Check
@@ -140,10 +135,10 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
     
-    - name: Set up Python 3.11
+    - name: Set up Python 3.12
       uses: actions/setup-python@v4
       with:
-        python-version: "3.11"
+        python-version: "3.12"
         cache: 'pip'
     
     - name: Install security tools
@@ -154,5 +149,4 @@ jobs:
     - name: Run security scan
       run: |
         # Run bandit with minimal settings
-        bandit -r templ_pipeline/ -ll || echo "Security scan completed with warnings"
-      continue-on-error: true
+        bandit -r templ_pipeline/ -ll

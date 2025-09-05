@@ -26,7 +26,7 @@ flake8 templ_pipeline/ tests/ scripts/
 ```
 
 ### Configuration
-- **Black**: Line length 88, Python 3.9+ compatibility
+- **Black**: Line length 88, Python 3.12+ compatibility
 - **isort**: Black profile, line length 88
 - **flake8**: Line length 88, ignores E203, W503
 
