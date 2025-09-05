@@ -20,7 +20,7 @@ NC='\033[0m' # No Color
 # Default settings
 INSTALL_MODE="auto"
 VENV_NAME=".templ"
-PYTHON_MIN_VERSION="3.9"
+PYTHON_MIN_VERSION="3.12"
 USE_REQUIREMENTS_TXT=false
 VERBOSE=false
 INTERACTIVE=true
@@ -78,7 +78,7 @@ EXAMPLES:
 
 NOTES:
   - Must use 'source' command to activate environment
-  - Requires Python 3.9+ and pip
+  - Requires Python 3.12+ and pip
   - Auto-detects: CPU cores, RAM, GPU availability
   - Creates .templ virtual environment in project directory
   - Configuration saved to .templ.config file
@@ -260,7 +260,7 @@ detect_hardware() {
         print_status "Python: $PYTHON_VERSION"
         
         # Version comparison
-        if python3 -c "import sys; exit(0 if sys.version_info >= (3, 9) else 1)"; then
+        if python3 -c "import sys; exit(0 if sys.version_info >= (3, 12) else 1)"; then
             print_success "Python version check passed"
         else
             print_error "Python $PYTHON_MIN_VERSION+ required, found $PYTHON_VERSION"
