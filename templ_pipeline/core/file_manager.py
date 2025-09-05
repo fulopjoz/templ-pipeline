@@ -192,7 +192,7 @@ class AdaptiveFileNamingEngine:
             hash_input = str(datetime.now().timestamp())
 
         # Generate MD5 hash and take first 8 characters
-        return hashlib.md5(hash_input.encode()).hexdigest()[:8]
+        return hashlib.md5(hash_input.encode(), usedforsecurity=False).hexdigest()[:8]
 
     def generate_related_filename(
         self, base_filename: str, file_type: str, extension: Optional[str] = None

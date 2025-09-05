@@ -35,7 +35,7 @@ jobs:
         # Install without dev dependencies to avoid complex test packages
         pip install -e ".[basic]"
         # Add minimal testing packages
-        pip install pytest pytest-cov
+        pip install pytest pytest-cov pytest-timeout
     
     - name: Run tests with coverage
       run: |

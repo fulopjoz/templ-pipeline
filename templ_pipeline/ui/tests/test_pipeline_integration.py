@@ -162,7 +162,7 @@ class TestPipelineIntegration:
             "mcs_info": {"mcs_smiles": "CCO"},
             "templates": [("1ABC", 0.95)],
             "embedding": np.random.rand(1280),
-            "output_file": "/tmp/test_output.sdf",
+            "output_file": os.path.join(tempfile.gettempdir(), "test_output.sdf"),
         }
 
         mock_instance.run.return_value = mock_results
@@ -175,7 +175,10 @@ class TestPipelineIntegration:
 
             # Create mock config and session
             mock_config = Mock(spec=AppConfig)
-            mock_config.paths = {"workspace_dir": "/tmp", "output_dir": "/tmp"}
+            mock_config.paths = {
+                "workspace_dir": tempfile.gettempdir(),
+                "output_dir": tempfile.gettempdir(),
+            }
             mock_config.n_workers = 4
             mock_config.n_confs = 200
             mock_config.sim_threshold = 0.9
@@ -236,7 +239,10 @@ class TestPipelineIntegration:
 
             # Create mock config and session
             mock_config = Mock(spec=AppConfig)
-            mock_config.paths = {"workspace_dir": "/tmp", "output_dir": "/tmp"}
+            mock_config.paths = {
+                "workspace_dir": tempfile.gettempdir(),
+                "output_dir": tempfile.gettempdir(),
+            }
             mock_config.n_workers = 4
             mock_config.n_confs = 200
             mock_config.sim_threshold = 0.9
@@ -424,7 +430,7 @@ class TestStreamlitPipelineIntegration:
                 "mcs_info": {"mcs_smiles": "CCO"},
                 "templates": [("1ABC", 0.95)],
                 "embedding": np.random.rand(1280),
-                "output_file": "/tmp/test_output.sdf",
+                "output_file": os.path.join(tempfile.gettempdir(), "test_output.sdf"),
             }
 
             # Should not raise exceptions

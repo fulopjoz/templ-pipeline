@@ -102,7 +102,7 @@ def mock_pipeline_results():
         },
         "templates": [("1ABC", 0.95), ("2DEF", 0.88), ("3GHI", 0.82)],
         "embedding": np.random.rand(1280),
-        "output_file": "/tmp/test_poses.sdf",
+        "output_file": os.path.join(tempfile.gettempdir(), "test_poses.sdf"),
     }
 
 
@@ -115,7 +115,7 @@ def mock_pipeline_service():
         "mcs_info": {"mcs_smiles": "CCO"},
         "templates": [("1ABC", 0.95)],
         "embedding": np.random.rand(1280),
-        "output_file": "/tmp/test_output.sdf",
+        "output_file": os.path.join(tempfile.gettempdir(), "test_output.sdf"),
     }
     return mock_service
 

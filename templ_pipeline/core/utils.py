@@ -377,7 +377,7 @@ def load_shared_molecule_cache(cache_file: str) -> Optional[List[Any]]:
             return None
 
         with open(cache_file, "rb") as f:
-            molecules = pickle.load(f)
+            molecules = pickle.load(f)  # nosec - controlled cache file path
 
         logger.info(
             f"Loaded {len(molecules)} molecules from shared cache: {cache_file}"
@@ -512,7 +512,9 @@ def load_shared_embedding_cache(cache_name: str) -> Optional[Dict]:
 
         # Load serialized data
         serialized_data = bytes(shm.buf)
-        cache_data = pickle.loads(serialized_data)
+        cache_data = pickle.loads(
+            serialized_data
+        )  # nosec - controlled shared memory data
 
         # Close shared memory
         shm.close()

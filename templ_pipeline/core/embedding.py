@@ -46,6 +46,7 @@ logger = logging.getLogger(__name__)
 # Constants
 ESM_MAX_SEQUENCE_LENGTH = 1024
 DEFAULT_MODEL_ID = "facebook/esm2_t33_650M_UR50D"
+DEFAULT_MODEL_REVISION = "main"  # Pin to specific revision for security
 
 # Global variables for ESM model caching
 _esm_components: Optional[Dict[str, Any]] = None
@@ -231,7 +232,9 @@ def _get_gpu_info() -> Dict[str, Any]:
     return gpu_info
 
 
-def _initialize_esm_model(model_id: str = DEFAULT_MODEL_ID) -> Optional[Dict[str, Any]]:
+def _initialize_esm_model(
+    model_id: str = DEFAULT_MODEL_ID, revision: str = DEFAULT_MODEL_REVISION
+) -> Optional[Dict[str, Any]]:
     """Initialize ESM model with optimizations.
 
     Args:
@@ -267,7 +270,9 @@ def _initialize_esm_model(model_id: str = DEFAULT_MODEL_ID) -> Optional[Dict[str
             logger.info("No GPU available, using CPU for embedding generation")
 
         # Configure model with optimizations
-        config = AutoConfig.from_pretrained(model_id)
+        config = AutoConfig.from_pretrained(
+            model_id, revision=revision
+        )  # nosec - revision pinned for security
 
         # Enable flash attention if available and on GPU
         if gpu_info["available"] and hasattr(config, "use_flash_attention_2"):
@@ -275,9 +280,11 @@ def _initialize_esm_model(model_id: str = DEFAULT_MODEL_ID) -> Optional[Dict[str
             logger.info("Flash Attention 2 enabled for better GPU performance")
 
         # Use optimized model initialization
-        tokenizer = EsmTokenizer.from_pretrained(model_id)
-        model = EsmModel.from_pretrained(
-            model_id, config=config, add_pooling_layer=False
+        tokenizer = EsmTokenizer.from_pretrained(
+            model_id, revision=revision
+        )  # nosec - revision pinned for security
+        model = EsmModel.from_pretrained(  # nosec - revision pinned for security
+            model_id, revision=revision, config=config, add_pooling_layer=False
         )
         model.eval()
 

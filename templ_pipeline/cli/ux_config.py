@@ -488,7 +488,6 @@ def configure_logging_for_verbosity(
 
     # Configure formatters
     minimal_formatter = logging.Formatter("%(message)s")
-    normal_formatter = logging.Formatter("%(levelname)s: %(message)s")
     detailed_formatter = logging.Formatter(
         "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     )

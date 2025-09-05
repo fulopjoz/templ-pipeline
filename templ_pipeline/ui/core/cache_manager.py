@@ -184,7 +184,7 @@ class CacheManager:
 
         # Create hash
         key_string = "|".join(key_parts)
-        return hashlib.md5(key_string.encode()).hexdigest()
+        return hashlib.md5(key_string.encode(), usedforsecurity=False).hexdigest()
 
     def clear_all_caches(self) -> Dict[str, Any]:
         """Clear all Streamlit caches and return statistics

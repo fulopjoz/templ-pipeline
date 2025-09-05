@@ -171,7 +171,7 @@ class TestStreamlitApp:
             "mcs_info": {},
             "templates": [],
             "embedding": np.array([1, 2, 3]),
-            "output_file": "/tmp/test_output.sdf",
+            "output_file": os.path.join(tempfile.gettempdir(), "test_output.sdf"),
         }
         mock_pipeline_service.return_value = mock_service
 
@@ -224,7 +224,7 @@ class TestStreamlitComponents:
                 "mcs_info": {"mcs_smiles": "CCO"},
                 "templates": [("1ABC", 0.9)],
                 "embedding": np.array([1, 2, 3]),
-                "output_file": "/tmp/test.sdf",
+                "output_file": os.path.join(tempfile.gettempdir(), "test.sdf"),
             }
 
             # Should not raise exceptions
@@ -365,7 +365,7 @@ def create_mock_pipeline_results():
         "mcs_info": {"mcs_smiles": "CCO", "mcs_size": 3},
         "templates": [("1ABC", 0.95), ("2DEF", 0.88)],
         "embedding": np.random.rand(1280),
-        "output_file": "/tmp/test_output.sdf",
+        "output_file": os.path.join(tempfile.gettempdir(), "test_output.sdf"),
     }
 
 
