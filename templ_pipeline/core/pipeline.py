@@ -174,6 +174,11 @@ class TEMPLPipeline:
         # Initialize embedding manager
         self._init_embedding_manager()
 
+        # Initialize pipeline state attributes
+        self.pipeline_poses = {}
+        self.pipeline_template_info = {}
+        self.pipeline_all_ranked_poses = []
+
     def _init_embedding_manager(self):
         """Initialize the embedding manager."""
         try:

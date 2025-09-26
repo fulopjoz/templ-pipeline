@@ -111,6 +111,12 @@ After downloading, extract both folders into `data/PDBBind/` using the standard 
 
 ## Usage
 
+### Core Workflow Documentation
+
+- [`templ_pipeline/core/README.md`](templ_pipeline/core/README.md) – Module-by-module overview of the core scripts that implement the workflow in Figure 1.
+- [`templ_pipeline/core/templ_demo.ipynb`](templ_pipeline/core/templ_demo.ipynb) – Executable notebook that reproduces the end-to-end Panel A → Panel B workflow using the bundled example data.
+
+
 ### Command Line Interface
 
 ```bash

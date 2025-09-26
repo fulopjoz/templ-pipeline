@@ -245,7 +245,7 @@ temp/
 .streamlit/config_production.tomlclear
 
 # Jupyter notebooks (if any)
-*.ipynb
+# *.ipynb
 .ipynb_checkpoints/
 
 # Additional ignores
