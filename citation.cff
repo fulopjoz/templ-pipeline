@@ -3,14 +3,17 @@ title: "TEMPL: Template-based protein-ligand pose prediction"
 message: "If you use this software, please cite it as below."
 authors:
   - family-names: "Fülöp"
-    given-names: "J."
+    given-names: "Jozef"
     affiliation: "University of Chemistry and Technology, Prague"
+    orcid: "https://orcid.org/0000-0003-2599-7997"
   - family-names: "Šícho"
-    given-names: "M."
+    given-names: "Martin"
     affiliation: "University of Chemistry and Technology, Prague"
+    orcid: "https://orcid.org/0000-0002-8771-1731"
   - family-names: "Dehaen"
-    given-names: "W."
+    given-names: "Wim"
     affiliation: "University of Chemistry and Technology, Prague"
+    orcid: "https://orcid.org/0000-0001-6979-5508"
 abstract: "TEMPL is a template-based method for rapid protein-ligand pose prediction that leverages ligand similarity and template superposition. The method uses maximal common substructure (MCS) alignment and constrained conformer generation (ETKDG v3) for pose generation within known chemical space."
 keywords:
   - "protein-ligand docking"
@@ -25,32 +28,39 @@ repository-code: "https://github.com/fulopjoz/templ-pipeline"
 url: "https://templ.dyn.cloud.e-infra.cz/"
 identifiers:
   - type: doi
-    value: "10.5281/zenodo.16890956"
+    value: "10.1021/acs.jcim.5c01985"
+    description: "Published article"
   - type: doi
-    value: "10.26434/chemrxiv-2025-0v7b1"
+    value: "10.5281/zenodo.16890956"
+    description: "Dataset and software archive"
   - type: url
     value: "https://github.com/fulopjoz/templ-pipeline"
+    description: "Source code repository"
 preferred-citation:
   type: article
-  title: "TEMPL: A template-based protein-ligand pose prediction baseline"
+  title: "TEMPL: A Template-Based Protein–Ligand Pose Prediction Baseline"
   authors:
     - family-names: "Fülöp"
-      given-names: "J."
+      given-names: "Jozef"
       affiliation: "University of Chemistry and Technology, Prague"
+      orcid: "https://orcid.org/0000-0003-2599-7997"
     - family-names: "Šícho"
-      given-names: "M."
+      given-names: "Martin"
       affiliation: "University of Chemistry and Technology, Prague"
+      orcid: "https://orcid.org/0000-0002-8771-1731"
     - family-names: "Dehaen"
-      given-names: "W."
+      given-names: "Wim"
       affiliation: "University of Chemistry and Technology, Prague"
-  doi: "10.26434/chemrxiv-2025-0v7b1"
-  url: "https://chemrxiv.org/engage/chemrxiv/article-details/68a48565a94eede1547e98fd"
+      orcid: "https://orcid.org/0000-0001-6979-5508"
+  doi: "10.1021/acs.jcim.5c01985"
+  url: "https://doi.org/10.1021/acs.jcim.5c01985"
   year: 2025
-  journal: "ChemRxiv"
+  month: 10
+  journal: "Journal of Chemical Information and Modeling"
   publisher:
-    name: "ChemRxiv"
-  status: preprint
-  notes: "This content is a preprint and has not been peer-reviewed."
+    name: "American Chemical Society"
+  status: advance-online
+  notes: "Published as part of the special issue 'Open Science and Blind Data: The Antiviral Discovery Challenge'"
 version: "1.0.0"
-date-released: 2025-08-17
+date-released: 2025-10-14
 
