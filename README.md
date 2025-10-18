@@ -10,7 +10,8 @@
 [![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=fulopjoz_templ-pipeline&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=fulopjoz_templ-pipeline)
 [![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=fulopjoz_templ-pipeline&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=fulopjoz_templ-pipeline)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.16890956.svg)](https://doi.org/10.5281/zenodo.16890956)
-[![ChemRxiv](https://img.shields.io/badge/ChemRxiv-10.26434%2Fchemrxiv--2025--0v7b1-orange)](https://doi.org/10.26434/chemrxiv-2025-0v7b1)
+[![JCIM](https://img.shields.io/badge/JCIM-10.1021%2Facs.jcim.5c01985-blue)](https://doi.org/10.1021/acs.jcim.5c01985)
+[![Open Access](https://img.shields.io/badge/Open_Access-CC--BY_4.0-green?logo=open-access)](https://pubs.acs.org/doi/10.1021/acs.jcim.5c01985)
 
 
 Template-based protein–ligand pose prediction with command-line interface and web application.
@@ -185,31 +186,52 @@ For questions or discussions, please use [GitHub Discussions](https://github.com
 
 ---
 
+## Authors
+
+**Jozef Fülöp** [![ORCID](https://img.shields.io/badge/ORCID-0000--0003--2599--7997-green.svg)](https://orcid.org/0000-0003-2599-7997)
+CZ-OPENSCREEN, Department of Informatics and Chemistry, Faculty of Chemical Technology
+University of Chemistry and Technology, Prague
+
+**Martin Šícho** [![ORCID](https://img.shields.io/badge/ORCID-0000--0002--8771--1731-green.svg)](https://orcid.org/0000-0002-8771-1731)
+CZ-OPENSCREEN, Department of Informatics and Chemistry, Faculty of Chemical Technology
+University of Chemistry and Technology, Prague
+
+**Wim Dehaen** [![ORCID](https://img.shields.io/badge/ORCID-0000--0001--6979--5508-green.svg)](https://orcid.org/0000-0001-6979-5508)
+CZ-OPENSCREEN, Department of Informatics and Chemistry & Department of Organic Chemistry
+University of Chemistry and Technology, Prague
+📧 [dehaenw@vscht.cz](mailto:dehaenw@vscht.cz)
+
+---
+
 ## Citation
+
+
+For the research paper describing the method, please cite:
+
+```bibtex
+@article{fulop2025templ,
+  title={TEMPL: A Template-Based Protein--Ligand Pose Prediction Baseline},
+  author={Fülöp, Jozef and Šícho, Martin and Dehaen, Wim},
+  journal={Journal of Chemical Information and Modeling},
+  year={2025},
+  publisher={American Chemical Society},
+  doi={10.1021/acs.jcim.5c01985},
+  url={https://doi.org/10.1021/acs.jcim.5c01985},
+  note={Published as part of the special issue "Open Science and Blind Data: The Antiviral Discovery Challenge"}
+}
+```
 
 If you use TEMPL in your research, please cite the software:
 
 ```bibtex
 @software{templ2025,
   title={TEMPL: Template-based protein-ligand pose prediction},
-  author={J. Fülöp and M. Šícho and W. Dehaen},
+  author={Fülöp, Jozef and Šícho, Martin and Dehaen, Wim},
   institution={University of Chemistry and Technology, Prague},
   url={https://github.com/fulopjoz/templ-pipeline},
-  year={2025}
-}
-```
-
-For the research paper describing the method, please cite:
-
-```bibtex
-@article{templ2025preprint,
-  title={TEMPL: A template-based protein-ligand pose prediction baseline},
-  author={J. Fülöp and M. Šícho and W. Dehaen},
-  journal={ChemRxiv},
+  doi={10.5281/zenodo.16890956},
   year={2025},
-  doi={10.26434/chemrxiv-2025-0v7b1},
-  url={https://chemrxiv.org/engage/chemrxiv/article-details/68a48565a94eede1547e98fd},
-  note={This content is a preprint and has not been peer-reviewed}
+  version={1.0.0}
 }
 ```
 
