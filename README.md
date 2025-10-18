@@ -1,18 +1,19 @@
 # TEMPL Pipeline
 
 [![Live App](https://img.shields.io/badge/Live_App-templ.dyn.cloud.e--infra.cz-2ea44f?logo=google-chrome&logoColor=white)](https://templ.dyn.cloud.e-infra.cz/)
+[![JCIM](https://img.shields.io/badge/JCIM-10.1021%2Facs.jcim.5c01985-blue)](https://doi.org/10.1021/acs.jcim.5c01985)
+[![Open Access](https://img.shields.io/badge/Open_Access-CC--BY_4.0-green?logo=open-access)](https://pubs.acs.org/doi/10.1021/acs.jcim.5c01985)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.16890956.svg)](https://doi.org/10.5281/zenodo.16890956)
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![License: CC BY 4.0](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![CI](https://github.com/fulopjoz/templ-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/fulopjoz/templ-pipeline/actions/workflows/ci.yml)
 [![Citation](https://github.com/fulopjoz/templ-pipeline/actions/workflows/cffconvert.yml/badge.svg)](https://github.com/fulopjoz/templ-pipeline/actions/workflows/cffconvert.yml)
 
+
+[![CI](https://github.com/fulopjoz/templ-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/fulopjoz/templ-pipeline/actions/workflows/ci.yml)
 [![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=fulopjoz_templ-pipeline&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=fulopjoz_templ-pipeline)
 [![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=fulopjoz_templ-pipeline&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=fulopjoz_templ-pipeline)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.16890956.svg)](https://doi.org/10.5281/zenodo.16890956)
-[![JCIM](https://img.shields.io/badge/JCIM-10.1021%2Facs.jcim.5c01985-blue)](https://doi.org/10.1021/acs.jcim.5c01985)
-[![Open Access](https://img.shields.io/badge/Open_Access-CC--BY_4.0-green?logo=open-access)](https://pubs.acs.org/doi/10.1021/acs.jcim.5c01985)
-
 
 Template-based protein–ligand pose prediction with command-line interface and web application.
 
