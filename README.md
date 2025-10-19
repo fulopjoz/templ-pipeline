@@ -189,15 +189,24 @@ For questions or discussions, please use [GitHub Discussions](https://github.com
 
 ## Authors
 
-**Jozef Fülöp** [![ORCID](https://img.shields.io/badge/ORCID-0000--0003--2599--7997-green.svg)](https://orcid.org/0000-0003-2599-7997)
+**Jozef Fülöp** <a id="cy-effective-orcid-url" class="underline" href="https://orcid.org/0000-0003-2599-7997" target="orcid.widget" rel="me noopener noreferrer" style="vertical-align: top">
+  <img src="https://orcid.org/sites/default/files/images/orcid_16x16.png" style="width: 1em; margin-inline-start: 0.5em" alt="ORCID iD icon"/>
+  https://orcid.org/0000-0003-2599-7997
+</a>
 CZ-OPENSCREEN, Department of Informatics and Chemistry, Faculty of Chemical Technology
 University of Chemistry and Technology, Prague
 
-**Martin Šícho** [![ORCID](https://img.shields.io/badge/ORCID-0000--0002--8771--1731-green.svg)](https://orcid.org/0000-0002-8771-1731)
+**Martin Šícho** <a id="cy-effective-orcid-url" class="underline" href="https://orcid.org/0000-0002-8771-1731" target="orcid.widget" rel="me noopener noreferrer" style="vertical-align: top">
+  <img src="https://orcid.org/sites/default/files/images/orcid_16x16.png" style="width: 1em; margin-inline-start: 0.5em" alt="ORCID iD icon"/>
+  https://orcid.org/0000-0002-8771-1731
+</a>
 CZ-OPENSCREEN, Department of Informatics and Chemistry, Faculty of Chemical Technology
 University of Chemistry and Technology, Prague
 
-**Wim Dehaen** [![ORCID](https://img.shields.io/badge/ORCID-0000--0001--6979--5508-green.svg)](https://orcid.org/0000-0001-6979-5508)
+**Wim Dehaen** <a id="cy-effective-orcid-url" class="underline" href="https://orcid.org/0000-0001-6979-5508" target="orcid.widget" rel="me noopener noreferrer" style="vertical-align: top">
+  <img src="https://orcid.org/sites/default/files/images/orcid_16x16.png" style="width: 1em; margin-inline-start: 0.5em" alt="ORCID iD icon"/>
+  https://orcid.org/0000-0001-6979-5508
+</a>
 CZ-OPENSCREEN, Department of Informatics and Chemistry & Department of Organic Chemistry
 University of Chemistry and Technology, Prague
 📧 [dehaenw@vscht.cz](mailto:dehaenw@vscht.cz)
