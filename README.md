@@ -189,24 +189,15 @@ For questions or discussions, please use [GitHub Discussions](https://github.com
 
 ## Authors
 
-**Jozef Fülöp** <a id="cy-effective-orcid-url" class="underline" href="https://orcid.org/0000-0003-2599-7997" target="orcid.widget" rel="me noopener noreferrer" style="vertical-align: top">
-  <img src="https://orcid.org/sites/default/files/images/orcid_16x16.png" style="width: 1em; margin-inline-start: 0.5em" alt="ORCID iD icon"/>
-  https://orcid.org/0000-0003-2599-7997
-</a>
+**Jozef Fülöp** [![ORCID iD](https://orcid.org/sites/default/files/images/orcid_16x16.png)](https://orcid.org/0000-0003-2599-7997)
 CZ-OPENSCREEN, Department of Informatics and Chemistry, Faculty of Chemical Technology
 University of Chemistry and Technology, Prague
 
-**Martin Šícho** <a id="cy-effective-orcid-url" class="underline" href="https://orcid.org/0000-0002-8771-1731" target="orcid.widget" rel="me noopener noreferrer" style="vertical-align: top">
-  <img src="https://orcid.org/sites/default/files/images/orcid_16x16.png" style="width: 1em; margin-inline-start: 0.5em" alt="ORCID iD icon"/>
-  https://orcid.org/0000-0002-8771-1731
-</a>
+**Martin Šícho** [![ORCID iD](https://orcid.org/sites/default/files/images/orcid_16x16.png)](https://orcid.org/0000-0002-8771-1731)
 CZ-OPENSCREEN, Department of Informatics and Chemistry, Faculty of Chemical Technology
 University of Chemistry and Technology, Prague
 
-**Wim Dehaen** <a id="cy-effective-orcid-url" class="underline" href="https://orcid.org/0000-0001-6979-5508" target="orcid.widget" rel="me noopener noreferrer" style="vertical-align: top">
-  <img src="https://orcid.org/sites/default/files/images/orcid_16x16.png" style="width: 1em; margin-inline-start: 0.5em" alt="ORCID iD icon"/>
-  https://orcid.org/0000-0001-6979-5508
-</a>
+**Wim Dehaen** [![ORCID iD](https://orcid.org/sites/default/files/images/orcid_16x16.png)](https://orcid.org/0000-0001-6979-5508)
 CZ-OPENSCREEN, Department of Informatics and Chemistry & Department of Organic Chemistry
 University of Chemistry and Technology, Prague
 📧 [dehaenw@vscht.cz](mailto:dehaenw@vscht.cz)
