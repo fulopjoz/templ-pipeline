@@ -7,9 +7,9 @@
     <link rel="icon" type="image/x-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧬</text></svg>">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
-    <script src="https://unpkg.com/feather-icons"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.globe.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vanta@0.5.24/dist/vanta.globe.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
     <style>
         .fade-in {
             animation: fadeIn 0.5s ease-in;
@@ -188,20 +188,22 @@
         // Initialize Feather Icons
         feather.replace();
         
-        // Initialize Vanta.js background
-        VANTA.GLOBE({
-            el: "#vanta-bg",
-            mouseControls: true,
-            touchControls: true,
-            gyroControls: false,
-            minHeight: 200.00,
-            minWidth: 200.00,
-            scale: 1.00,
-            scaleMobile: 1.00,
-            color: 0x3b82f6,
-            color2: 0x8b5cf6,
-            backgroundColor: 0xf9fafb
-        });
+        // Initialize Vanta.js background (with safety check)
+        if (typeof VANTA !== 'undefined') {
+            VANTA.GLOBE({
+                el: "#vanta-bg",
+                mouseControls: true,
+                touchControls: true,
+                gyroControls: false,
+                minHeight: 200.00,
+                minWidth: 200.00,
+                scale: 1.00,
+                scaleMobile: 1.00,
+                color: 0x3b82f6,
+                color2: 0x8b5cf6,
+                backgroundColor: 0xf9fafb
+            });
+        }
         
         // Theme toggle
         const themeToggle = document.getElementById('theme-toggle');
@@ -371,9 +373,10 @@ CC(C)(C)C(=O)NC1=CC=C(C=C1)C#N`;
             });
         }
         
-        // Initialize with sample data
+        // Initialize with sample data (optional - you can remove this line if you don't want pre-loaded data)
         document.addEventListener('DOMContentLoaded', () => {
-            document.getElementById('sample-data').click();
+            // Uncomment the line below to auto-load sample data on page load
+            // document.getElementById('sample-data').click();
         });
     </script>
 </body>
