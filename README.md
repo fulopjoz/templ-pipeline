@@ -148,6 +148,17 @@ python scripts/run_streamlit_app.py
 - The launcher picks the first free port starting at 8501. Override via PORT or TEMPL_PORT_START.
 - It prints both Local and Network URLs; the app listens on 0.0.0.0 for LAN access.
 
+### RNA-Protein Classifier
+
+A standalone web-based tool for classifying molecules as RNA binders or Protein binders:
+
+```bash
+# Open the classifier in your browser
+open rna_protein_classifier.html
+```
+
+See [RNA_PROTEIN_CLASSIFIER.md](RNA_PROTEIN_CLASSIFIER.md) for detailed documentation.
+
 ### Benchmarking
 
 ```bash
