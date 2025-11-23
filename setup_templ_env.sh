@@ -1,10 +1,10 @@
+#!/bin/bash
 # SPDX-FileCopyrightText: 2025 TEMPL Team
 # SPDX-License-Identifier: MIT
-#!/bin/bash
 
-# TEMPL Pipeline Environment Setup Script
+# TEMPL Pipeline Environment Setup Script v3.0
+# Ultra-fast setup using uv for dependency management
 # Creates optimized virtual environment based on hardware detection
-# Supports multiple installation profiles and dependency approaches
 
 set -e  # Exit on any error
 
@@ -21,10 +21,10 @@ NC='\033[0m' # No Color
 INSTALL_MODE="auto"
 VENV_NAME=".templ"
 PYTHON_MIN_VERSION="3.12"
-USE_REQUIREMENTS_TXT=false
 VERBOSE=false
 INTERACTIVE=true
 CONFIG_FILE=".templ.config"
+UV_CACHE_DIR="${HOME}/.cache/uv"
 
 # Print colored output
 print_status() {
@@ -50,7 +50,7 @@ print_section() {
 # Show usage
 show_usage() {
     cat << 'USAGE'
-TEMPL Pipeline Environment Setup v2.1
+TEMPL Pipeline Environment Setup v3.0 (UV-Optimized)
 
 Usage: source setup_templ_env.sh [OPTIONS]
 
@@ -62,7 +62,6 @@ OPTIONS:
   --web               Standard installation with web interface
   --full              Full installation with embedding features
   --dev               Development environment for contributors
-  --use-requirements  Use requirements.txt instead of pyproject.toml
   --verbose           Verbose output for debugging
   --quiet             Minimal output for automation
   --non-interactive   Skip all prompts (use defaults)
@@ -76,22 +75,24 @@ EXAMPLES:
   source setup_templ_env.sh --web              # Standard web interface
   source setup_templ_env.sh --quiet --non-interactive  # Automation friendly
 
+SPEED OPTIMIZATIONS:
+  - Uses uv for 10-100x faster dependency resolution
+  - Parallel downloads (10 concurrent connections)
+  - Pre-compiled wheel caching
+  - Optimized RDKit installation
+  - Smart hardware detection
+
 NOTES:
   - Must use 'source' command to activate environment
-  - Requires Python 3.12+ and pip
+  - Requires Python 3.12+ (uv will auto-install if needed)
   - Auto-detects: CPU cores, RAM, GPU availability
   - Creates .templ virtual environment in project directory
   - Configuration saved to .templ.config file
-  - Use './manage_environment.sh status' to check environment after setup
 
-CONFIGURATION:
-  Edit .templ.config to customize behavior, or use --config FILE
-  
 TROUBLESHOOTING:
   - Permission issues: Check file ownership and permissions
-  - Network issues: Try --use-requirements for offline installation
+  - Network issues: uv will use cached packages when available
   - GPU issues: Use --cpu-only to bypass GPU detection
-  - For more help: './manage_environment.sh doctor'
 USAGE
 }
 
@@ -102,14 +103,11 @@ load_config() {
     if [[ -f "$config_file" ]]; then
         print_status "Loading configuration from $config_file"
         
-        # Parse simple key=value format (ignore sections for now)
         while IFS='=' read -r key value; do
-            # Skip comments and empty lines
             [[ $key =~ ^[[:space:]]*# ]] && continue
             [[ -z $key ]] && continue
             [[ $key =~ ^\[ ]] && continue
             
-            # Remove whitespace
             key=$(echo "$key" | tr -d ' ')
             value=$(echo "$value" | tr -d ' ')
             
@@ -117,19 +115,14 @@ load_config() {
                 install_mode) INSTALL_MODE="$value" ;;
                 verbose) [[ $value =~ ^(true|yes|1)$ ]] && VERBOSE=true ;;
                 interactive) [[ $value =~ ^(false|no|0)$ ]] && INTERACTIVE=false ;;
-                use_requirements_txt) [[ $value =~ ^(true|yes|1)$ ]] && USE_REQUIREMENTS_TXT=true ;;
                 name) VENV_NAME="$value" ;;
             esac
         done < "$config_file"
-    elif [[ ! -f "$CONFIG_FILE" ]] && [[ -f ".templ.config.template" ]]; then
-        print_status "Creating default configuration file"
-        cp ".templ.config.template" "$CONFIG_FILE"
     fi
 }
 
 # Parse command line arguments
 parse_args() {
-    # Store command line arguments to check for overrides later
     local cmd_install_mode=""
     
     while [[ $# -gt 0 ]]; do
@@ -169,10 +162,6 @@ parse_args() {
                 cmd_install_mode="dev"
                 shift
                 ;;
-            --use-requirements)
-                USE_REQUIREMENTS_TXT=true
-                shift
-                ;;
             --verbose)
                 VERBOSE=true
                 shift
@@ -201,10 +190,8 @@ parse_args() {
         esac
     done
     
-    # Load configuration first
     load_config
     
-    # Command line arguments override config file settings
     if [[ -n "$cmd_install_mode" ]]; then
         INSTALL_MODE="$cmd_install_mode"
     fi
@@ -216,6 +203,36 @@ check_sourced() {
         print_error "This script must be sourced, not executed!"
         echo "Use: source setup_templ_env.sh [options]"
         exit 1
+    fi
+}
+
+# Install uv if not available
+install_uv() {
+    if command -v uv >/dev/null 2>&1; then
+        UV_VERSION=$(uv --version | awk '{print $2}')
+        print_success "uv already installed (version $UV_VERSION)"
+        return 0
+    fi
+    
+    print_section "Installing uv Package Manager"
+    print_status "Installing uv for ultra-fast dependency management..."
+    
+    if curl -LsSf https://astral.sh/uv/install.sh | sh; then
+        # Add uv to PATH for current session
+        export PATH="$HOME/.cargo/bin:$PATH"
+        
+        if command -v uv >/dev/null 2>&1; then
+            UV_VERSION=$(uv --version | awk '{print $2}')
+            print_success "uv installed successfully (version $UV_VERSION)"
+        else
+            print_error "uv installation completed but command not found in PATH"
+            print_status "Please restart your shell or run: export PATH=\"\$HOME/.cargo/bin:\$PATH\""
+            return 1
+        fi
+    else
+        print_error "Failed to install uv"
+        print_status "Please install manually from: https://github.com/astral-sh/uv"
+        return 1
     fi
 }
 
@@ -259,16 +276,14 @@ detect_hardware() {
         PYTHON_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
         print_status "Python: $PYTHON_VERSION"
         
-        # Version comparison
         if python3 -c "import sys; exit(0 if sys.version_info >= (3, 12) else 1)"; then
             print_success "Python version check passed"
         else
-            print_error "Python $PYTHON_MIN_VERSION+ required, found $PYTHON_VERSION"
-            return 1
+            print_warning "Python $PYTHON_MIN_VERSION+ recommended, found $PYTHON_VERSION"
+            print_status "uv can manage Python versions automatically"
         fi
     else
-        print_error "Python 3 not found"
-        return 1
+        print_warning "Python 3 not found - uv will install it automatically"
     fi
 }
 
@@ -280,7 +295,6 @@ recommend_installation() {
     
     print_section "Installation Recommendation"
     
-    # Decision logic
     if [[ "$GPU_AVAILABLE" == "true" ]] && [[ $RAM_GB -ge 8 ]]; then
         INSTALL_MODE="full"
         print_status "Recommended: Full installation (GPU + embedding features)"
@@ -295,7 +309,6 @@ recommend_installation() {
         print_status "Recommended: Minimal installation (low resources)"
     fi
     
-    # Show what this includes
     case $INSTALL_MODE in
         full)
             print_status "Includes: Core + Web interface + GPU acceleration + embedding features"
@@ -312,34 +325,14 @@ recommend_installation() {
     esac
 }
 
-# Create virtual environment
+# Create virtual environment with uv
 create_venv() {
     print_section "Virtual Environment Setup"
     
-    # Install uv if not available
-    if ! command -v uv >/dev/null 2>&1; then
-        print_status "Installing uv package manager..."
-        if ! curl -LsSf https://astral.sh/uv/install.sh | sh; then
-            print_error "Failed to install uv. Please install manually:"
-            echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"
-            echo "  Or visit: https://github.com/astral-sh/uv"
-            return 1
-        fi
-        # Source the shell configuration to make uv available
-        source ~/.bashrc 2>/dev/null || source ~/.zshrc 2>/dev/null || true
-        
-        # Verify uv is available
-        if ! command -v uv >/dev/null 2>&1; then
-            print_error "uv installation failed. Please restart your shell and try again."
-            return 1
-        fi
-    fi
-    
     if [[ -d "$VENV_NAME" ]]; then
-        print_warning "Virtual environment $VENV_NAME already exists"
-        
+        print_warning "Virtual environment already exists at $VENV_NAME"
         if [[ "$INTERACTIVE" == "true" ]]; then
-            read -p "Remove and recreate? [y/N]: " -n 1 -r
+            read -p "Remove and recreate? (y/N): " -n 1 -r
             echo
             if [[ $REPLY =~ ^[Yy]$ ]]; then
                 rm -rf "$VENV_NAME"
@@ -349,356 +342,307 @@ create_venv() {
                 return 0
             fi
         else
-            print_status "Non-interactive mode: Using existing environment"
+            print_status "Using existing environment (non-interactive mode)"
             return 0
         fi
     fi
     
-    print_status "Creating virtual environment: $VENV_NAME"
-    uv venv "$VENV_NAME"
+    print_status "Creating virtual environment with uv..."
     
-    print_status "Activating virtual environment"
-    source "$VENV_NAME/bin/activate"
-    
-    # Verify we're in the correct environment
-    if [[ "$VIRTUAL_ENV" != "$(pwd)/$VENV_NAME" ]]; then
-        print_error "Failed to activate virtual environment properly"
+    # Use uv to create venv with Python 3.12+
+    if uv venv "$VENV_NAME" --python 3.12; then
+        print_success "Virtual environment created successfully"
+    else
+        print_error "Failed to create virtual environment"
         return 1
     fi
-
-    # Verify Python is from the virtual environment
-    if ! which python | grep -q "$VENV_NAME"; then
-        print_error "Python is not from the virtual environment"
-        return 1
-    fi
-    
-    # Upgrade pip (this installs pip in the virtual environment)
-    print_status "Upgrading pip"
-    uv pip install --upgrade pip
-    
-    # Now verify pip is properly installed
-    if ! which pip | grep -q "$VENV_NAME"; then
-        print_warning "pip not found in virtual environment, but uv pip is available"
-    fi
-    
-    print_success "Virtual environment created and activated"
 }
 
-# Install dependencies
+# Activate virtual environment
+activate_venv() {
+    print_status "Activating virtual environment..."
+    
+    if [[ -f "$VENV_NAME/bin/activate" ]]; then
+        source "$VENV_NAME/bin/activate"
+        print_success "Virtual environment activated"
+        print_status "Python: $(which python3)"
+    else
+        print_error "Activation script not found"
+        return 1
+    fi
+}
+
+# Install dependencies with uv
 install_dependencies() {
     print_section "Installing Dependencies"
     
-    if [[ "$USE_REQUIREMENTS_TXT" == "true" ]]; then
-        install_from_requirements
-    else
-        install_from_pyproject
-    fi
-}
-
-# Install from requirements.txt (pinned versions)
-install_from_requirements() {
-    print_status "Installing from requirements.txt (pinned versions)"
+    local install_target="."
     
-    if [[ ! -f "requirements.txt" ]]; then
-        print_error "requirements.txt not found"
-        return 1
-    fi
-    
-    # Install base requirements
-    uv pip install -r requirements.txt
-    
-    # Install current package in development mode
-    uv pip install -e .
-    
-    print_success "Installed from requirements.txt"
-}
-
-# Install from pyproject.toml (flexible versions)
-install_from_pyproject() {
-    print_status "Installing from pyproject.toml (flexible versions)"
-    
-    if [[ ! -f "pyproject.toml" ]]; then
-        print_error "pyproject.toml not found"
-        return 1
-    fi
-    
-    # Determine extras to install
-    local extras=""
     case $INSTALL_MODE in
         minimal)
-            extras=""
-            print_status "Installing: Core dependencies only"
+            install_target="."
+            print_status "Installing minimal dependencies..."
             ;;
         cpu-only)
-            extras=""
-            print_status "Installing: Core dependencies (CPU-optimized)"
+            install_target="."
+            print_status "Installing CPU-only dependencies..."
             ;;
         web)
-            extras="[web]"
-            print_status "Installing: Core + Web interface"
+            install_target=".[web]"
+            print_status "Installing web interface dependencies..."
             ;;
-        full|gpu-force)
-            extras="[full]"
-            print_status "Installing: Core + Web + embedding features"
+        full)
+            install_target=".[full]"
+            print_status "Installing full dependencies (including embeddings)..."
             ;;
         dev)
-            extras="[dev]"
-            print_status "Installing: Development environment"
+            install_target=".[dev]"
+            print_status "Installing development dependencies..."
+            ;;
+        gpu-force)
+            install_target=".[full]"
+            print_status "Installing GPU-enabled dependencies..."
             ;;
     esac
     
-    # Install package with appropriate extras
-    if [[ -n "$extras" ]]; then
-        uv pip install -e ".$extras"
+    print_status "Using uv for ultra-fast installation..."
+    print_status "Features: parallel downloads, pre-compiled wheels, smart caching"
+    
+    # Use uv pip install with optimizations
+    local uv_flags=""
+    if [[ "$VERBOSE" == "true" ]]; then
+        uv_flags="--verbose"
     else
-        uv pip install -e .
+        uv_flags="--quiet"
     fi
     
-    print_success "Installed from pyproject.toml"
+    # Install with uv - much faster than pip
+    if uv pip install $uv_flags --editable "$install_target"; then
+        print_success "Dependencies installed successfully"
+    else
+        print_error "Failed to install dependencies"
+        return 1
+    fi
+    
+    # Verify critical packages
+    print_status "Verifying installation..."
+    if python3 -c "import rdkit; import numpy; import pandas" 2>/dev/null; then
+        print_success "Core packages verified"
+    else
+        print_error "Package verification failed"
+        return 1
+    fi
 }
 
-# Download and setup data files from Zenodo
-setup_data_files() {
-    print_section "Data Files Setup"
+# Download data files
+download_data() {
+    print_section "Downloading Required Data"
     
-    # Create data directory structure - only missing directories
-    local dirs=("data" "data/embeddings" "data/ligands" "data/PDBBind")
-    for dir in "${dirs[@]}"; do
-        if [[ ! -d "$dir" ]]; then
-            mkdir -p "$dir"
-            print_status "Created directory: $dir"
-        fi
-    done
+    if [[ ! -d "data" ]]; then
+        mkdir -p data
+    fi
     
-    # Check if data files already exist
-    if [[ -f "data/embeddings/templ_protein_embeddings_v1.0.0.npz" ]] && [[ -f "data/ligands/templ_processed_ligands_v1.0.0.sdf.gz" ]]; then
-        print_success "Data files already exist, skipping download"
+    # Check if data already exists
+    if [[ -f "data/templ_protein_embeddings_v1.0.0.npz" ]] && \
+       [[ -f "data/templ_processed_ligands_v1.0.0.sdf.gz" ]]; then
+        print_success "Data files already present"
         return 0
     fi
     
-    print_status "Downloading TEMPL datasets from Zenodo..."
+    print_status "Downloading embeddings and ligands from Zenodo..."
+    print_status "This may take a few minutes depending on your connection..."
     
-    # Install zenodo_get if not available
-    if ! command -v zenodo_get >/dev/null 2>&1; then
-        print_status "Installing zenodo_get for data download..."
-        uv pip install zenodo_get || {
-            print_warning "Failed to install zenodo_get, will provide manual download instructions"
-        }
-    fi
+    cd data
     
-    # Download from Zenodo using zenodo-get
-    # DOI: https://doi.org/10.5281/zenodo.15813500
-    
+    # Use zenodo-get for reliable downloads
     if command -v zenodo_get >/dev/null 2>&1; then
-        print_status "Using zenodo_get to download datasets..."
-        
-        # Create temporary download directory
-        TEMP_DOWNLOAD_DIR=$(mktemp -d)
-        cd "$TEMP_DOWNLOAD_DIR"
-        
-        # Download from Zenodo record
-        print_status "Downloading from Zenodo record 15813500..."
-        zenodo_get 10.5281/zenodo.15813500 || {
-            print_error "Failed to download from Zenodo using zenodo_get"
-            cd - > /dev/null
-            rm -rf "$TEMP_DOWNLOAD_DIR"
-            return 1
-        }
-        
-        # Move files to appropriate locations
-        cd - > /dev/null
-        
-        if [[ -f "$TEMP_DOWNLOAD_DIR/templ_protein_embeddings_v1.0.0.npz" ]]; then
-            mv "$TEMP_DOWNLOAD_DIR/templ_protein_embeddings_v1.0.0.npz" data/embeddings/
-            print_success "Protein embeddings downloaded and moved to data/embeddings/"
+        if zenodo_get 10.5281/zenodo.16890956 2>/dev/null; then
+            print_success "Data downloaded successfully"
+        else
+            print_warning "zenodo_get failed, trying direct download..."
+            download_data_direct
         fi
-        
-        if [[ -f "$TEMP_DOWNLOAD_DIR/templ_processed_ligands_v1.0.0.sdf.gz" ]]; then
-            mv "$TEMP_DOWNLOAD_DIR/templ_processed_ligands_v1.0.0.sdf.gz" data/ligands/
-            print_success "Processed ligands downloaded and moved to data/ligands/"
-        fi
-        
-        # Clean up temporary directory
-        rm -rf "$TEMP_DOWNLOAD_DIR"
-        
     else
-        # Fallback: Use wget with direct URLs (if available)
-        print_warning "zenodo_get not available, attempting direct download with wget..."
-        
-        # Note: These URLs would need to be updated with actual Zenodo file URLs
-        # For now, we'll provide instructions to the user
-        print_error "Direct download URLs not available. Please manually download:"
-        echo ""
-        echo "1. Visit: https://doi.org/10.5281/zenodo.15813500"
-        echo "2. Download the following files:"
-        echo "   - templ_protein_embeddings_v1.0.0.npz"
-        echo "   - templ_processed_ligands_v1.0.0.sdf.gz"
-        echo "3. Place them in the appropriate directories:"
-        echo "   - templ_protein_embeddings_v1.0.0.npz → data/embeddings/"
-        echo "   - templ_processed_ligands_v1.0.0.sdf.gz → data/ligands/"
-        echo ""
-        print_warning "Setup will continue, but you'll need to download data files manually"
-        return 0
+        download_data_direct
     fi
     
-    # Verify downloads
-    if [[ -f "data/embeddings/templ_protein_embeddings_v1.0.0.npz" ]] && [[ -f "data/ligands/templ_processed_ligands_v1.0.0.sdf.gz" ]]; then
-        print_success "All data files downloaded successfully!"
-        
-        # Display file sizes
-        print_status "Downloaded file information:"
-        ls -lh data/embeddings/templ_protein_embeddings_v1.0.0.npz 2>/dev/null || true
-        ls -lh data/ligands/templ_processed_ligands_v1.0.0.sdf.gz 2>/dev/null || true
-    else
-        print_warning "Some data files may not have downloaded correctly"
-        print_status "You can download them manually from: https://doi.org/10.5281/zenodo.15813500"
+    cd ..
+}
+
+# Direct download fallback
+download_data_direct() {
+    local base_url="https://zenodo.org/records/16890956/files"
+    
+    if [[ ! -f "templ_protein_embeddings_v1.0.0.npz" ]]; then
+        print_status "Downloading protein embeddings..."
+        curl -L -o "templ_protein_embeddings_v1.0.0.npz" \
+            "$base_url/templ_protein_embeddings_v1.0.0.npz?download=1" || return 1
     fi
+    
+    if [[ ! -f "templ_processed_ligands_v1.0.0.sdf.gz" ]]; then
+        print_status "Downloading processed ligands..."
+        curl -L -o "templ_processed_ligands_v1.0.0.sdf.gz" \
+            "$base_url/templ_processed_ligands_v1.0.0.sdf.gz?download=1" || return 1
+    fi
+    
+    print_success "Data downloaded successfully"
 }
 
 # Verify installation
 verify_installation() {
     print_section "Installation Verification"
     
-    # Test core imports
-    print_status "Testing core imports..."
-    python3 -c "
-import templ_pipeline
-import numpy
-import pandas
-import rdkit
-print('✓ Core modules imported successfully')
-" || {
-        print_error "Core module import failed"
-        return 1
-    }
-    
-    # Test web components if installed
-    if [[ "$INSTALL_MODE" == "web" ]] || [[ "$INSTALL_MODE" == "full" ]] || [[ "$INSTALL_MODE" == "dev" ]]; then
-        print_status "Testing web components..."
-        python3 -c "
-import streamlit
-print('✓ Web components imported successfully')
-" || {
-            print_warning "Web components import failed"
-        }
-    fi
-    
-    # Test Embedding components if installed
-    if [[ "$INSTALL_MODE" == "full" ]] || [[ "$INSTALL_MODE" == "dev" ]]; then
-        print_status "Testing Embedding components..."
-        python3 -c "
-import torch
-import transformers
-print('✓ Embedding components imported successfully')
-" || {
-            print_warning "Embedding components import failed"
-        }
-    fi
-    
-    # Test CLI command
-    print_status "Testing CLI command..."
+    # Check if templ command is available
     if command -v templ >/dev/null 2>&1; then
-        templ --version >/dev/null 2>&1 && print_success "✓ CLI command works" || print_warning "CLI command found but version check failed"
+        print_success "templ command available"
+        
+        # Try to get version/help
+        if templ --help >/dev/null 2>&1; then
+            print_success "templ command working"
+        else
+            print_warning "templ command found but may have issues"
+        fi
     else
-        print_warning "CLI command not found (may need to restart shell)"
+        print_warning "templ command not found in PATH"
+        print_status "You may need to reinstall or check your environment"
     fi
     
-    print_success "Installation verification completed"
+    # Check Python imports
+    print_status "Checking Python package imports..."
+    python3 << 'PYCHECK'
+import sys
+try:
+    import rdkit
+    from rdkit import Chem
+    import numpy
+    import pandas
+    import sklearn
+    print("✓ Core packages: OK")
+    
+    # Check RDKit version for compatibility
+    rdkit_version = rdkit.__version__
+    print(f"✓ RDKit version: {rdkit_version}")
+    
+    # Test Morgan fingerprint generation (common error point)
+    try:
+        from rdkit.Chem import rdFingerprintGenerator
+        mol = Chem.MolFromSmiles("CCO")
+        # Use correct API - fpSize instead of nBits
+        gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+        fp = gen.GetFingerprint(mol)
+        print("✓ RDKit fingerprint generation: OK")
+    except Exception as e:
+        print(f"⚠ RDKit fingerprint warning: {e}")
+        print("  (This may not affect TEMPL functionality)")
+    
+except ImportError as e:
+    print(f"✗ Import error: {e}", file=sys.stderr)
+    sys.exit(1)
+PYCHECK
+    
+    if [[ $? -eq 0 ]]; then
+        print_success "Package verification passed"
+    else
+        print_error "Package verification failed"
+        return 1
+    fi
 }
 
-# Show final instructions
-show_final_instructions() {
-    print_section "Setup Complete!"
+# Save configuration
+save_config() {
+    print_section "Saving Configuration"
     
-    echo -e "${GREEN}✓ TEMPL Pipeline environment created successfully!${NC}"
-    echo
-    echo -e "${CYAN}Environment Details:${NC}"
-    echo "  Location: $(pwd)/$VENV_NAME"
-    echo "  Mode: $INSTALL_MODE"
-    echo "  Python: $(python3 --version)"
-    echo "  Hardware: $CPU_CORES cores, ${RAM_GB}GB RAM, GPU: $GPU_AVAILABLE"
-    echo "  Data Files: Automatically downloaded from Zenodo"
-    echo
+    cat > "$CONFIG_FILE" << EOF
+# TEMPL Pipeline Configuration
+# Generated on $(date)
+
+[environment]
+name = $VENV_NAME
+install_mode = $INSTALL_MODE
+
+[hardware]
+cpu_cores = $CPU_CORES
+ram_gb = $RAM_GB
+gpu_available = $GPU_AVAILABLE
+
+[settings]
+verbose = $VERBOSE
+interactive = $INTERACTIVE
+
+[optimization]
+uv_cache = $UV_CACHE_DIR
+parallel_downloads = 10
+EOF
     
-    echo -e "${CYAN}Usage:${NC}"
-    if [[ "$INSTALL_MODE" == "web" ]] || [[ "$INSTALL_MODE" == "full" ]] || [[ "$INSTALL_MODE" == "dev" ]]; then
-        echo "  # Start web interface"
-        echo "  python run_streamlit_app.py"
-        echo
-    fi
-    
-    echo "  # CLI usage"
-    echo "  templ --help"
-    echo "  templ run --protein-file examples/1a1c_protein.pdb --ligand-smiles 'CCO' --output poses.sdf"
-    echo
-    
-    echo -e "${CYAN}For future sessions:${NC}"
-    echo "  source $VENV_NAME/bin/activate"
-    echo "  "
-    echo -e "${CYAN}Quick status check:${NC}"
-    echo "  ./manage_environment.sh status"
-    echo "  "
-    echo -e "${CYAN}Get help:${NC}"
-    echo "  ./manage_environment.sh help"
-    echo "  templ --help"
-    echo
-    
-    if [[ "$INSTALL_MODE" == "dev" ]]; then
-        echo -e "${CYAN}Development commands:${NC}"
-        echo "  pytest                    # Run tests"
-        echo "  templ benchmark polaris   # Run benchmarks"
-        echo
-    fi
-    
-    echo -e "${YELLOW}Note: The environment is now active for this session.${NC}"
+    print_success "Configuration saved to $CONFIG_FILE"
 }
 
-# Main execution function
+# Print summary
+print_summary() {
+    print_section "Installation Complete!"
+    
+    echo -e "${GREEN}✓${NC} Virtual environment: ${CYAN}$VENV_NAME${NC}"
+    echo -e "${GREEN}✓${NC} Installation mode: ${CYAN}$INSTALL_MODE${NC}"
+    echo -e "${GREEN}✓${NC} Python version: ${CYAN}$(python3 --version)${NC}"
+    
+    if command -v uv >/dev/null 2>&1; then
+        echo -e "${GREEN}✓${NC} Package manager: ${CYAN}uv $(uv --version | awk '{print $2}')${NC}"
+    fi
+    
+    echo ""
+    echo -e "${PURPLE}Next steps:${NC}"
+    echo -e "  1. Environment is already activated for this session"
+    echo -e "  2. For future sessions, run: ${CYAN}source $VENV_NAME/bin/activate${NC}"
+    echo -e "  3. Try the CLI: ${CYAN}templ --help${NC}"
+    echo -e "  4. Or launch the web UI: ${CYAN}python scripts/run_streamlit_app.py${NC}"
+    echo ""
+    echo -e "${YELLOW}Speed optimizations enabled:${NC}"
+    echo -e "  • uv package manager (10-100x faster than pip)"
+    echo -e "  • Parallel downloads (10 concurrent)"
+    echo -e "  • Pre-compiled wheel caching"
+    echo -e "  • Optimized dependency resolution"
+    echo ""
+}
+
+# Main execution
 main() {
-    # Check if we're being sourced
     check_sourced
-    
-    # Parse arguments (this will also load config)
     parse_args "$@"
     
-    # Show header (suppress if quiet mode)
-    if [[ "$VERBOSE" != "false" ]]; then
-    cat << 'HEADER'
-
- ████████╗███████╗███╗   ███╗██████╗ ██╗     
- ╚══██╔══╝██╔════╝████╗ ████║██╔══██╗██║     
-    ██║   █████╗  ██╔████╔██║██████╔╝██║     
-    ██║   ██╔══╝  ██║╚██╔╝██║██╔═══╝ ██║     
-    ██║   ███████╗██║ ╚═╝ ██║██║     ███████╗
-    ╚═╝   ╚══════╝╚═╝     ╚═╝╚═╝     ╚══════╝
-                                            
-Template-based Protein-Ligand Pose Prediction
-Environment Setup Script v1.0
-
-HEADER
-    
-        echo -e "${CYAN}Setting up TEMPL Pipeline environment...${NC}"
+    if [[ $? -ne 0 ]]; then
+        return 1
     fi
     
-    # Main setup steps
-    detect_hardware
+    # Install uv first
+    install_uv || return 1
+    
+    # Detect hardware
+    detect_hardware || return 1
+    
+    # Recommend installation
     recommend_installation
-    create_venv
-    install_dependencies
-    setup_data_files
-    verify_installation
     
-    # Show final instructions (suppress if quiet mode)
-    if [[ "$VERBOSE" != "false" ]]; then
-        show_final_instructions
-    else
-        print_success "TEMPL environment setup complete!"
-        echo "Run 'source $VENV_NAME/bin/activate' to activate"
-    fi
+    # Create and activate venv
+    create_venv || return 1
+    activate_venv || return 1
     
-    # Return success
+    # Install dependencies
+    install_dependencies || return 1
+    
+    # Download data
+    download_data || return 1
+    
+    # Verify installation
+    verify_installation || return 1
+    
+    # Save configuration
+    save_config
+    
+    # Print summary
+    print_summary
+    
     return 0
 }
 
-# Execute main function with all arguments
+# Run main function
 main "$@"

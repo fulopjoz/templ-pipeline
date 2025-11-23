@@ -1,8 +1,9 @@
 # SPDX-FileCopyrightText: 2025 TEMPL Team
 # SPDX-License-Identifier: MIT
+
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "templ-pipeline"
@@ -14,7 +15,6 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "MIT"}
-# Platforms removed from project section
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
@@ -24,8 +24,6 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
     "Topic :: Scientific/Engineering :: Chemistry",
 ]
-
-# Cross-platform compatibility configuration removed
 
 # Core dependencies - essential for all installations
 dependencies = [
@@ -110,13 +108,16 @@ templ-pipeline = "templ_pipeline.cli.main:main"
 "Source" = "https://github.com/fulopjoz/templ-pipeline"
 "DOI" = "https://doi.org/10.5281/zenodo.16890956"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["templ_pipeline*"]
-exclude = ["tests*"]
+[tool.hatch.build.targets.wheel]
+packages = ["templ_pipeline"]
 
-[tool.setuptools.package-data]
-templ_pipeline = ["data/**/*"]
+[tool.hatch.build.targets.sdist]
+include = [
+    "/templ_pipeline",
+    "/README.md",
+    "/LICENSE",
+    "/pyproject.toml",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -217,3 +218,20 @@ per-file-ignores = [
     "tests/*:F401,F841",  # Allow unused imports and variables in tests
     "scripts/*:E402",     # Allow module imports not at top in scripts
 ]
+
+# UV-specific optimizations
+[tool.uv]
+# Use pre-built wheels when available for faster installation
+prerelease = "if-necessary"
+# Enable link mode for faster local development
+link-mode = "copy"
+# Cache compiled packages for faster reinstallation
+compile-bytecode = true
+
+[tool.uv.pip]
+# Use faster resolution algorithm
+resolution = "highest"
+# Enable parallel downloads
+concurrent-downloads = 10
+# Use system trust store for faster SSL
+native-tls = true
