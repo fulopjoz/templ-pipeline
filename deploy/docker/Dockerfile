@@ -22,11 +22,13 @@ COPY requirements.txt pyproject.toml ./
 
 # Create optimized conda environment for scientific computing
 RUN conda create -n templ python=3.12 -y && \
-    conda install -n templ -c conda-forge \
-    rdkit=2024.09.6 pandas numpy scipy scikit-learn biopython streamlit -y && \
+    conda install -n templ -c conda-forge rdkit=2024.09.6 -y && \
     /opt/conda/envs/templ/bin/pip install --no-cache-dir \
+    streamlit>=1.45.0 \
+    pandas>=1.3.0 numpy>=1.20.0 scipy scikit-learn>=1.0.0 biopython>=1.79 \
+    biotite>=0.34.0 spyrmsd>=0.8.0 tabulate>=0.8.0 zenodo-get>=1.6.0 \
+    rich>=12.0.0 tqdm>=4.62.0 colorama>=0.4.4 pebble>=4.6.0 psutil>=5.8.0 \
     --extra-index-url https://download.pytorch.org/whl/cu124 \
-    biotite spyrmsd tabulate zenodo-get rich tqdm colorama pebble psutil \
     torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 \
     transformers huggingface-hub && \
     conda clean -afy
