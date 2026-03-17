@@ -41,9 +41,7 @@ spec:
 
       containers:
         - name: templ-pipeline
-          # Using the proven production image. New builds require dependency
-          # resolution for Python 3.12 + Streamlit + PyTorch compatibility.
-          image: cerit.io/xfulop/templ-pipeline@sha256:a3c3a7f3aaf5a3beb3d319eda36df72172640fc7bddaa62f710454e94c2e323d
+          image: cerit.io/xfulop/templ-pipeline:v1.0.2
           imagePullPolicy: IfNotPresent
 
           command: ["/bin/bash", "-c"]
@@ -52,7 +50,7 @@ spec:
               set -e
               echo "Starting TEMPL Pipeline (lean/CPU-only mode)..."
 
-              export PATH="/app/.templ/bin:$PATH"
+              export PATH="/opt/conda/envs/templ/bin:$PATH"
               export STREAMLIT_GLOBAL_LOG_LEVEL=info
               export TEMPL_WORKERS=2
 
@@ -60,7 +58,7 @@ spec:
 
               echo "Starting Streamlit application..."
               echo "Available at: http://0.0.0.0:8501"
-              exec /app/.templ/bin/streamlit run /app/templ_pipeline/ui/app.py \
+              exec /opt/conda/envs/templ/bin/streamlit run /app/templ_pipeline/ui/app.py \
                 --server.headless=true \
                 --server.port=8501 \
                 --server.address=0.0.0.0 \
