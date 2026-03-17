@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
+apiVersion: v1
+kind: Service
+metadata:
+  name: templ-pipeline-svc
+  namespace: fulop-ns
+  labels:
+    app: templ-pipeline
+    component: service
+spec:
+  type: ClusterIP
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8501
+      protocol: TCP
+  selector:
+    app: templ-pipeline
+    component: application
+  publishNotReadyAddresses: false

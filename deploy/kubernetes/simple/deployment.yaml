@@ -1,0 +1,202 @@
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
+#
+# Simplified lean deployment: CPU-only, minimal resources, always-on.
+# Per CERIT-SC recommendation: requests set to minimum (1 CPU), limits higher,
+# no GPU. Simplest viable configuration for an academic demo app.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: templ-pipeline
+  namespace: fulop-ns
+  labels:
+    app: templ-pipeline
+    version: lean
+    component: application
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: templ-pipeline
+  template:
+    metadata:
+      labels:
+        app: templ-pipeline
+        version: lean
+        component: application
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: templ-pipeline
+          # TODO: Update to v1.0.1-lean tag once pushed to cerit.io registry
+          image: cerit.io/xfulop/templ-pipeline@sha256:a3c3a7f3aaf5a3beb3d319eda36df72172640fc7bddaa62f710454e94c2e323d
+          imagePullPolicy: IfNotPresent
+
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -e
+              echo "Starting TEMPL Pipeline (lean/CPU-only mode)..."
+
+              export PATH="/app/.templ/bin:$PATH"
+              export STREAMLIT_GLOBAL_LOG_LEVEL=info
+              export TEMPL_WORKERS=2
+
+              mkdir -p /app/temp
+
+              echo "Starting Streamlit application..."
+              echo "Available at: http://0.0.0.0:8501"
+              exec /app/.templ/bin/streamlit run /app/templ_pipeline/ui/app.py \
+                --server.headless=true \
+                --server.port=8501 \
+                --server.address=0.0.0.0 \
+                --server.fileWatcherType=none \
+                --server.runOnSave=false
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+
+          env:
+            - name: KUBERNETES_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: KUBERNETES_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: KUBERNETES_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: TEMPL_PASSWORD_HASH
+              valueFrom:
+                secretKeyRef:
+                  name: templ-pipeline-secrets
+                  key: TEMPL_PASSWORD_HASH
+            - name: STREAMLIT_SERVER_COOKIE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: templ-pipeline-secrets
+                  key: STREAMLIT_SERVER_COOKIE_SECRET
+            - name: TEMPL_ENV
+              value: "production"
+            - name: TEMPL_N_WORKERS
+              value: "2"
+            - name: TEMPL_N_CONFS
+              value: "150"
+            - name: TEMPL_SIM_THRESHOLD
+              value: "0.5"
+            - name: TEMPL_USE_CACHE
+              value: "true"
+            - name: TEMPL_ENABLE_BATCHING
+              value: "true"
+            - name: TEMPL_MAX_BATCH_SIZE
+              value: "8"
+            - name: OMP_NUM_THREADS
+              value: "2"
+            - name: TORCH_HOME
+              value: "/app/data/.torch"
+            - name: TEMPL_SKIP_DATA_DOWNLOAD
+              value: "false"
+            - name: TEMPL_ENABLE_EMBEDDINGS
+              value: "true"
+            - name: TEMPL_ENABLE_FULL_FEATURES
+              value: "true"
+            - name: CUDA_VISIBLE_DEVICES
+              value: ""
+            - name: LD_LIBRARY_PATH
+              value: "/usr/lib/x86_64-linux-gnu"
+
+          envFrom:
+            - configMapRef:
+                name: templ-pipeline-config
+
+          ports:
+            - containerPort: 8501
+              name: http
+              protocol: TCP
+
+          volumeMounts:
+            - mountPath: /app/temp
+              name: temp-volume
+            - mountPath: /app/data
+              name: data-volume
+
+          # Resources per CERIT-SC recommendation:
+          # requests = minimum for long-term running (1 CPU)
+          # limits = higher for burst during predictions (2 CPU)
+          resources:
+            requests:
+              memory: "4Gi"
+              cpu: "1"
+              ephemeral-storage: "5Gi"
+            limits:
+              memory: "6Gi"
+              cpu: "2"
+              ephemeral-storage: "10Gi"
+
+          startupProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+            successThreshold: 1
+
+          readinessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+
+          livenessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+            successThreshold: 1
+
+      volumes:
+        - name: temp-volume
+          emptyDir:
+            sizeLimit: 8Gi
+        - name: data-volume
+          persistentVolumeClaim:
+            claimName: templ-data-pvc
+
+      nodeSelector:
+        kubernetes.io/os: linux
+
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "2"
+          - name: edns0
