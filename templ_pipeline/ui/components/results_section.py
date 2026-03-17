@@ -635,12 +635,12 @@ class ResultsSection:
                         if not mcs_found:
                             st.info("No significant MCS found")
 
-                # Compact additional information
+                # Compact additional information (no nested expander — Streamlit forbids it)
                 if template_info and isinstance(template_info, dict):
                     mcs_smarts = template_info.get("mcs_smarts")
                     if mcs_smarts and len(mcs_smarts.strip()) > 0:
-                        with st.expander("MCS Details", expanded=False):
-                            st.code(f"SMARTS: {mcs_smarts}")
+                        st.caption("MCS SMARTS")
+                        st.code(mcs_smarts, language=None)
 
             else:
                 st.info("Template comparison not available")
