@@ -1,0 +1,241 @@
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
+#
+# Configuration for the gatekeeper proxy: nginx config + loading page HTML.
+# The gatekeeper reverse-proxies to the main app when it's running,
+# and serves a "starting up" page when it's not.
+# The waker sidecar watches the access log to detect user visits and scales up.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: templ-gatekeeper-config
+  namespace: fulop-ns
+  labels:
+    app: templ-gatekeeper
+    component: configuration
+data:
+  nginx.conf: |
+    worker_processes 1;
+    error_log /tmp/nginx-error.log warn;
+    pid /tmp/nginx.pid;
+
+    events {
+        worker_connections 64;
+    }
+
+    http {
+        # Run as non-root: use /tmp for temp files
+        client_body_temp_path /tmp/client_temp;
+        proxy_temp_path /tmp/proxy_temp;
+        fastcgi_temp_path /tmp/fastcgi_temp;
+        uwsgi_temp_path /tmp/uwsgi_temp;
+        scgi_temp_path /tmp/scgi_temp;
+
+        # Access log on shared volume so the waker sidecar can detect user visits
+        access_log /shared/nginx-access.log;
+
+        upstream templ_app {
+            server templ-pipeline-app-svc:80;
+            keepalive 8;
+        }
+
+        server {
+            listen 8080;
+
+            # Gatekeeper health check (no access log, waker ignores these)
+            location /healthz {
+                access_log off;
+                return 200 '{"status":"ok","component":"gatekeeper"}';
+                add_header Content-Type application/json;
+            }
+
+            # Wake-up API — returns static 200 (waker detects via access log)
+            location /api/wake {
+                return 200 '{"status":"waking"}';
+                add_header Content-Type application/json;
+                add_header Access-Control-Allow-Origin *;
+                add_header Cache-Control "no-cache";
+            }
+
+            # Status check — lightweight probe to see if app is up
+            location /api/status {
+                proxy_pass http://templ_app/_stcore/health;
+                proxy_connect_timeout 2s;
+                proxy_read_timeout 3s;
+                access_log off;
+            }
+
+            # Main reverse proxy to Streamlit app
+            location / {
+                proxy_pass http://templ_app;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection "upgrade";
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_read_timeout 3600s;
+                proxy_send_timeout 3600s;
+                proxy_connect_timeout 5s;
+
+                # When the app is not running, serve the loading page
+                error_page 502 503 504 = @loading;
+            }
+
+            location @loading {
+                root /usr/share/nginx/html;
+                try_files /loading.html =503;
+                add_header Cache-Control "no-cache, no-store, must-revalidate";
+            }
+        }
+    }
+
+  loading.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>TEMPL Pipeline — Starting Up</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+                color: #e2e8f0;
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .container {
+                text-align: center;
+                max-width: 520px;
+                padding: 2rem;
+            }
+            .logo {
+                font-size: 2.5rem;
+                font-weight: 700;
+                margin-bottom: 0.5rem;
+                background: linear-gradient(90deg, #38bdf8, #818cf8);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+            }
+            .subtitle {
+                color: #94a3b8;
+                font-size: 0.95rem;
+                margin-bottom: 2.5rem;
+            }
+            .spinner {
+                width: 48px; height: 48px;
+                border: 4px solid #334155;
+                border-top-color: #38bdf8;
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+                margin: 0 auto 1.5rem;
+            }
+            @keyframes spin { to { transform: rotate(360deg); } }
+            .message {
+                font-size: 1.15rem;
+                font-weight: 500;
+                margin-bottom: 0.75rem;
+            }
+            .detail {
+                color: #94a3b8;
+                font-size: 0.85rem;
+                margin-bottom: 2rem;
+            }
+            .progress-bar {
+                width: 100%;
+                height: 4px;
+                background: #334155;
+                border-radius: 2px;
+                overflow: hidden;
+                margin-bottom: 1.5rem;
+            }
+            .progress-fill {
+                height: 100%;
+                background: linear-gradient(90deg, #38bdf8, #818cf8);
+                border-radius: 2px;
+                animation: progress 90s ease-out forwards;
+                width: 0%;
+            }
+            @keyframes progress { to { width: 95%; } }
+            .status {
+                font-size: 0.8rem;
+                color: #64748b;
+                font-family: monospace;
+            }
+            .citation {
+                margin-top: 2.5rem;
+                padding-top: 1.5rem;
+                border-top: 1px solid #1e293b;
+                font-size: 0.75rem;
+                color: #475569;
+            }
+            .citation a { color: #64748b; text-decoration: none; }
+            .citation a:hover { color: #94a3b8; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="logo">TEMPL Pipeline</div>
+            <div class="subtitle">Template-based Protein-Ligand Pose Prediction</div>
+
+            <div class="spinner"></div>
+            <div class="message">Starting up the application...</div>
+            <div class="detail">This usually takes 60-90 seconds. The page will redirect automatically.</div>
+
+            <div class="progress-bar"><div class="progress-fill"></div></div>
+            <div class="status" id="status">Requesting startup...</div>
+
+            <div class="citation">
+                <a href="https://doi.org/10.1021/acs.jcim.5c01985" target="_blank">
+                    F&uuml;l&ouml;p, J., &Scaron;&iacute;cho, M., &amp; Dehaen, W. (2025).
+                    <em>J. Chem. Inf. Model.</em>
+                </a>
+            </div>
+        </div>
+
+        <script>
+            const statusEl = document.getElementById('status');
+            let attempts = 0;
+            const startTime = Date.now();
+
+            // Signal the gatekeeper that a user is here (waker sidecar reads the access log)
+            fetch('/api/wake')
+                .then(() => { statusEl.textContent = 'Wake signal sent, starting pod...'; })
+                .catch(() => { statusEl.textContent = 'Wake signal sent, starting pod...'; });
+
+            // Poll until the app is ready, then redirect
+            function checkReady() {
+                attempts++;
+                const elapsed = Math.round((Date.now() - startTime) / 1000);
+                fetch('/api/status', { signal: AbortSignal.timeout(3000) })
+                    .then(r => {
+                        if (r.ok) {
+                            statusEl.textContent = 'Application is ready! Redirecting...';
+                            setTimeout(() => { window.location.replace('/'); }, 1000);
+                        } else {
+                            throw new Error('not ready');
+                        }
+                    })
+                    .catch(() => {
+                        if (elapsed < 30) {
+                            statusEl.textContent = 'Starting container... (' + elapsed + 's)';
+                        } else if (elapsed < 90) {
+                            statusEl.textContent = 'Loading application... (' + elapsed + 's)';
+                        } else {
+                            statusEl.textContent = 'Still starting... (' + elapsed + 's)';
+                        }
+                        setTimeout(checkReady, 5000);
+                    });
+            }
+
+            // Start polling after 10 seconds (give the pod time to schedule)
+            setTimeout(checkReady, 10000);
+        </script>
+    </body>
+    </html>

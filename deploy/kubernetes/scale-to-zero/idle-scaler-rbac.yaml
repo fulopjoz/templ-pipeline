@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
+#
+# RBAC for the scale-to-zero system (gatekeeper waker + idle scaler CronJob)
+# Grants minimal permissions: scale templ-pipeline deployment + list/exec pods
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: templ-scaler
+  namespace: fulop-ns
+  labels:
+    app: templ-pipeline
+    component: scaler
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: templ-scaler-role
+  namespace: fulop-ns
+  labels:
+    app: templ-pipeline
+    component: scaler
+rules:
+  # Read and scale the deployment
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["templ-pipeline"]
+    verbs: ["get", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    resourceNames: ["templ-pipeline"]
+    verbs: ["get", "update", "patch"]
+  # List pods to find running app pod for connection checking
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+  # Exec into pod to check active connections (for idle detection)
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: templ-scaler-binding
+  namespace: fulop-ns
+  labels:
+    app: templ-pipeline
+    component: scaler
+subjects:
+  - kind: ServiceAccount
+    name: templ-scaler
+    namespace: fulop-ns
+roleRef:
+  kind: Role
+  name: templ-scaler-role
+  apiGroup: rbac.authorization.k8s.io

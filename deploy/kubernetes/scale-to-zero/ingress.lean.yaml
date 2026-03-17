@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
+#
+# Ingress pointing to the gatekeeper (which proxies to the main app).
+# Same domain and TLS config as the original ingress-secure.yaml.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: templ-pipeline-ingress-lean
+  namespace: fulop-ns
+  annotations:
+    # TLS and Certificate Management
+    kubernetes.io/tls-acme: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+    # Nginx Configuration for Scientific Computing
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "200m"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+
+    # WebSocket Support for Streamlit
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/use-forwarded-headers: "true"
+
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - "templ.dyn.cloud.e-infra.cz"
+      secretName: templ-dyn-cloud-e-infra-cz-tls
+  rules:
+    - host: "templ.dyn.cloud.e-infra.cz"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: templ-gatekeeper-svc  # Routes to gatekeeper, not directly to app
+                port:
+                  number: 80
