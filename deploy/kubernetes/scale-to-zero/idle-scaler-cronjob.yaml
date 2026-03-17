@@ -1,0 +1,135 @@
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
+#
+# CronJob that checks every 5 minutes if the main TEMPL app is idle.
+# If no active WebSocket connections for 30 minutes, scales deployment to 0.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: templ-idle-scaler
+  namespace: fulop-ns
+  labels:
+    app: templ-pipeline
+    component: idle-scaler
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 120
+      backoffLimit: 1
+      template:
+        spec:
+          serviceAccountName: templ-scaler
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: idle-scaler
+              image: bitnami/kubectl:latest
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -e
+                  IDLE_TIMEOUT=1800  # 30 minutes in seconds
+                  NAMESPACE="fulop-ns"
+                  DEPLOYMENT="templ-pipeline"
+
+                  echo "=== TEMPL Idle Scaler Check ==="
+                  echo "Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+                  # Step 1: Check current replicas
+                  REPLICAS=$(kubectl get deployment $DEPLOYMENT -n $NAMESPACE -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+                  echo "Current replicas: $REPLICAS"
+
+                  if [ "$REPLICAS" = "0" ]; then
+                    echo "Already scaled to 0. Nothing to do."
+                    exit 0
+                  fi
+
+                  # Step 2: Find running pod
+                  POD=$(kubectl get pods -l app=templ-pipeline,component=application \
+                    -n $NAMESPACE \
+                    --field-selector=status.phase=Running \
+                    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+
+                  if [ -z "$POD" ]; then
+                    echo "No running pod found despite replicas=$REPLICAS. Scaling to 0."
+                    kubectl scale deployment/$DEPLOYMENT --replicas=0 -n $NAMESPACE
+                    exit 0
+                  fi
+
+                  echo "Found running pod: $POD"
+
+                  # Step 3: Count active TCP connections on port 8501
+                  # Streamlit uses WebSockets which maintain persistent TCP connections
+                  # Health probes create short-lived connections (usually 0-1 at any time)
+                  CONNS=$(kubectl exec $POD -n $NAMESPACE -- \
+                    sh -c 'ss -tn state established 2>/dev/null | grep ":8501" | wc -l' \
+                    2>/dev/null || echo "0")
+
+                  echo "Active connections on port 8501: $CONNS"
+
+                  # Threshold: >2 means real user sessions (probes + internal = ~1-2)
+                  if [ "$CONNS" -gt "2" ]; then
+                    echo "Active users detected. Updating last-active timestamp."
+                    kubectl annotate deployment/$DEPLOYMENT -n $NAMESPACE \
+                      "templ/last-active=$(date +%s)" --overwrite
+                    exit 0
+                  fi
+
+                  # Step 4: Check idle duration
+                  LAST_ACTIVE=$(kubectl get deployment $DEPLOYMENT -n $NAMESPACE \
+                    -o jsonpath='{.metadata.annotations.templ/last-active}' 2>/dev/null || echo "")
+                  NOW=$(date +%s)
+
+                  if [ -z "$LAST_ACTIVE" ]; then
+                    echo "No last-active annotation found. Setting initial timestamp."
+                    kubectl annotate deployment/$DEPLOYMENT -n $NAMESPACE \
+                      "templ/last-active=$NOW" --overwrite
+                    exit 0
+                  fi
+
+                  # Validate that LAST_ACTIVE is a valid integer (guard against corrupted annotations)
+                  case "$LAST_ACTIVE" in
+                    *[!0-9]*)
+                      echo "WARNING: Invalid last-active annotation value: '$LAST_ACTIVE'. Resetting."
+                      kubectl annotate deployment/$DEPLOYMENT -n $NAMESPACE \
+                        "templ/last-active=$NOW" --overwrite
+                      exit 0
+                      ;;
+                  esac
+
+                  IDLE_SECONDS=$((NOW - LAST_ACTIVE))
+                  echo "Idle for ${IDLE_SECONDS}s (timeout: ${IDLE_TIMEOUT}s)"
+
+                  if [ "$IDLE_SECONDS" -gt "$IDLE_TIMEOUT" ]; then
+                    echo ">>> Idle timeout exceeded. Scaling to 0 replicas."
+                    kubectl scale deployment/$DEPLOYMENT --replicas=0 -n $NAMESPACE
+                    echo "Scaled to 0 successfully."
+                  else
+                    REMAINING=$((IDLE_TIMEOUT - IDLE_SECONDS))
+                    echo "Within idle timeout. ${REMAINING}s until scale-down."
+                  fi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "64Mi"
+                limits:
+                  cpu: "200m"
+                  memory: "256Mi"
+          restartPolicy: OnFailure
+          nodeSelector:
+            kubernetes.io/os: linux

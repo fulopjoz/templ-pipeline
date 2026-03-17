@@ -1,0 +1,179 @@
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
+#
+# Always-on gatekeeper pod (~100m CPU, ~128Mi RAM total).
+# Contains:
+#   1. nginx: reverse proxy to main app, serves loading page when app is down
+#   2. waker sidecar: watches nginx access log, scales deployment to 1 on user visit
+#
+# The waker does NOT run an HTTP server. Instead, it reads the nginx access log
+# (written to a shared volume) to detect when users are visiting while the app
+# is scaled to 0. This avoids needing netcat/socat in the kubectl image.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: templ-gatekeeper
+  namespace: fulop-ns
+  labels:
+    app: templ-gatekeeper
+    component: proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: templ-gatekeeper
+  template:
+    metadata:
+      labels:
+        app: templ-gatekeeper
+        component: proxy
+    spec:
+      serviceAccountName: templ-scaler
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        # --- nginx reverse proxy ---
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+            - name: loading-page
+              mountPath: /usr/share/nginx/html/loading.html
+              subPath: loading.html
+              readOnly: true
+            - name: nginx-tmp
+              mountPath: /tmp
+            - name: shared-logs
+              mountPath: /shared
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+
+        # --- waker sidecar: watches access log, scales deployment on user visit ---
+        - name: waker
+          image: bitnami/kubectl:latest
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              echo "Waker sidecar starting (log-watcher mode)..."
+              NAMESPACE="fulop-ns"
+              DEPLOYMENT="templ-pipeline"
+              LOG_FILE="/shared/nginx-access.log"
+              CHECK_INTERVAL=3
+
+              while true; do
+                sleep $CHECK_INTERVAL
+
+                # Only act when the main app is scaled to 0
+                REPLICAS=$(kubectl get deployment $DEPLOYMENT -n $NAMESPACE \
+                  -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "unknown")
+
+                if [ "$REPLICAS" != "0" ]; then
+                  continue
+                fi
+
+                # Check if nginx has received user traffic in the last 30 seconds
+                # The access log is written by nginx; /healthz and /api/status have access_log off
+                # So any entries here = real user visits or /api/wake calls
+                if [ -f "$LOG_FILE" ]; then
+                  # Count log lines modified in last 30 seconds
+                  RECENT_LINES=$(find "$LOG_FILE" -newermt '30 seconds ago' -print 2>/dev/null | wc -l)
+                  if [ "$RECENT_LINES" -gt "0" ]; then
+                    # File was modified recently - check for actual request lines
+                    LINE_COUNT=$(tail -50 "$LOG_FILE" 2>/dev/null | wc -l)
+                    if [ "$LINE_COUNT" -gt "0" ]; then
+                      echo "$(date -u +%Y-%m-%dT%H:%M:%SZ): User traffic detected while app is at 0 replicas. Scaling up..."
+                      kubectl scale deployment/$DEPLOYMENT --replicas=1 -n $NAMESPACE 2>/dev/null || true
+                      # Truncate log to avoid re-triggering
+                      : > "$LOG_FILE" 2>/dev/null || true
+                      # Wait for the pod to start before checking again
+                      echo "Waiting 60s for pod to start..."
+                      sleep 60
+                    fi
+                  fi
+                fi
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          volumeMounts:
+            - name: shared-logs
+              mountPath: /shared
+            - name: waker-tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: templ-gatekeeper-config
+            items:
+              - key: nginx.conf
+                path: nginx.conf
+        - name: loading-page
+          configMap:
+            name: templ-gatekeeper-config
+            items:
+              - key: loading.html
+                path: loading.html
+        - name: nginx-tmp
+          emptyDir:
+            sizeLimit: 10Mi
+        - name: shared-logs
+          emptyDir:
+            sizeLimit: 5Mi
+        - name: waker-tmp
+          emptyDir:
+            sizeLimit: 5Mi
+
+      nodeSelector:
+        kubernetes.io/os: linux
+
+      dnsPolicy: ClusterFirst

@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
+#
+# Service for the main TEMPL app. The gatekeeper proxies to this service.
+# Named differently from the original to allow side-by-side existence during migration.
+apiVersion: v1
+kind: Service
+metadata:
+  name: templ-pipeline-app-svc
+  namespace: fulop-ns
+  labels:
+    app: templ-pipeline
+    component: service
+    version: lean
+spec:
+  type: ClusterIP
+
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800  # 3 hours
+
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8501
+      protocol: TCP
+
+  selector:
+    app: templ-pipeline
+    component: application
+
+  publishNotReadyAddresses: false

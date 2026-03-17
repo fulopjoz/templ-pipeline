@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2025 TEMPL Team
+# SPDX-License-Identifier: MIT
+#
+# Service for the gatekeeper proxy. The ingress points here.
+apiVersion: v1
+kind: Service
+metadata:
+  name: templ-gatekeeper-svc
+  namespace: fulop-ns
+  labels:
+    app: templ-gatekeeper
+    component: service
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+  selector:
+    app: templ-gatekeeper
