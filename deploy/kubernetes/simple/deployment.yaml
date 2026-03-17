@@ -41,7 +41,8 @@ spec:
 
       containers:
         - name: templ-pipeline
-          # TODO: Update to v1.0.1-lean tag once pushed to cerit.io registry
+          # Using the proven production image. New builds require dependency
+          # resolution for Python 3.12 + Streamlit + PyTorch compatibility.
           image: cerit.io/xfulop/templ-pipeline@sha256:a3c3a7f3aaf5a3beb3d319eda36df72172640fc7bddaa62f710454e94c2e323d
           imagePullPolicy: IfNotPresent
 
@@ -122,6 +123,9 @@ spec:
               value: "true"
             - name: CUDA_VISIBLE_DEVICES
               value: ""
+            # Workaround: protobuf version conflict between Streamlit and PyTorch
+            - name: PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION
+              value: "python"
             - name: LD_LIBRARY_PATH
               value: "/usr/lib/x86_64-linux-gnu"
 
